@@ -58,7 +58,11 @@ body:not(.emulation) #stateButtons > *
 }
 body:not(.emulation) #toggleStateButtons {
     display: initial;
-    vertical-align: top;
+}
+#toggleStateButtons {
+    position: fixed;
+    right: 0;
+    top: 0;
 }
 .field {
     display: flex;
