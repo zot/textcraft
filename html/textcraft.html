@@ -29,13 +29,20 @@
     <body>
         <div id='stateButtons'>
             <button id='toggleStateButtons' title='Note, username must be filled in and nat state must be public or private for the gui to proceed'>Emulation</button>
-            <span>
+            <div>
+                <span>GUI SECTIONS:</span>
+                <input type="radio" id="connectionSection" name="sectionSelection"> <label for="connectionSection">Connection</label>
+                <input type="radio" id="mudSection" name="sectionSelection"> <label for="mudSection">MUD</label>
+                <input type="radio" id="profileSection" name="sectionSelection"> <label for="profileSection">Profile</label>
+                <input type="radio" id="storageSection" name="sectionSelection"> <label for="storageSection">Storage</label>
+            </div>
+            <div>
                 <span>EMULATE GATEWAY:</span>
                 <input type="radio" id="notstartedNat" name="natSelection"> <label for="notstartedNat">Not Started</label>
                 <input type="radio" id="unknownNat" name="natSelection"> <label for="unknownNat">Unknown Nat</label>
                 <input type="radio" id="publicNat" name="natSelection"> <label for="publicNat">Public Nat</label>
                 <input type="radio" id="privateNat" name="natSelection"> <label for="privateNat">Private Nat</label>
-            </span>
+            </div>
             <div id='peerStates'>
                 <span>EMULATE PEER:</span>
                 <input type='radio' id='disconnectedPeer' name='peerState'> <label for='disconnectedPeer'>disconnected</label>

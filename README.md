@@ -10,7 +10,7 @@ It relies on [libp2p](https://github.com/libp2p/go-libp2p) for peer-to-peer netw
 
 # MIT LICENSE
 
-The license is [here](LICENSE)
+The MIT license is [here](LICENSE)
 
 # More later...
 
