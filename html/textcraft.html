@@ -1,0 +1,124 @@
+<html>
+    <!--
+         Copyright (c) 2020, William R. Burdick Jr., Roy Riggs, and TEAM CTHLUHU
+
+         The MIT License (MIT)
+
+         Permission is hereby granted, free of charge, to any person obtaining a copy
+         of this software and associated documentation files (the "Software"), to deal
+         in the Software without restriction, including without limitation the rights
+         to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+         copies of the Software, and to permit persons to whom the Software is
+         furnished to do so, subject to the following conditions:
+
+         The above copyright notice and this permission notice shall be included in
+         all copies or substantial portions of the Software.
+
+         THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+         IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+         FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+         AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+         LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+         OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+         THE SOFTWARE.
+    -->
+    <head>
+        <link rel = "stylesheet" type = "text/css" href = "css/textcraft.css" />
+        <script src='js/textcraft.js' type='module'></script>
+    </head>
+    <body>
+        <div id='stateButtons'>
+            <button id='toggleStateButtons'>Emulation</button>
+            <span>EMULATE GATEWAY:</span>
+            <div>
+                <input type="radio" id="notstartedNat" name="natSelection"> <label for="notstartedNat">Not Started</label>
+                <input type="radio" id="unknownNat" name="natSelection"> <label for="unknownNat">Unknown Nat</label>
+                <input type="radio" id="publicNat" name="natSelection"> <label for="publicNat">Public Nat</label>
+                <input type="radio" id="privateNat" name="natSelection"> <label for="privateNat">Private Nat</label>
+            </div>
+            <div id='peerStates'>
+                EMULATE PEER:
+                <input type='radio' id='disconnectedPeer' name='peerState'> <label for='disconnectedPeer'>disconnected</label>
+                <input type='radio' id='abortingRelayHostingPeer' name='peerState'> <label for='abortingRelayHostingPeer'>abortingRelayHosting</label>
+                <input type='radio' id='abortingRelayConnectionPeer' name='peerState'> <label for='abortingRelayConnectionPeer'>abortingRelayConnection</label>
+                <input type='radio' id='stoppingHostingPeer' name='peerState'> <label for='stoppingHostingPeer'>stoppingHosting</label>
+                <input type='radio' id='disconnectingFromHostPeer' name='peerState'> <label for='disconnectingFromHostPeer'>disconnectingFromHost</label>
+                <input type='radio' id='disconnectingFromRelayForHostingPeer' name='peerState'> <label for='disconnectingFromRelayForHostingPeer'>disconnectingFromRelayForHosting</label>
+                <input type='radio' id='disconnectingFromRelayForConnectionPeer' name='peerState'> <label for='disconnectingFromRelayForConnectionPeer'>disconnectingFromRelayForConnection</label>
+                <input type='radio' id='connectingToHostPeer' name='peerState'> <label for='connectingToHostPeer'>connectingToHost</label>
+                <input type='radio' id='connectingToRelayForHostingPeer' name='peerState'> <label for='connectingToRelayForHostingPeer'>connectingToRelayForHosting</label>
+                <input type='radio' id='connectingToRelayForConnectionPeer' name='peerState'> <label for='connectingToRelayForConnectionPeer'>connectingToRelayForConnection</label>
+                <input type='radio' id='connectingToRelayForCallbackPeer' name='peerState'> <label for='connectingToRelayForCallbackPeer'>connectingToRelayForCallback</label>
+                <input type='radio' id='awaitingTokenConnectionPeer' name='peerState'> <label for='awaitingTokenConnectionPeer'>awaitingTokenConnection</label>
+                <input type='radio' id='awaitingTokenPeer' name='peerState'> <label for='awaitingTokenPeer'>awaitingToken</label>
+                <input type='radio' id='connectedToHostPeer' name='peerState'> <label for='connectedToHostPeer'>connectedToHost</label>
+                <input type='radio' id='hostingDirectlyPeer' name='peerState'> <label for='hostingDirectlyPeer'>hostingDirectly</label>
+                <input type='radio' id='connectedToRelayForHostingPeer' name='peerState'> <label for='connectedToRelayForHostingPeer'>connectedToRelayForHosting</label>
+                <input type='radio' id='connectedToRelayForConnectionPeer' name='peerState'> <label for='connectedToRelayForConnectionPeer'>connectedToRelayForConnection</label>
+            </div>
+        </div>
+		<div id='logo'><img src="images/textcraft.png"></div>
+        <div id='login' class='when-not-connected-with-user'>
+            <div id='userDiv' class='field'>Username: <input id='user' type='text'></div>
+            <div>NAT Status: <span id='natStatus'></span> </div>
+            <div>Peer ID: <span id='peerID' type='text'></span></div>
+        </div>
+        <div class='when-connected-with-user'>
+            <div id='panelSelector'>
+                <input type="radio" id="guestRole" name="panelSelector"> <label for="guestRole">Join a session</label>
+                <input type="radio" id="hostRole" name="panelSelector"> <label for="hostRole">Host a session</label>
+                <span class='when-public'>
+                    <input type="radio" id="relayRole" name="panelSelector"> <label for="relayRole">Relay for a private peer</label>
+                </span>
+            </div>
+            <div id='connectDiv' class='when-role-guest'>
+                <div class='field'>
+                    <button id='connect'>Connect</button>
+                    &nbsp;
+                    <span id='connectStatus'></span>
+                    <input id='toHostID' type='text'>
+                </div>
+            </div>
+            <div id='hostDiv' class='when-role-host'>
+                <hr>
+                <h1 class='when-host'>Give your connect string to people you want to invite</h1>
+                <div class='field'>
+                    <button id='host'>Host</button>
+                    &nbsp;
+                    <span class='when-private when-disconnected'>&nbsp;Relay connect string:&nbsp;</span>
+                    <input class='when-private when-disconnected' id='hostingRelay' type='text' placeholder='You must use a relay because your connection is private'>
+                    <span class='when-private when-not-disconnected'>Your Connect string:&nbsp;</span>
+                    <input class='when-private when-not-disconnected' id='connectString' type='text' readonly='true'>
+                </div>
+                <h1 class='when-private'>
+                    Your peer does not have public access so you must use a relay
+                    <ol>
+                        <li>Copy your peer ID and send it to someone who will relay for you</li>
+                        <li>Once they relay, they will send you the relay connect string</li>
+                        <li>Paste the relay connect string above and click Host</li>
+                    </ol>
+                </h1>
+            </div>
+            <div id='relayPanel' class='when-role-relay'>
+                <hr>
+                <h1 class='when-relay when-disconnected'>Give your relay connect string to the private peer's owner</h1>
+                <div id='relayHosting'>
+                    <div class='field'>
+                        <button id='relayForHost'>Relay</button>
+                        <span class='when-public'>&nbsp;Host Peer:&nbsp;</span>
+                        <input id='relayRequestHost' type='text' class='when-public' placeholder="'Paste the session host's peer ID here">
+                        <span class='when-locked when-disconnected'>&nbsp;Relay connect string:&nbsp;</span>
+                        <input class='when-locked when-disconnected' id='relayConnectString' type='text' readonly='true'>
+                    </div>
+                </div>
+                <h1 class='when-public'>
+                    <ol>
+                        <li>Paste the private peer's id above</li>
+                        <li>Click Relay</li>
+                        <li>Copy the relay connect string and send it to the private peer's owner</li>
+                    </ol>
+                </h1>
+            </div>
+        </div>
+    </body>
+</html>
