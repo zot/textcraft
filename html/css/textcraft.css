@@ -52,9 +52,18 @@ body:not(.guestRole) .when-role-guest,
 body:not(.relayRole) .when-role-relay,
 body:not(.disconnectedPeer) .when-disconnected,
 body.disconnectedPeer .when-not-disconnected,
-body:not(.emulation) #stateButtons > *
+body:not(.emulation) #stateButtons > *,
+body:not(.idleRelay) .when-relay-idle,
+body.idleRelay .when-not-relay-idle,
+body:not(.pendinghostingRelay) .when-relay-pending-hosting,
+body:not(.hostingRelay) .when-relay-hosting,
+body.hostingRelay .when-not-relay-hosting
 {
     display: none;
+}
+#stateButtons > * > span {
+    font-weight: bold;
+    color: yellow;
 }
 body:not(.emulation) #toggleStateButtons {
     display: initial;

@@ -15,6 +15,12 @@ enum RoleState {
     Relay,
 }
 
+enum RelayState {
+    Idle,
+    PendingHosting,
+    Hosting,
+}
+
 enum PeerState {
     disconnected,
     abortingRelayHosting,
@@ -145,6 +151,7 @@ class RadioEnum<E> {
 var natRadio = new RadioEnum<NatState>(NatState, 'Nat')
 var peerRadio = new RadioEnum<PeerState>(PeerState, 'Peer')
 var roleRadio = new RadioEnum<RoleState>(RoleState, 'Role')
+var relayRadio = new RadioEnum<RelayState>(RelayState, 'Relay')
 
 function setUser(name) {
     document.body.classList.add('hasuser')

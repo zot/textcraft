@@ -11,6 +11,12 @@ var RoleState;
     RoleState[RoleState["Host"] = 1] = "Host";
     RoleState[RoleState["Relay"] = 2] = "Relay";
 })(RoleState || (RoleState = {}));
+var RelayState;
+(function (RelayState) {
+    RelayState[RelayState["Idle"] = 0] = "Idle";
+    RelayState[RelayState["PendingHosting"] = 1] = "PendingHosting";
+    RelayState[RelayState["Hosting"] = 2] = "Hosting";
+})(RelayState || (RelayState = {}));
 var PeerState;
 (function (PeerState) {
     PeerState[PeerState["disconnected"] = 0] = "disconnected";
@@ -135,6 +141,7 @@ class RadioEnum {
 var natRadio = new RadioEnum(NatState, 'Nat');
 var peerRadio = new RadioEnum(PeerState, 'Peer');
 var roleRadio = new RadioEnum(RoleState, 'Role');
+var relayRadio = new RadioEnum(RelayState, 'Relay');
 function setUser(name) {
     document.body.classList.add('hasuser');
 }

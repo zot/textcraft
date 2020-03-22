@@ -28,16 +28,16 @@
     </head>
     <body>
         <div id='stateButtons'>
-            <button id='toggleStateButtons'>Emulation</button>
+            <button id='toggleStateButtons' title='Note, username must be filled in and nat state must be public or private for the gui to proceed'>Emulation</button>
             <span>
-                EMULATE GATEWAY:
+                <span>EMULATE GATEWAY:</span>
                 <input type="radio" id="notstartedNat" name="natSelection"> <label for="notstartedNat">Not Started</label>
                 <input type="radio" id="unknownNat" name="natSelection"> <label for="unknownNat">Unknown Nat</label>
                 <input type="radio" id="publicNat" name="natSelection"> <label for="publicNat">Public Nat</label>
                 <input type="radio" id="privateNat" name="natSelection"> <label for="privateNat">Private Nat</label>
             </span>
             <div id='peerStates'>
-                EMULATE PEER:
+                <span>EMULATE PEER:</span>
                 <input type='radio' id='disconnectedPeer' name='peerState'> <label for='disconnectedPeer'>disconnected</label>
                 <input type='radio' id='abortingRelayHostingPeer' name='peerState'> <label for='abortingRelayHostingPeer'>abortingRelayHosting</label>
                 <input type='radio' id='abortingRelayConnectionPeer' name='peerState'> <label for='abortingRelayConnectionPeer'>abortingRelayConnection</label>
@@ -55,6 +55,12 @@
                 <input type='radio' id='hostingDirectlyPeer' name='peerState'> <label for='hostingDirectlyPeer'>hostingDirectly</label>
                 <input type='radio' id='connectedToRelayForHostingPeer' name='peerState'> <label for='connectedToRelayForHostingPeer'>connectedToRelayForHosting</label>
                 <input type='radio' id='connectedToRelayForConnectionPeer' name='peerState'> <label for='connectedToRelayForConnectionPeer'>connectedToRelayForConnection</label>
+            </div>
+            <div>
+                <span>EMULATE RELAY:</span>
+                <input type="radio" id="idleRelay" name="relaySelection"> <label for="idleRelay">Disconnected</label>
+                <input type="radio" id="pendingHostingRelay" name="relaySelection"> <label for="pendingHostingRelay">Waiting for host</label>
+                <input type="radio" id="hostingRelay" name="relaySelection"> <label for="hostingRelay">Connected to host</label>
             </div>
         </div>
 		<div id='logo'><img src="images/textcraft.png"></div>
@@ -101,17 +107,17 @@
             </div>
             <div id='relayPanel' class='when-role-relay'>
                 <hr>
-                <h1 class='when-relay when-disconnected'>Give your relay connect string to the private peer's owner</h1>
+                <h1 class='when-not-relay-idle'>Give your relay connect string to the private peer's owner</h1>
                 <div id='relayHosting'>
                     <div class='field'>
                         <button id='relayForHost'>Relay</button>
-                        <span class='when-public'>&nbsp;Host Peer:&nbsp;</span>
-                        <input id='relayRequestHost' type='text' class='when-public' placeholder="'Paste the session host's peer ID here">
-                        <span class='when-locked when-disconnected'>&nbsp;Relay connect string:&nbsp;</span>
-                        <input class='when-locked when-disconnected' id='relayConnectString' type='text' readonly='true'>
+                        <span class='when-relay-idle'>&nbsp;Host Peer:&nbsp;</span>
+                        <input id='relayRequestHost' type='text' class='when-relay-idle' placeholder="'Paste the session host's peer ID here">
+                        <span class='when-not-relay-idle'>&nbsp;Relay connect string:&nbsp;</span>
+                        <input class='when-not-relay-idle' id='relayConnectString' type='text' readonly='true'>
                     </div>
                 </div>
-                <h1 class='when-public'>
+                <h1 class='when-public when-relay-idle'>
                     <ol>
                         <li>Paste the private peer's id above</li>
                         <li>Click Relay</li>
