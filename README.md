@@ -12,9 +12,9 @@ It relies on [libp2p](https://github.com/libp2p/go-libp2p) for peer-to-peer netw
 
 The license is [here](LICENSE)
 
-# More later
+# More later...
 
-For the moment, below are basic instructions on the MUD.
+For the moment, there are basic instructions for developing the MUD, below.
 
 # Installing typescript
 
