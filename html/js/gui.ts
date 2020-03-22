@@ -21,6 +21,13 @@ enum RelayState {
     Hosting,
 }
 
+enum SectionState {
+    Connection,
+    Mud,
+    Profile,
+    Storage,
+}
+
 enum PeerState {
     disconnected,
     abortingRelayHosting,
@@ -152,12 +159,13 @@ var natRadio = new RadioEnum<NatState>(NatState, 'Nat')
 var peerRadio = new RadioEnum<PeerState>(PeerState, 'Peer')
 var roleRadio = new RadioEnum<RoleState>(RoleState, 'Role')
 var relayRadio = new RadioEnum<RelayState>(RelayState, 'Relay')
+var sectionRadio = new RadioEnum<SectionState>(SectionState, 'Section')
 
 function setUser(name) {
     document.body.classList.add('hasuser')
 }
 
-function start() {
+export function start() {
     $('#user').onblur = ()=> setUser($('#user').value)
     $('#user').onkeydown = evt=> {
         if (evt.key == 'Enter') {
@@ -166,5 +174,3 @@ function start() {
     }
     $('#toggleStatebuttons').onclick = ()=> document.body.classList.toggle('emulation')
 }
-
-window.onload = start;

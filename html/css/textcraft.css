@@ -30,6 +30,12 @@ body {
 	font-family: Verdana, Geneva, sans-serif;
 	font-size: 24px;
 	color: #dddddd;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
 }
 body:not(.notstartedNat) .when-nat-notstarted,
 body.publicNat .when-nat-notknown,
@@ -57,7 +63,11 @@ body:not(.idleRelay) .when-relay-idle,
 body.idleRelay .when-not-relay-idle,
 body:not(.pendinghostingRelay) .when-relay-pending-hosting,
 body:not(.hostingRelay) .when-relay-hosting,
-body.hostingRelay .when-not-relay-hosting
+body.hostingRelay .when-not-relay-hosting,
+body:not(.connectionSection) .when-section-connection,
+body:not(.mudSection) .when-section-mud,
+body:not(.profileSection) .when-section-profile,
+body:not(.storageSection) .when-section-storage
 {
     display: none;
 }
@@ -80,4 +90,30 @@ body:not(.emulation) #toggleStateButtons {
 .field > input,
 .field > .grow {
     flex-grow: 1;
+}
+.section {
+    flex-grow: 1;
+    position: relative;
+}
+.view {
+    border: solid red 2px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+}
+#mudView {
+    display: flex;
+    flex-direction: column;
+}
+#mudOutput {
+    flex-grow: 1;
+    resize: none;
+}
+#mudCommand {
+}
+#profileView {
+}
+#storageView {
 }

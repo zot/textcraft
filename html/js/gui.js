@@ -17,6 +17,13 @@ var RelayState;
     RelayState[RelayState["PendingHosting"] = 1] = "PendingHosting";
     RelayState[RelayState["Hosting"] = 2] = "Hosting";
 })(RelayState || (RelayState = {}));
+var SectionState;
+(function (SectionState) {
+    SectionState[SectionState["Connection"] = 0] = "Connection";
+    SectionState[SectionState["Mud"] = 1] = "Mud";
+    SectionState[SectionState["Profile"] = 2] = "Profile";
+    SectionState[SectionState["Storage"] = 3] = "Storage";
+})(SectionState || (SectionState = {}));
 var PeerState;
 (function (PeerState) {
     PeerState[PeerState["disconnected"] = 0] = "disconnected";
@@ -142,10 +149,11 @@ var natRadio = new RadioEnum(NatState, 'Nat');
 var peerRadio = new RadioEnum(PeerState, 'Peer');
 var roleRadio = new RadioEnum(RoleState, 'Role');
 var relayRadio = new RadioEnum(RelayState, 'Relay');
+var sectionRadio = new RadioEnum(SectionState, 'Section');
 function setUser(name) {
     document.body.classList.add('hasuser');
 }
-function start() {
+export function start() {
     $('#user').onblur = () => setUser($('#user').value);
     $('#user').onkeydown = evt => {
         if (evt.key == 'Enter') {
@@ -154,4 +162,4 @@ function start() {
     };
     $('#toggleStatebuttons').onclick = () => document.body.classList.toggle('emulation');
 }
-window.onload = start;
+//# sourceMappingURL=gui.js.map
