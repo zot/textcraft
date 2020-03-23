@@ -36,14 +36,14 @@
                 <input type="radio" id="profileSection" name="sectionSelection"> <label for="profileSection">Profile</label>
                 <input type="radio" id="storageSection" name="sectionSelection"> <label for="storageSection">Storage</label>
             </div>
-            <div>
+            <div class='when-section-connection'>
                 <span>EMULATE GATEWAY:</span>
                 <input type="radio" id="notstartedNat" name="natSelection"> <label for="notstartedNat">Not Started</label>
                 <input type="radio" id="unknownNat" name="natSelection"> <label for="unknownNat">Unknown Nat</label>
                 <input type="radio" id="publicNat" name="natSelection"> <label for="publicNat">Public Nat</label>
                 <input type="radio" id="privateNat" name="natSelection"> <label for="privateNat">Private Nat</label>
             </div>
-            <div id='peerStates'>
+            <div id='peerStates' class='when-section-connection'>
                 <span>EMULATE PEER:</span>
                 <input type='radio' id='disconnectedPeer' name='peerState'> <label for='disconnectedPeer'>disconnected</label>
                 <input type='radio' id='abortingRelayHostingPeer' name='peerState'> <label for='abortingRelayHostingPeer'>abortingRelayHosting</label>
@@ -63,7 +63,7 @@
                 <input type='radio' id='connectedToRelayForHostingPeer' name='peerState'> <label for='connectedToRelayForHostingPeer'>connectedToRelayForHosting</label>
                 <input type='radio' id='connectedToRelayForConnectionPeer' name='peerState'> <label for='connectedToRelayForConnectionPeer'>connectedToRelayForConnection</label>
             </div>
-            <div>
+            <div class='when-section-connection'>
                 <span>EMULATE RELAY:</span>
                 <input type="radio" id="idleRelay" name="relaySelection"> <label for="idleRelay">Disconnected</label>
                 <input type="radio" id="pendingHostingRelay" name="relaySelection"> <label for="pendingHostingRelay">Waiting for host</label>

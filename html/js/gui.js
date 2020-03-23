@@ -54,7 +54,6 @@ function enumNames(enumObj) {
     }
     return enumNameMaps.get(enumObj);
 }
-/// simplementation of jQuery
 function $(sel) {
     return typeof sel == 'string' ? document.querySelector(sel) : sel;
 }
@@ -87,8 +86,9 @@ function $find(el, sel) {
     }
 }
 function $findAll(el, sel) {
+    var res;
     if (typeof el == 'string') {
-        el = $all(el);
+        res = $all(el);
     }
     if (el instanceof NodeList) {
         el = [...el];

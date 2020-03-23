@@ -1,7 +1,5 @@
 import libp2p from "./protocol.js"
 
-type nodespec = string | Node | NodeListOf<Node> | Node[]
-
 enum NatState {
     Notstarted,
     Unknown,
@@ -62,6 +60,8 @@ function enumNames(enumObj) {
 }
 
 /// simplementation of jQuery
+type nodespec = string | Node | NodeListOf<Node> | Node[]
+
 function $(sel) {
     return typeof sel == 'string' ? document.querySelector(sel) : sel
 }
@@ -90,9 +90,11 @@ function $find(el: nodespec, sel) {
         return $(el).querySelector(sel);
     }
 }
-function $findAll(el, sel) {
+function $findAll(el: nodespec, sel) {
+    var res: Node[]
+
     if (typeof el == 'string') {
-        el = $all(el);
+        res = $all(el);
     }
     if (el instanceof NodeList) {
         el = [...el];
@@ -101,7 +103,7 @@ function $findAll(el, sel) {
         var results = [];
 
         for (var node of el) {
-            results.push(...node.querySelectorAll(sel));
+            results.push(...(node as Element).querySelectorAll(sel));
         }
         return results;
     } else {
