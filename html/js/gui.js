@@ -1,59 +1,5 @@
-var NatState;
-(function (NatState) {
-    NatState[NatState["Notstarted"] = 0] = "Notstarted";
-    NatState[NatState["Unknown"] = 1] = "Unknown";
-    NatState[NatState["Public"] = 2] = "Public";
-    NatState[NatState["Private"] = 3] = "Private";
-})(NatState || (NatState = {}));
-var RoleState;
-(function (RoleState) {
-    RoleState[RoleState["Guest"] = 0] = "Guest";
-    RoleState[RoleState["Host"] = 1] = "Host";
-    RoleState[RoleState["Relay"] = 2] = "Relay";
-})(RoleState || (RoleState = {}));
-var RelayState;
-(function (RelayState) {
-    RelayState[RelayState["Idle"] = 0] = "Idle";
-    RelayState[RelayState["PendingHosting"] = 1] = "PendingHosting";
-    RelayState[RelayState["Hosting"] = 2] = "Hosting";
-})(RelayState || (RelayState = {}));
-var SectionState;
-(function (SectionState) {
-    SectionState[SectionState["Connection"] = 0] = "Connection";
-    SectionState[SectionState["Mud"] = 1] = "Mud";
-    SectionState[SectionState["Profile"] = 2] = "Profile";
-    SectionState[SectionState["Storage"] = 3] = "Storage";
-})(SectionState || (SectionState = {}));
-var PeerState;
-(function (PeerState) {
-    PeerState[PeerState["disconnected"] = 0] = "disconnected";
-    PeerState[PeerState["abortingRelayHosting"] = 1] = "abortingRelayHosting";
-    PeerState[PeerState["abortingRelayConnection"] = 2] = "abortingRelayConnection";
-    PeerState[PeerState["stoppingHosting"] = 3] = "stoppingHosting";
-    PeerState[PeerState["disconnectingFromHost"] = 4] = "disconnectingFromHost";
-    PeerState[PeerState["disconnectingFromRelayForHosting"] = 5] = "disconnectingFromRelayForHosting";
-    PeerState[PeerState["disconnectingFromRelayForConnection"] = 6] = "disconnectingFromRelayForConnection";
-    PeerState[PeerState["connectingToHost"] = 7] = "connectingToHost";
-    PeerState[PeerState["connectingToRelayForHosting"] = 8] = "connectingToRelayForHosting";
-    PeerState[PeerState["connectingToRelayForConnection"] = 9] = "connectingToRelayForConnection";
-    PeerState[PeerState["connectingToRelayForCallback"] = 10] = "connectingToRelayForCallback";
-    PeerState[PeerState["awaitingTokenConnection"] = 11] = "awaitingTokenConnection";
-    PeerState[PeerState["awaitingToken"] = 12] = "awaitingToken";
-    PeerState[PeerState["connectedToHost"] = 13] = "connectedToHost";
-    PeerState[PeerState["hostingDirectly"] = 14] = "hostingDirectly";
-    PeerState[PeerState["connectedToRelayForHosting"] = 15] = "connectedToRelayForHosting";
-    PeerState[PeerState["connectedToRelayForConnection"] = 16] = "connectedToRelayForConnection";
-})(PeerState || (PeerState = {}));
+import { natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, } from "./base.js";
 var relaying = false;
-var enumNameMaps = new Map();
-function enumNames(enumObj) {
-    if (!enumNameMaps.has(enumObj)) {
-        var names = Object.keys(enumObj).filter(o => typeof enumObj[o] == 'string').map(o => enumObj[o]);
-        enumNameMaps.set(enumObj, names);
-        return names;
-    }
-    return enumNameMaps.get(enumObj);
-}
 function $(sel) {
     return typeof sel == 'string' ? document.querySelector(sel) : sel;
 }
@@ -105,55 +51,48 @@ function $findAll(el, sel) {
     }
 }
 class RadioEnum {
-    constructor(enumObj, idSuffix) {
-        this.names = enumNames(enumObj);
-        this.enumType = enumObj;
+    constructor(tracker, idSuffix) {
+        this.tracker = tracker;
         this.idSuffix = idSuffix;
-        for (var name of this.names) {
-            console.log('name:', name);
-            $('#' + name.toLowerCase() + idSuffix).onclick = evt => this.clicked(evt.target);
+        for (var name of this.tracker.names) {
+            $('#' + name.toLowerCase() + this.idSuffix).onclick = evt => this.clicked(evt.target);
         }
-        this.setValue(enumObj[this.names[0]]);
-    }
-    setValue(value) {
-        this.value = value;
-        $('#' + this.enumType[value].toLowerCase() + this.idSuffix).checked = true;
+        tracker.observe(state => {
+            $('#' + this.tracker.currentStateName().toLowerCase() + this.idSuffix).checked = true;
+            this.show();
+        });
         this.show();
     }
-    findEnum(id) {
-        id = id.substring(0, id.length - this.idSuffix.length).toLowerCase();
-        for (var name of this.names) {
-            if (id == name.toLowerCase()) {
-                return name;
-            }
-        }
-        return '';
+    enumForId(id) {
+        return this.tracker.stateForName(id.substring(0, id.length - this.idSuffix.length));
     }
     clicked(button) {
         console.log('New state:::', button.id);
-        this.value = this.enumType[this.findEnum(button.id)];
-        this.show();
+        this.tracker.setValue(this.enumForId(button.id));
     }
     classForEnumName(n) {
         return n.toLowerCase() + this.idSuffix;
     }
     show() {
-        console.log('showing emulation state:', this.enumType[this.value]);
-        for (var st of this.names) {
+        console.log('showing emulation state:', this.tracker.currentStateName());
+        for (var st of this.tracker.names) {
             document.body.classList.remove(this.classForEnumName(st));
         }
-        document.body.classList.add(this.classForEnumName(this.enumType[this.value]));
+        document.body.classList.add(this.classForEnumName(this.tracker.currentStateName()));
     }
 }
-var natRadio = new RadioEnum(NatState, 'Nat');
-var peerRadio = new RadioEnum(PeerState, 'Peer');
-var roleRadio = new RadioEnum(RoleState, 'Role');
-var relayRadio = new RadioEnum(RelayState, 'Relay');
-var sectionRadio = new RadioEnum(SectionState, 'Section');
+function radioTracker(tracker, idSuffix) {
+    new RadioEnum(tracker, idSuffix);
+}
 function setUser(name) {
     document.body.classList.add('hasuser');
 }
 export function start() {
+    radioTracker(natTracker, 'Nat');
+    radioTracker(peerTracker, 'Peer');
+    radioTracker(roleTracker, 'Role');
+    radioTracker(relayTracker, 'Relay');
+    radioTracker(sectionTracker, 'Section');
     $('#user').onblur = () => setUser($('#user').value);
     $('#user').onkeydown = evt => {
         if (evt.key == 'Enter') {

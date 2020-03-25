@@ -1,63 +1,11 @@
 import libp2p from "./protocol.js"
-
-enum NatState {
-    Notstarted,
-    Unknown,
-    Public,
-    Private,
-}
-
-enum RoleState {
-    Guest,
-    Host,
-    Relay,
-}
-
-enum RelayState {
-    Idle,
-    PendingHosting,
-    Hosting,
-}
-
-enum SectionState {
-    Connection,
-    Mud,
-    Profile,
-    Storage,
-}
-
-enum PeerState {
-    disconnected,
-    abortingRelayHosting,
-    abortingRelayConnection,
-    stoppingHosting,
-    disconnectingFromHost,
-    disconnectingFromRelayForHosting,
-    disconnectingFromRelayForConnection,
-    connectingToHost,
-    connectingToRelayForHosting,
-    connectingToRelayForConnection,
-    connectingToRelayForCallback,
-    awaitingTokenConnection,
-    awaitingToken,
-    connectedToHost,
-    hostingDirectly,
-    connectedToRelayForHosting,
-    connectedToRelayForConnection,
-}
+import {
+    NatState, RoleState, RelayState, SectionState, PeerState,
+    StateTracker, stateObserver,
+    natTracker, peerTracker, roleTracker, relayTracker, sectionTracker,
+} from "./base.js"
 
 var relaying = false
-var enumNameMaps = new Map<any, string[]>()
-
-function enumNames(enumObj) {
-    if (!enumNameMaps.has(enumObj)) {
-        var names = Object.keys(enumObj).filter(o=> typeof enumObj[o] == 'string').map(o=> enumObj[o])
-
-        enumNameMaps.set(enumObj, names as string[])
-        return names
-    }
-    return enumNameMaps.get(enumObj)
-}
 
 /// simplementation of jQuery
 type nodespec = string | Node | NodeListOf<Node> | Node[]
@@ -111,63 +59,54 @@ function $findAll(el: nodespec, sel) {
     }
 }
 
-class RadioEnum<E> {
-    names: string[]
-    enumType: any
-    value: E
+class RadioEnum {
+    tracker: StateTracker<any>
     idSuffix: string
-    constructor(enumObj, idSuffix: string) {
-        this.names = enumNames(enumObj)
-        this.enumType = enumObj
+    constructor(tracker: StateTracker<any>, idSuffix: string) {
+        this.tracker = tracker
         this.idSuffix = idSuffix
-        for (var name of this.names) {
-            console.log('name:', name)
-            $('#'+name.toLowerCase()+idSuffix).onclick = evt=> this.clicked(evt.target)
+        for (var name of this.tracker.names) {
+            $('#'+name.toLowerCase()+this.idSuffix).onclick = evt=> this.clicked(evt.target)
         }
-        this.setValue(enumObj[this.names[0]])
-    }
-    setValue(value: E) {
-        this.value = value
-        $('#'+this.enumType[value].toLowerCase()+this.idSuffix).checked = true
+        tracker.observe(state=>{
+            $('#'+this.tracker.currentStateName().toLowerCase()+this.idSuffix).checked = true
+            this.show()
+        })
         this.show()
     }
-    findEnum(id: string) {
-        id = id.substring(0, id.length - this.idSuffix.length).toLowerCase()
-        for (var name of this.names) {
-            if (id == name.toLowerCase()) {
-                return name
-            }
-        }
-        return ''
+    enumForId(id: string) {
+        return this.tracker.stateForName(id.substring(0, id.length - this.idSuffix.length))
     }
     clicked(button: HTMLInputElement) {
         console.log('New state:::', button.id)
-        this.value = this.enumType[this.findEnum(button.id)]
-        this.show()
+        this.tracker.setValue(this.enumForId(button.id))
     }
     classForEnumName(n: string) {
         return n.toLowerCase() + this.idSuffix
     }
     show() {
-        console.log('showing emulation state:', this.enumType[this.value])
-        for (var st of this.names) {
+        console.log('showing emulation state:', this.tracker.currentStateName())
+        for (var st of this.tracker.names) {
             document.body.classList.remove(this.classForEnumName(st))
         }
-        document.body.classList.add(this.classForEnumName(this.enumType[this.value]))
+        document.body.classList.add(this.classForEnumName(this.tracker.currentStateName()))
     }
 }
 
-var natRadio = new RadioEnum<NatState>(NatState, 'Nat')
-var peerRadio = new RadioEnum<PeerState>(PeerState, 'Peer')
-var roleRadio = new RadioEnum<RoleState>(RoleState, 'Role')
-var relayRadio = new RadioEnum<RelayState>(RelayState, 'Relay')
-var sectionRadio = new RadioEnum<SectionState>(SectionState, 'Section')
+function radioTracker(tracker: StateTracker<any>, idSuffix: string) {
+    new RadioEnum(tracker, idSuffix)
+}
 
 function setUser(name) {
     document.body.classList.add('hasuser')
 }
 
 export function start() {
+    radioTracker(natTracker, 'Nat')
+    radioTracker(peerTracker, 'Peer')
+    radioTracker(roleTracker, 'Role')
+    radioTracker(relayTracker, 'Relay')
+    radioTracker(sectionTracker, 'Section')
     $('#user').onblur = ()=> setUser($('#user').value)
     $('#user').onkeydown = evt=> {
         if (evt.key == 'Enter') {

@@ -37,33 +37,68 @@ body {
     width: 100%;
     height: 100%;
 }
-body:not(.notstartedNat) .when-nat-notstarted,
-body.publicNat .when-nat-notknown,
-body.privateNat .when-nat-notknown,
-body:not(.unknownNat) .when-nat-unknown,
-body:not(.host) .when-host,
-body:not(.Guest) .when-guest,
-body:not(.Relay) .when-relay,
-body.unknownNat .when-nat-known,
-body.notstartedNat .when-nat-known,
+/* STATES
+ * State classes are on the body, the lowercased state name suffixed with capitalized state type
+ *   example: notstartedNat
+ * Associated selector classes are on elements to control whether they are hidden: when-statetype-state or when-not-statetype-state
+ *   examples: when-nat-notstarted, when-relay-guest
+ *
+ * nat
+ *   State classes on body: .notstartedNat, .unknownNat, .publicNat, .privateNat
+ *   selector classes on e
+ *
+ */
+/* user */
 body:not(.hasuser) .when-connected-with-user,
-body.unknownNat .when-connected-with-user,
-body.notstartedNat .when-connected-with-user,
-body.hasuser.publicNat .when-not-connected-with-user,
 body.hasuser.privateNat .when-not-connected-with-user,
-body.publicNat .when-private,
+body.hasuser.publicNat .when-not-connected-with-user,
+/* nat */
+body:not(.notstartedNat) .when-nat-notstarted,
+body:not(.unknownNat) .when-nat-unknown,
+body:not(.privateNat) .when-nat-private,
+body:not(.publicNat) .when-nat-public,
+body.notstartedNat .when-connected-with-user,
+body.notstartedNat .when-nat-known,
+body.privateNat .when-nat-notknown,
 body.privateNat .when-public,
+body.publicNat .when-nat-notknown,
+body.publicNat .when-private,
+body.unknownNat .when-connected-with-user,
+body.unknownNat .when-nat-known,
+/* role */
 body:not(.hostRole) .when-role-host,
 body:not(.guestRole) .when-role-guest,
 body:not(.relayRole) .when-role-relay,
-body:not(.disconnectedPeer) .when-disconnected,
-body.disconnectedPeer .when-not-disconnected,
+body.hostRole .when-not-role-host,
+body.guestRole .when-not-role-guest,
+body.relayRole .when-not-role-relay,
+/* peer */
 body:not(.emulation) #stateButtons > *,
+body:not(.disconnectedPeer) .when-peer-disconnected,
+body:not(.abortingrelayhostingPeer) .when-peer-abortingrelayhosting,
+body:not(.abortingrelayconnectionPeer) .when-peer-abortingrelayconnection,
+body:not(.stoppinghostingPeer) .when-peer-stoppinghosting,
+body:not(.disconnectingfromhostPeer) .when-peer-disconnectingfromhost,
+body:not(.disconnectingfromrelayforhostingPeer) .when-peer-disconnectingfromrelayforhosting,
+body:not(.disconnectingfromrelayforconnectionPeer) .when-peer-disconnectingfromrelayforconnection,
+body:not(.connectingtohostPeer) .when-peer-connectingtohost,
+body:not(.connectingtorelayforhostingPeer) .when-peer-connectingtorelayforhosting,
+body:not(.connectingtorelayforconnectionPeer) .when-peer-connectingtorelayforconnection,
+body:not(.connectingtorelayforcallbackPeer) .when-peer-connectingtorelayforcallback,
+body:not(.awaitingtokenconnectionPeer) .when-peer-awaitingtokenconnection,
+body:not(.awaitingtokenPeer) .when-peer-awaitingtoken,
+body:not(.connectedtohostPeer) .when-peer-connectedtohost,
+body:not(.hostingdirectlyPeer) .when-peer-hostingdirectly,
+body:not(.connectedtorelayforhostingPeer) .when-peer-connectedtorelayforhosting,
+body:not(.connectedtorelayforconnectionPeer) .when-peer-connectedtorelayforconnection,
+body.disconnectedPeer .when-not-peer-disconnected,
+/* relay */
 body:not(.idleRelay) .when-relay-idle,
-body.idleRelay .when-not-relay-idle,
-body:not(.pendinghostingRelay) .when-relay-pending-hosting,
+body:not(.pendinghostingRelay) .when-relay-pendinghosting,
 body:not(.hostingRelay) .when-relay-hosting,
+body.idleRelay .when-not-relay-idle,
 body.hostingRelay .when-not-relay-hosting,
+/* section */
 body:not(.connectionSection) .when-section-connection,
 body:not(.mudSection) .when-section-mud,
 body:not(.profileSection) .when-section-profile,
@@ -77,11 +112,25 @@ body:not(.storageSection) .when-section-storage
 }
 body:not(.emulation) #toggleStateButtons {
     display: initial;
+    vertical-align: middle;
 }
-#toggleStateButtons {
+#indicators {
     position: fixed;
     right: 0;
     top: 0;
+    white-space: nowrap;
+}
+#indicator-box {
+    display: inline-block;
+    border: white solid 2px;
+    border-radius: 5px;
+}
+#toggleStateButtons {
+    vertical-align: middle;
+}
+#onlineIndicator {
+    width: 24px;
+    vertical-align: middle;
 }
 .field {
     display: flex;
@@ -116,4 +165,13 @@ body:not(.emulation) #toggleStateButtons {
 #profileView {
 }
 #storageView {
+    display: flex;
+    flex-direction: column;
+}
+#storageList {
+    flex-grow: 1;
+    border: solid white 2px;
+    border-radius: 5px;
+    overflow: scroll;
+    overflow-x: auto;
 }

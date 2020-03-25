@@ -24,11 +24,47 @@
     -->
     <head>
         <link rel = "stylesheet" type = "text/css" href = "css/textcraft.css" />
+        <script src="https://kit.fontawesome.com/02a1a974ac.js" crossorigin="anonymous"></script>
         <script src='js/textcraft.js' type='module'></script>
     </head>
     <body>
-        <div id='stateButtons'>
+        <div id='indicators'>
             <button id='toggleStateButtons' title='Note, username must be filled in and nat state must be public or private for the gui to proceed'>Emulation</button>
+            <div id='indicator-box'>
+                <b>Mode: </b>
+                <span class='when-not-role-relay'>
+                    <span class='when-peer-disconnected'>disconnected</span>
+                    <span class='when-peer-abortingrelayhosting'>abortingRelayHosting</span>
+                    <span class='when-peer-abortingrelayconnection'>abortingRelayConnection</span>
+                    <span class='when-peer-stoppinghosting'>stoppingHosting</span>
+                    <span class='when-peer-disconnectingfromhost'>disconnectingFromHost</span>
+                    <span class='when-peer-disconnectingfromrelayforhosting'>disconnectingFromRelayForHosting</span>
+                    <span class='when-peer-disconnectingfromrelayforconnection'>disconnectingFromRelayForConnection</span>
+                    <span class='when-peer-connectingtohost'>connectingToHost</span>
+                    <span class='when-peer-connectingtorelayforhosting'>connectingToRelayForHosting</span>
+                    <span class='when-peer-connectingtorelayforconnection'>connectingToRelayForConnection</span>
+                    <span class='when-peer-connectingtorelayforcallback'>connectingToRelayForCallback</span>
+                    <span class='when-peer-awaitingtokenconnection'>awaitingTokenConnection</span>
+                    <span class='when-peer-awaitingtoken'>awaitingToken</span>
+                    <span class='when-peer-connectedtohost'>connectedToHost</span>
+                    <span class='when-peer-hostingdirectly'>hostingDirectly</span>
+                    <span class='when-peer-connectedtorelayforhosting'>connectedToRelayForHosting</span>
+                    <span class='when-peer-connectedtorelayforconnection'>connectedToRelayForConnection</span>
+                </span>
+                <span class='when-role-relay'>
+                    <span class='when-relay-idle'>idleRelay</span>
+                    <span class='when-relay-pendinghosting'>pendingRelay</span>
+                    <span class='when-relay-hosting'>hostingRelay</span>
+                </span>
+                <span id='modeIndicator'>
+                </span> <b>Online:</b>
+                <img class='when-nat-notstarted' id='onlineIndicator' src='images/Gray_Light_Icon.svg'>
+                <span class='when-nat-unknown'><b>NEED SWIRLY LIGHT<i class="fas fa-arrow-right"></i></b><img class='when-nat-unknown' id='onlineIndicator' src='images/Gray_Light_Icon.svg'></span>
+                <img class='when-nat-public' id='onlineIndicator' src='images/Green_Light_Icon.svg'>
+                <span class='when-nat-private'><b>NEED TO INDICATE PRIVATE<i class="fas fa-arrow-right"></i></b></span><img class='when-nat-private' id='onlineIndicator' src='images/Green_Light_Icon.svg'>
+            </div>
+        </div>
+        <div id='stateButtons'>
             <div>
                 <span>GUI SECTIONS:</span>
                 <input type="radio" id="connectionSection" name="sectionSelection"> <label for="connectionSection">Connection</label>
@@ -100,10 +136,10 @@
                     <div class='field'>
                         <button id='host'>Host</button>
                         &nbsp;
-                        <span class='when-private when-disconnected'>Relay connect string:&nbsp;</span>
-                        <input class='when-private when-disconnected' id='hostingRelay' type='text' placeholder='You must use a relay because your connection is private'>
-                        <span class='when-private when-not-disconnected'>Your Connect string:&nbsp;</span>
-                        <input class='when-private when-not-disconnected' id='connectString' type='text' readonly='true'>
+                        <span class='when-private when-peer-disconnected'>Relay connect string:&nbsp;</span>
+                        <input class='when-private when-peer-disconnected' id='hostingRelay' type='text' placeholder='You must use a relay because your connection is private'>
+                        <span class='when-private when-not-peer-disconnected'>Your Connect string:&nbsp;</span>
+                        <input class='when-private when-not-peer-disconnected' id='connectString' type='text' readonly='true'>
                     </div>
                     <h1 class='when-private'>
                         Your peer does not have public access so you must use a relay
@@ -151,6 +187,11 @@
         <div class='when-section-storage section'>
             <div id='storageView' class='view'>
                 STORAGE
+                <div>Your MUDS <button class='when-peer-connectedtohost'>Request download of current MUD</button></div>
+                <div id='storageList'>
+                    <div>One <button>Rename</button> <button>Delete</button></div>
+                    <div>Two <button>Rename</button> <button>Delete</button></div>
+                </div>
             </div>
         </div>
     </body>
