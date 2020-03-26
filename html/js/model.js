@@ -14,13 +14,21 @@ const nameIndex = 'names';
 const infoKey = 'info';
 const usersSuffix = ' users';
 var storage;
-/* Thing is the universal MUD object
+/*
+ * ## The Thing class
  *
- * Each thing has an id, name, and description
- * Things can have a location in another thing
- * Things can have contents (things that are located in them)
- * Things can be linked to other things via things acting as links
+ * The World is made of things, and only things. Each room is a thing. Exits between rooms are things. People are things. Items are things. Boxes are things.
  *
+ * The Thing class has these properties:
+ *
+ * * id: an identifying number for this thing, unique among things
+ * * name: the name; since this is used in commands, spaces are not allowed
+ * * description: the description
+ * * location: the thing this is located in -- if this is a link, it has no location
+ * * contents: things inside this thing
+ * * links: links (which are things) attached to this thing
+ * * linkOwner: the thing that owns this link, if this is a link
+ * * otherLink: the companion to this link, if this is a link
  */
 class Thing {
     constructor(id, name, description = '') {

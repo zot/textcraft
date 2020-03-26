@@ -8,7 +8,24 @@ There are no servers. YOU own your data.
 
 It relies on [libp2p](https://github.com/libp2p/go-libp2p) for peer-to-peer networking and uses [libp2p-websocket](https://github.com/zot/libp2p-websocket) to connect browsers to libp2p.
 
-Fritz Passow came up with the original idea for the structure we're using for this MUD, which he called "Container MUD", where everything is a container.
+# MUD Model
+
+My good friend, Fritz Passow, came up with the idea for the model we're using for this MUD, which he called "Container MUD", where everything is a container.
+
+## The Thing class
+
+The World is made of things, and only things. Each room is a thing. Exits between rooms are things. People are things. Items are things. Boxes are things.
+
+The Thing class has these properties:
+
+* id: an identifying number for this thing, unique among things
+* name: the name; since this is used in commands, spaces are not allowed
+* description: the description
+* location: the thing this is located in -- if this is a link, it has no location
+* contents: things inside this thing
+* links: links (which are things) attached to this thing
+* linkOwner: the thing that owns this link, if this is a link
+* otherLink: the companion to this link, if this is a link
 
 # MIT LICENSE
 
