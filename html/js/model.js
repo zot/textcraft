@@ -1,19 +1,10 @@
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
+var storage;
 const centralDbName = 'textcraft';
+const infoKey = 'info';
 const locationIndex = 'locations';
 const linkOwnerIndex = 'linkOwners';
 const nameIndex = 'names';
-const infoKey = 'info';
 const usersSuffix = ' users';
-var storage;
 /*
  * ## The Thing class
  *
@@ -32,7 +23,7 @@ var storage;
  * * linkOwner: the thing that owns this link, if this is a link
  * * otherLink: the companion to this link, if this is a link
  */
-class Thing {
+export class Thing {
     constructor(id, name, description = '') {
         this._id = id;
         this.name = name;
@@ -65,56 +56,56 @@ class Thing {
         };
     }
 }
-function identity(x) {
+export function identity(x) {
     return x;
 }
-function sanitizeName(name) {
-    return name.replace(/ /, '_');
-}
-class User {
-}
-class World {
+export class World {
     constructor(name, storage) {
         this.name = name;
+        this.storeName = mudDbName(name);
         this.storage = storage;
-        this.users = name + usersSuffix;
+        this.users = userDbName(name);
     }
     initDb() {
         var userStore = this.db().createObjectStore(this.users);
-        var thingStore = this.db().createObjectStore(this.name, { keyPath: 'id' });
+        var thingStore = this.db().createObjectStore(this.storeName, { keyPath: 'id' });
         userStore.createIndex(nameIndex, 'name', { unique: true }); // look up users by name
         thingStore.createIndex(locationIndex, 'location', { unique: false });
         thingStore.createIndex(linkOwnerIndex, 'linkOwner', { unique: false });
+        this.doTransaction(() => this.store());
     }
     db() {
         return this.storage.db;
     }
     // perform a transaction, then write all dirty things to storage
-    doTransaction(func) {
+    async doTransaction(func) {
         if (this.txn) {
             return this.processTransaction(func);
         }
         else {
-            var txn = this.db().transaction(this.name, this.users);
+            var txn = this.db().transaction([this.storeName, this.users], 'readwrite');
             var oldId = this.nextId;
             this.txn = txn;
             try {
                 return this.processTransaction(func);
             }
             finally {
-                var store = this.txn.objectStore(this.name);
-                if (oldId != this.nextId) {
-                    store.put(this.spec());
-                }
-                for (var dirty of this.dirty) {
-                    store.put(this.thingCache.get(dirty).spec());
-                }
-                this.txn = null;
+                var store = this.txn.objectStore(this.storeName);
+                await Promise.allSettled([...this.dirty].map(dirty => store.put(this.thingCache.get(dirty).spec())))
+                    .then(() => {
+                    this.txn = null;
+                    if (oldId != this.nextId) {
+                        return this.store();
+                    }
+                });
             }
         }
     }
+    store() {
+        this.txn.objectStore(this.storeName).put(this.spec());
+    }
     processTransaction(func) {
-        return func(this.txn.objectStore(this.name), this.txn.objectStore(this.users), this.txn);
+        return func(this.txn.objectStore(this.storeName), this.txn.objectStore(this.users), this.txn);
     }
     getThing(id) {
         if (!id) {
@@ -126,33 +117,29 @@ class World {
                 return cached;
             }
         }
-        this.doTransaction((store, users, txn) => __awaiter(this, void 0, void 0, function* () { return this.cacheThingFor(yield promiseFor(store.get(id))); }));
+        this.doTransaction(async (store, users, txn) => this.cacheThingFor(await promiseFor(store.get(id))));
     }
     createThing(name, description = '') {
         var t = new Thing(this.nextId++, name, description);
         this.thingCache.set(t.id, t);
-        this.doTransaction((store, users, txn) => __awaiter(this, void 0, void 0, function* () {
-            return yield promiseFor(store.put(t));
-        }));
+        this.doTransaction(async (store, users, txn) => {
+            return await promiseFor(store.put(t));
+        });
         return t;
     }
     storeThing(thing) {
-        this.txn.objectStore(this.name).put(thing.spec());
+        this.txn.objectStore(this.storeName).put(thing.spec());
     }
     cacheThingFor(thingSpec) {
         var thing = Object.assign(new Thing(null, null), thingSpec);
         this.thingCache.set(thing.id, thing);
         return thing;
     }
-    getContents(thing) {
-        return __awaiter(this, void 0, void 0, function* () {
-            return yield promiseFor(this.txn.objectStore(this.name).index(locationIndex).getAll(IDBKeyRange.only(thing.id)));
-        });
+    async getContents(thing) {
+        return await promiseFor(this.txn.objectStore(this.storeName).index(locationIndex).getAll(IDBKeyRange.only(thing.id)));
     }
-    getLinks(thing) {
-        return __awaiter(this, void 0, void 0, function* () {
-            return yield promiseFor(this.txn.objectStore(this.name).index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id)));
-        });
+    async getLinks(thing) {
+        return await promiseFor(this.txn.objectStore(this.storeName).index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id)));
     }
     markDirty(thing) {
         this.dirty.add(thing.id);
@@ -160,47 +147,104 @@ class World {
     spec() {
         return { id: infoKey, nextId: this.nextId };
     }
+    async copyWorld(newName) {
+        if (this.storage.hasWorld(newName)) {
+            throw new Error('there is already a world named "' + newName + '"');
+        }
+        var newWorld = this.storage.openWorld(newName);
+        var txn = this.db().transaction([this.storeName, newWorld.storeName], 'readwrite');
+        var srcStore = txn.objectStore(this.storeName);
+        var dstStore = txn.objectStore(newWorld.storeName);
+        var cursor = (await rawPromiseFor(srcStore.openCursor()).then(e => e.target.result));
+        if (cursor) {
+            while (cursor.value) {
+                await promiseFor(dstStore.put(cursor.value));
+                cursor.continue();
+            }
+        }
+    }
 }
-function openStorage() {
-    return __awaiter(this, void 0, void 0, function* () {
-        return yield promiseFor(indexedDB.open(centralDbName))
-            .then((db) => {
-            storage = new MudStorage(db);
-            if (![...this.db.objectStoreNames].find(n => n == centralDbName)) {
-                var objectStore = db.createObjectStore(centralDbName);
-                var txn = db.transaction(centralDbName);
-                var store = txn.objectStore(centralDbName);
-                store.put(storage.spec(), infoKey);
-                return promiseFor(txn).then(() => storage);
-            }
-            else {
-                var txn = db.transaction(centralDbName);
-                var store = txn.objectStore(centralDbName);
-                var req = store.get(infoKey);
-                return promiseFor(req).then(() => {
-                    Object.assign(this, req.result);
-                    return storage;
-                });
-            }
-        });
+export function sanitizeName(name) {
+    return name.replace(/ /, '_');
+}
+export function getStorage() {
+    return storage || openStorage();
+}
+async function openStorage() {
+    return await promiseFor(indexedDB.open(centralDbName))
+        .then((db) => {
+        storage = new MudStorage(db);
+        if (!contains([...this.db.objectStoreNames], centralDbName)) {
+            var objectStore = db.createObjectStore(centralDbName);
+            var txn = db.transaction(centralDbName, 'readwrite');
+            var store = txn.objectStore(centralDbName);
+            store.put(storage.spec(), infoKey);
+            return promiseFor(txn).then(() => storage);
+        }
+        else {
+            var txn = db.transaction(centralDbName, 'readwrite');
+            var store = txn.objectStore(centralDbName);
+            var req = store.get(infoKey);
+            return promiseFor(req).then(() => {
+                Object.assign(this, req.result);
+                return storage;
+            });
+        }
     });
 }
-class MudStorage {
+export class MudStorage {
     constructor(db) {
         this.db = db;
     }
+    hasWorld(name) {
+        return contains([...this.worlds], name);
+    }
     openWorld(name) {
         var world = new World(name, this);
-        if ([...this.db.objectStoreNames].find(nm => nm == name) == null) {
-            this.db.createObjectStore(name);
+        if (!this.hasWorld(name)) {
+            world.initDb();
+            this.worlds.push(name);
+            this.store();
+            world.initDb();
         }
         return world;
+    }
+    deleteWorld(name) {
+        var index = this.worlds.indexOf(name);
+        if (index != -1) {
+            this.worlds.splice(index, 1);
+            this.db.deleteObjectStore(mudDbName(name));
+            this.db.deleteObjectStore(userDbName(name));
+            this.store();
+        }
+    }
+    async store() {
+        var txn = this.db.transaction(centralDbName, 'readwrite');
+        var store = txn.objectStore(centralDbName);
+        await promiseFor(store.put(this.spec(), infoKey));
     }
     spec() {
         return { worlds: this.worlds };
     }
+    renameWorld(name, newName) {
+        var index = this.worlds.indexOf(name);
+        if (name != newName && index != -1 && !this.hasWorld(newName)) {
+            var version = this.db.version;
+            this.db.close();
+            var req = indexedDB.open(centralDbName, ++version);
+            req.onupgradeneeded = evt => {
+                var txn = req.transaction;
+                this.db = req.result;
+                this.worlds[index] = newName;
+                txn.objectStore(mudDbName(name)).name = mudDbName(newName);
+                txn.objectStore(userDbName(name)).name = userDbName(newName);
+                this.store();
+            };
+            req.onsuccess = evt => this.db = req.result;
+        }
+    }
 }
-function promiseFor(req) {
+export function promiseFor(req) {
     if (req instanceof IDBRequest) {
         return new Promise((succeed, fail) => {
             req.onerror = fail;
@@ -213,5 +257,28 @@ function promiseFor(req) {
             req.oncomplete = () => succeed();
         });
     }
+}
+export function rawPromiseFor(req) {
+    if (req instanceof IDBRequest) {
+        return new Promise((succeed, fail) => {
+            req.onerror = fail;
+            req.onsuccess = succeed;
+        });
+    }
+    else {
+        return new Promise((succeed, fail) => {
+            req.onerror = fail;
+            req.oncomplete = succeed;
+        });
+    }
+}
+export function contains(array, item) {
+    return array.indexOf(item) != -1;
+}
+function mudDbName(name) {
+    return 'world ' + name;
+}
+function userDbName(name) {
+    return 'world ' + name + usersSuffix;
 }
 //# sourceMappingURL=model.js.map

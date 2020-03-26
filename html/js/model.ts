@@ -1,16 +1,13 @@
+var storage: MudStorage
+
 const centralDbName = 'textcraft'
+const infoKey = 'info'
 const locationIndex = 'locations'
 const linkOwnerIndex = 'linkOwners'
 const nameIndex = 'names'
-const infoKey = 'info'
 const usersSuffix = ' users'
-var storage: MudStorage
 
 type thingId = number
-
-interface PromiseConstructor {
-    allSettled(handler)
-}
 
 /*
  * ## The Thing class
@@ -30,7 +27,7 @@ interface PromiseConstructor {
  * * linkOwner: the thing that owns this link, if this is a link
  * * otherLink: the companion to this link, if this is a link
  */
-class Thing {
+export class Thing {
     _id: thingId
     _name: string
     _description: string
@@ -70,16 +67,12 @@ class Thing {
         }
     }
 }
-function identity(x) {
+export function identity(x) {
     return x
 }
-function sanitizeName(name: string) {
-    return name.replace(/ /, '_')
-}
-class User {
-}
-class World {
+export class World {
     name: string
+    storeName: string
     users: string
     nextId: number
     storage: Storage
@@ -88,46 +81,51 @@ class World {
     txn: IDBTransaction
     constructor(name, storage) {
         this.name = name
+        this.storeName = mudDbName(name)
         this.storage = storage
-        this.users = name + usersSuffix
+        this.users = userDbName(name)
     }
     initDb() {
         var userStore = this.db().createObjectStore(this.users)
-        var thingStore = this.db().createObjectStore(this.name, {keyPath: 'id'})
+        var thingStore = this.db().createObjectStore(this.storeName, {keyPath: 'id'})
 
         userStore.createIndex(nameIndex, 'name', {unique: true}) // look up users by name
         thingStore.createIndex(locationIndex, 'location', {unique: false})
         thingStore.createIndex(linkOwnerIndex, 'linkOwner', {unique: false})
+        this.doTransaction(()=> this.store())
     }
     db() {
         return this.storage.db
     }
     // perform a transaction, then write all dirty things to storage
-    doTransaction(func) {
+    async doTransaction(func) {
         if (this.txn) {
             return this.processTransaction(func)
         } else {
-            var txn = this.db().transaction(this.name, this.users)
+            var txn = this.db().transaction([this.storeName, this.users], 'readwrite')
             var oldId = this.nextId
     
             this.txn = txn
             try {
                 return this.processTransaction(func)
             } finally {
-                var store = this.txn.objectStore(this.name)
+                var store = this.txn.objectStore(this.storeName)
 
-                if (oldId != this.nextId) {
-                    store.put(this.spec())
-                }
-                for (var dirty of this.dirty) {
-                    store.put(this.thingCache.get(dirty).spec())
-                }
-                this.txn = null
+                await Promise.allSettled([...this.dirty].map(dirty=> store.put(this.thingCache.get(dirty).spec())))
+                    .then(()=> {
+                        this.txn = null
+                        if (oldId != this.nextId) {
+                            return this.store()
+                        }
+                    })
             }
         }
     }
-    processTransaction(func) {
-        return func(this.txn.objectStore(this.name), this.txn.objectStore(this.users), this.txn)
+    store() {
+        this.txn.objectStore(this.storeName).put(this.spec())
+    }
+    processTransaction(func: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction)=> any) {
+        return func(this.txn.objectStore(this.storeName), this.txn.objectStore(this.users), this.txn)
     }
     getThing(id: thingId): Thing {
         if (!id) {
@@ -151,7 +149,7 @@ class World {
         return t
     }
     storeThing(thing) {
-        this.txn.objectStore(this.name).put(thing.spec())
+        this.txn.objectStore(this.storeName).put(thing.spec())
     }
     cacheThingFor(thingSpec) {
         var thing = Object.assign(new Thing(null, null), thingSpec)
@@ -160,10 +158,10 @@ class World {
         return thing
     }
     async getContents(thing: Thing) {
-        return await promiseFor(this.txn.objectStore(this.name).index(locationIndex).getAll(IDBKeyRange.only(thing.id)))
+        return await promiseFor(this.txn.objectStore(this.storeName).index(locationIndex).getAll(IDBKeyRange.only(thing.id)))
     }
     async getLinks(thing: Thing) {
-        return await promiseFor(this.txn.objectStore(this.name).index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id)))
+        return await promiseFor(this.txn.objectStore(this.storeName).index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id)))
     }
     markDirty(thing: Thing) {
         this.dirty.add(thing.id)
@@ -171,20 +169,43 @@ class World {
     spec() {
         return {id: infoKey, nextId: this.nextId}
     }
+    async copyWorld(newName: string) {
+        if (this.storage.hasWorld(newName)) {
+            throw new Error('there is already a world named "'+newName+'"')
+        }
+        var newWorld = this.storage.openWorld(newName)
+        var txn = this.db().transaction([this.storeName, newWorld.storeName], 'readwrite')
+        var srcStore = txn.objectStore(this.storeName)
+        var dstStore = txn.objectStore(newWorld.storeName)
+        var cursor = (await rawPromiseFor(srcStore.openCursor()).then(e=> e.target.result)) as IDBCursorWithValue
+
+        if (cursor) {
+            while (cursor.value) {
+                await promiseFor(dstStore.put(cursor.value))
+                cursor.continue()
+            }
+        }
+    }
+}
+export function sanitizeName(name: string) {
+    return name.replace(/ /, '_')
+}
+export function getStorage() {
+    return storage || openStorage()
 }
 async function openStorage() {
     return await promiseFor(indexedDB.open(centralDbName))
         .then((db: IDBDatabase)=> {
             storage = new MudStorage(db)
-            if (![...this.db.objectStoreNames].find(n=> n == centralDbName)) {
+            if (!contains([...this.db.objectStoreNames], centralDbName)) {
                 var objectStore = db.createObjectStore(centralDbName)
-                var txn = db.transaction(centralDbName)
+                var txn = db.transaction(centralDbName, 'readwrite')
                 var store = txn.objectStore(centralDbName)
         
                 store.put(storage.spec(), infoKey)
                 return promiseFor(txn).then(()=> storage)
             } else {
-                var txn = db.transaction(centralDbName)
+                var txn = db.transaction(centralDbName, 'readwrite')
                 var store = txn.objectStore(centralDbName)
                 var req = store.get(infoKey)
 
@@ -195,26 +216,68 @@ async function openStorage() {
             }
         })
 }
-class MudStorage {
+export class MudStorage {
     db: IDBDatabase
     worlds: string[]
     constructor(db) {
         this.db = db
     }
+    hasWorld(name: string) {
+        return contains([...this.worlds], name)
+    }
     openWorld(name: string) {
         var world = new World(name, this)
 
-        if ([...this.db.objectStoreNames].find(nm=> nm == name) == null) {
-            this.db.createObjectStore(name)
+        if (!this.hasWorld(name)) {
+            world.initDb()
+            this.worlds.push(name)
+            this.store()
+            world.initDb()
         }
         return world
+    }
+    deleteWorld(name: string) {
+        var index = this.worlds.indexOf(name)
+
+        if (index != -1) {
+            this.worlds.splice(index, 1)
+            this.db.deleteObjectStore(mudDbName(name))
+            this.db.deleteObjectStore(userDbName(name))
+            this.store()
+        }
+    }
+    async store() {
+        var txn = this.db.transaction(centralDbName, 'readwrite')
+        var store = txn.objectStore(centralDbName)
+
+        await promiseFor(store.put(this.spec(), infoKey))
     }
     spec() {
         return {worlds: this.worlds}
     }
+    renameWorld(name: string, newName: string) {
+        var index = this.worlds.indexOf(name)
+
+        if (name != newName && index != -1 && !this.hasWorld(newName)) {
+            var version = this.db.version
+            this.db.close()
+            var req = indexedDB.open(centralDbName, ++version)
+
+            req.onupgradeneeded = evt=> {
+                var txn = req.transaction
+
+                this.db = req.result
+                this.worlds[index] = newName
+                txn.objectStore(mudDbName(name)).name = mudDbName(newName)
+                txn.objectStore(userDbName(name)).name = userDbName(newName)
+                this.store()
+            }
+            req.onsuccess = evt=> this.db = req.result
+        }
+    }
 }
 
-function promiseFor(req: IDBRequest | IDBTransaction) {
+export function promiseFor(req: IDBRequest | IDBTransaction) {
     if (req instanceof IDBRequest) {
         return new Promise((succeed, fail)=> {
             req.onerror = fail
@@ -226,4 +289,30 @@ function promiseFor(req: IDBRequest | IDBTransaction) {
             req.oncomplete = ()=> succeed()
         })
     }
+}
+
+export function rawPromiseFor(req: IDBRequest | IDBTransaction): Promise<any> {
+    if (req instanceof IDBRequest) {
+        return new Promise((succeed, fail)=> {
+            req.onerror = fail
+            req.onsuccess = succeed
+        })
+    } else {
+        return new Promise((succeed, fail)=> {
+            req.onerror = fail
+            req.oncomplete = succeed
+        })
+    }
+}
+
+export function contains(array: any[], item: any) {
+    return array.indexOf(item) != -1
+}
+
+function mudDbName(name: string) {
+    return 'world '+name
+}
+
+function userDbName(name: string) {
+    return 'world '+name+usersSuffix
 }
