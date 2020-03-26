@@ -8,6 +8,8 @@ There are no servers. YOU own your data.
 
 It relies on [libp2p](https://github.com/libp2p/go-libp2p) for peer-to-peer networking and uses [libp2p-websocket](https://github.com/zot/libp2p-websocket) to connect browsers to libp2p.
 
+Fritz Passow came up with the original idea for the structure we're using for this MUD, which he called "Container MUD", where everything is a container.
+
 # MIT LICENSE
 
 The MIT license is [here](LICENSE)
