@@ -285,6 +285,7 @@ async function uploadMud(evt) {
             model.storage.uploadWorld(JSON.parse(await file.text()))
                 .then(showMuds);
         }
+        $('#upload-mud').value = null;
     }
 }
 export function start() {

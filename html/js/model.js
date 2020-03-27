@@ -70,7 +70,7 @@ export class World {
     initDb() {
         return new Promise((succeed, fail) => {
             var req = storage.upgrade(() => {
-                this.doTransaction(() => this.store())
+                return this.doTransaction(() => this.store())
                     .then(succeed);
             });
             req.onupgradeneeded = () => {
@@ -109,26 +109,25 @@ export class World {
             var txn = this.db().transaction([this.storeName, this.users], 'readwrite');
             var oldId = this.nextId;
             this.txn = txn;
-            try {
-                return this.processTransaction(func);
-            }
-            finally {
+            return this.processTransaction(func)
+                .finally(() => {
                 var store = this.txn.objectStore(this.storeName);
-                await Promise.allSettled([...this.dirty].map(dirty => store.put(this.thingCache.get(dirty).spec())))
+                return Promise.allSettled([...this.dirty].map(dirty => store.put(this.thingCache.get(dirty).spec())))
                     .then(() => {
                     this.txn = null;
                     if (oldId != this.nextId) {
                         return this.store();
                     }
                 });
-            }
+            });
         }
     }
     store() {
-        this.txn.objectStore(this.storeName).put(this.spec());
+        return promiseFor(this.txn.objectStore(this.storeName).put(this.spec()));
     }
     processTransaction(func) {
-        return func(this.txn.objectStore(this.storeName), this.txn.objectStore(this.users), this.txn);
+        var result = func(this.txn.objectStore(this.storeName), this.txn.objectStore(this.users), this.txn);
+        return result instanceof Promise ? result : Promise.resolve(result);
     }
     getUser(name) {
         return this.doTransaction(async (store, users, txn) => await promiseFor(users.get(name)));
@@ -200,13 +199,13 @@ export class World {
     }
     replaceUsers(newUsers) {
         return this.doTransaction(async (store, users, txn) => {
-            deleteAll(users)
+            return deleteAll(users)
                 .then(() => Promise.all(newUsers.map(u => users.put(u))));
         });
     }
     replaceThings(newThings) {
         return this.doTransaction(async (store, users, txn) => {
-            deleteAll(store)
+            return deleteAll(store)
                 .then(async () => {
                 this.useInfo(newThings.find(t => t.id == 'info'));
                 return Promise.all(newThings.map(t => store.put(t)));
@@ -304,10 +303,10 @@ export class MudStorage {
         this.openWorlds.set(name, world);
         return world;
     }
-    async store() {
+    store() {
         var txn = this.db.transaction(centralDbName, 'readwrite');
         var store = txn.objectStore(centralDbName);
-        await promiseFor(store.put(this.spec(), infoKey));
+        return promiseFor(store.put(this.spec(), infoKey));
     }
     spec() {
         return { worlds: this.worlds };
@@ -326,14 +325,12 @@ export class MudStorage {
         return new Promise((succeed, fail) => {
             var index = this.worlds.indexOf(name);
             if (index != -1) {
-                var req = this.upgrade(() => {
-                    this.store();
-                    succeed();
-                });
+                var req = this.upgrade(() => this.store().then(succeed));
                 req.onupgradeneeded = () => {
                     var txn = req.transaction;
                     this.db = req.result;
                     this.worlds.splice(index, 1);
+                    this.openWorlds.delete(name);
                     txn.db.deleteObjectStore(mudDbName(name));
                     txn.db.deleteObjectStore(userDbName(name));
                 };
