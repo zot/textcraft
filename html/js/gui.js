@@ -142,8 +142,11 @@ export async function editWorld(world) {
     let success = async () => {
         var name = nameField.value;
         if (name != world.name) {
-            await model.storage.renameWorld(world.name, name)
-                .then(showMuds);
+            await model.storage.renameWorld(world.name, name);
+            showMuds();
+        }
+        if (blobToRevoke) {
+            URL.revokeObjectURL(blobToRevoke);
         }
     };
     let blobToRevoke;
@@ -170,15 +173,13 @@ export async function editWorld(world) {
         evt.stopPropagation();
         var link = $find(div, '[name=download-mud-link]');
         link.textContent = "Preparing download...";
-        model.storage.fullBlobForWorld(world.name)
-            .then(blob => {
-            blobToRevoke = link.href = URL.createObjectURL(blob);
-            link.setAttribute('download', world.name + '.json');
-            link.textContent = 'Click to download ' + world.name + '.json';
-        });
+        var blob = await model.storage.fullBlobForWorld(world.name);
+        blobToRevoke = link.href = URL.createObjectURL(blob);
+        link.setAttribute('download', world.name + '.json');
+        link.textContent = 'Click to download ' + world.name + '.json';
     };
-    okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]')
-        .then(async () => {
+    try {
+        await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]');
         if (!redoUsers[0]) {
             for (let div of userList.children) {
                 let nameField = $find(div, '[name=mud-user-name]');
@@ -200,16 +201,13 @@ export async function editWorld(world) {
             }
             await world.replaceUsers(newUsers);
         }
-        if (blobToRevoke) {
-            URL.revokeObjectURL(blobToRevoke);
-        }
         success();
-    })
-        .catch(() => {
+    }
+    catch (err) {
         if (blobToRevoke) {
             URL.revokeObjectURL(blobToRevoke);
         }
-    });
+    }
 }
 function userItem(user, redoUsers) {
     let { name, password } = user;
@@ -280,12 +278,10 @@ async function uploadMud(evt) {
     var files = evt.target.files;
     if (files.length) {
         for (let file of files) {
-            var text = await file.text();
-            console.log(text);
-            model.storage.uploadWorld(JSON.parse(await file.text()))
-                .then(showMuds);
+            await model.storage.uploadWorld(JSON.parse(await file.text()));
         }
         $('#upload-mud').value = null;
+        showMuds();
     }
 }
 export function start() {

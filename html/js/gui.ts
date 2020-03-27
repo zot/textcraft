@@ -165,7 +165,10 @@ export async function editWorld(world: model.World) {
 
         if (name != world.name) {
             await model.storage.renameWorld(world.name, name)
-                .then(showMuds)
+            showMuds()
+        }
+        if (blobToRevoke) {
+            URL.revokeObjectURL(blobToRevoke)
         }
     }
     let blobToRevoke
@@ -194,48 +197,42 @@ export async function editWorld(world: model.World) {
         evt.stopPropagation()
         var link = $find(div, '[name=download-mud-link]')
         link.textContent = "Preparing download..."
-        model.storage.fullBlobForWorld(world.name)
-            .then(blob=> {
-                blobToRevoke = link.href = URL.createObjectURL(blob)
-                link.setAttribute('download', world.name+'.json')
-                link.textContent = 'Click to download '+world.name+'.json'
-            })
+        var blob = await model.storage.fullBlobForWorld(world.name)
+        blobToRevoke = link.href = URL.createObjectURL(blob)
+        link.setAttribute('download', world.name+'.json')
+        link.textContent = 'Click to download '+world.name+'.json'
     }
-    okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]')
-        .then(async ()=> {
-            if (!redoUsers[0]) {
-                for (let div of userList.children) {
-                    let nameField = $find(div, '[name=mud-user-name]')
-                    let passwordField = $find(div, '[name=mud-user-password]')
+    try {
+        await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]')
+        if (!redoUsers[0]) {
+            for (let div of userList.children) {
+                let nameField = $find(div, '[name=mud-user-name]')
+                let passwordField = $find(div, '[name=mud-user-password]')
 
-                    if (div.originalUserName != nameField.value
+                if (div.originalUserName != nameField.value
                     || div.originalPassword != passwordField.value) {
-                        redoUsers[0] = true
-                        break
-                    }
+                    redoUsers[0] = true
+                    break
                 }
             }
-            if (redoUsers[0]) {
-                let newUsers = []
+        }
+        if (redoUsers[0]) {
+            let newUsers = []
 
-                for (let div of userList.children) {
-                    newUsers.push({
-                        name: $find(div, '[name=mud-user-name]').value,
-                        password: $find(div, '[name=mud-user-password]').value,
-                    })
-                }
-                await world.replaceUsers(newUsers)
+            for (let div of userList.children) {
+                newUsers.push({
+                    name: $find(div, '[name=mud-user-name]').value,
+                    password: $find(div, '[name=mud-user-password]').value,
+                })
             }
-            if (blobToRevoke) {
-                URL.revokeObjectURL(blobToRevoke)
-            }
-            success()
-        })
-        .catch(()=>{
-            if (blobToRevoke) {
-                URL.revokeObjectURL(blobToRevoke)
-            }
-        })
+            await world.replaceUsers(newUsers)
+        }
+        success()
+    } catch(err) {
+        if (blobToRevoke) {
+            URL.revokeObjectURL(blobToRevoke)
+        }
+    }
 }
 
 function userItem(user: any, redoUsers) {
@@ -314,12 +311,10 @@ async function uploadMud(evt) {
 
     if (files.length) {
         for (let file of files) {
-            var text = await file.text()
-            console.log(text)
-            model.storage.uploadWorld(JSON.parse(await file.text()))
-                .then(showMuds)
+            await model.storage.uploadWorld(JSON.parse(await file.text()))
         }
         $('#upload-mud').value = null
+        showMuds()
     }
 }
 

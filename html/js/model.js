@@ -69,9 +69,9 @@ export class World {
     }
     initDb() {
         return new Promise((succeed, fail) => {
-            var req = storage.upgrade(() => {
-                return this.doTransaction(() => this.store())
-                    .then(succeed);
+            var req = storage.upgrade(async () => {
+                await this.doTransaction(() => this.store());
+                succeed();
             });
             req.onupgradeneeded = () => {
                 var txn = req.transaction;
@@ -110,15 +110,13 @@ export class World {
             var oldId = this.nextId;
             this.txn = txn;
             return this.processTransaction(func)
-                .finally(() => {
+                .finally(async () => {
                 var store = this.txn.objectStore(this.storeName);
-                return Promise.allSettled([...this.dirty].map(dirty => store.put(this.thingCache.get(dirty).spec())))
-                    .then(() => {
-                    this.txn = null;
-                    if (oldId != this.nextId) {
-                        return this.store();
-                    }
-                });
+                await Promise.allSettled([...this.dirty].map(dirty => store.put(this.thingCache.get(dirty).spec())));
+                this.txn = null;
+                if (oldId != this.nextId) {
+                    return this.store();
+                }
             });
         }
     }
@@ -184,10 +182,9 @@ export class World {
             }
         });
     }
-    createRandomUser() {
-        var name;
-        return this.randomUserName()
-            .then(name => this.createUser(name, randomName('password')));
+    async createRandomUser() {
+        var name = await this.randomUserName();
+        return this.createUser(name, randomName('password'));
     }
     createUser(name, password) {
         return this.doTransaction(async (store, users, txn) => {
@@ -199,17 +196,15 @@ export class World {
     }
     replaceUsers(newUsers) {
         return this.doTransaction(async (store, users, txn) => {
-            return deleteAll(users)
-                .then(() => Promise.all(newUsers.map(u => users.put(u))));
+            await deleteAll(users);
+            return Promise.all(newUsers.map(u => users.put(u)));
         });
     }
     replaceThings(newThings) {
         return this.doTransaction(async (store, users, txn) => {
-            return deleteAll(store)
-                .then(async () => {
-                this.useInfo(newThings.find(t => t.id == 'info'));
-                return Promise.all(newThings.map(t => store.put(t)));
-            });
+            await deleteAll(store);
+            this.useInfo(newThings.find(t => t.id == 'info'));
+            return Promise.all(newThings.map(t => store.put(t)));
         });
     }
     getThing(id) {
@@ -260,7 +255,8 @@ export class World {
         var txn = this.db().transaction([this.storeName, newWorld.storeName], 'readwrite');
         var srcStore = txn.objectStore(this.storeName);
         var dstStore = txn.objectStore(newWorld.storeName);
-        var cursor = (await rawPromiseFor(srcStore.openCursor()).then(e => e.target.result));
+        var evt = await rawPromiseFor(srcStore.openCursor());
+        var cursor = evt.target.result;
         if (cursor) {
             while (cursor.value) {
                 await promiseFor(dstStore.put(cursor.value));
@@ -325,7 +321,10 @@ export class MudStorage {
         return new Promise((succeed, fail) => {
             var index = this.worlds.indexOf(name);
             if (index != -1) {
-                var req = this.upgrade(() => this.store().then(succeed));
+                var req = this.upgrade(async () => {
+                    await this.store();
+                    return succeed();
+                });
                 req.onupgradeneeded = () => {
                     var txn = req.transaction;
                     this.db = req.result;
@@ -354,6 +353,8 @@ export class MudStorage {
                     var txn = req.transaction;
                     this.db = req.result;
                     this.worlds[index] = newName;
+                    this.openWorlds.set(newName, this.openWorlds.get(name));
+                    this.openWorlds.delete(name);
                     txn.objectStore(mudDbName(name)).name = mudDbName(newName);
                     txn.objectStore(userDbName(name)).name = userDbName(newName);
                 };
@@ -399,26 +400,24 @@ export class MudStorage {
         return world.users ? this.uploadFullWorld(world)
             : this.uploadStrippedWorld(world);
     }
-    uploadFullWorld(worldAndUsers) {
+    async uploadFullWorld(worldAndUsers) {
         var users = worldAndUsers.users;
         var objects = worldAndUsers.objects;
         var info = objects.find(i => i.id == 'info');
-        return this.openWorld(info.name)
-            .then(async (world) => {
-            world.doTransaction((thingStore, userStore, txn) => {
-                return world.replaceUsers(users)
-                    .then(() => this.uploadStrippedWorld(objects, world));
-            });
+        var world = await this.openWorld(info.name);
+        world.doTransaction(async (thingStore, userStore, txn) => {
+            await world.replaceUsers(users);
+            return this.uploadStrippedWorld(objects, world);
         });
     }
-    uploadStrippedWorld(objects, world = null) {
+    async uploadStrippedWorld(objects, world = null) {
         if (world) {
             return world.replaceThings(objects);
         }
         else {
             var info = objects.find(i => i.id == 'info');
-            return this.openWorld(info.name)
-                .then(world => world.replaceThings(objects));
+            world = await this.openWorld(info.name);
+            return world.replaceThings(objects);
         }
     }
 }
@@ -478,17 +477,16 @@ export function openStorage() {
             var store = txn.objectStore(centralDbName);
             store.put(storage.spec(), infoKey);
         };
-        req.onsuccess = evt => {
+        req.onsuccess = async (evt) => {
             var db = req.result;
             var txn = db.transaction(centralDbName, 'readwrite');
             var store = txn.objectStore(centralDbName);
             if (!storage) {
                 storage = new MudStorage(db);
             }
-            succeed(promiseFor(store.get(infoKey)).then(result => {
-                console.log('got storage spec', result);
-                return Object.assign(storage, result);
-            }));
+            var result = await promiseFor(store.get(infoKey));
+            console.log('got storage spec', result);
+            succeed(Object.assign(storage, result));
         };
     });
 }
