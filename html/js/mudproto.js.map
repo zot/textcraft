@@ -1,1 +1,1 @@
-{"version":3,"file":"mudproto.js","sourceRoot":"","sources":["mudproto.ts"],"names":[],"mappings":"AAAA,MAAM,UAAU,KAAK;AACrB,CAAC"}
+{"version":3,"file":"mudproto.js","sourceRoot":"","sources":["mudproto.ts"],"names":[],"mappings":"AAAA,mBAAmB;AAInB,IAAI,GAAQ,CAAA;AAEZ,MAAM,UAAU,IAAI,CAAC,MAAM;IACvB,GAAG,GAAG,MAAM,CAAA;AAChB,CAAC"}

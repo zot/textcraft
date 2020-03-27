@@ -88,6 +88,7 @@ export class StateTracker<E> {
     }
     observe(obs: stateObserver<E>) {
         this.observers.push(obs)
+        obs(this.value, this)
     }
 }
 

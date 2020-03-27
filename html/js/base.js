@@ -81,6 +81,7 @@ export class StateTracker {
     }
     observe(obs) {
         this.observers.push(obs);
+        obs(this.value, this);
     }
 }
 function enumNames(enumObj) {

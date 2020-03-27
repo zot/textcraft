@@ -30,9 +30,10 @@
     <body>
         <div id='indicators'>
             <button id='toggleStateButtons' title='Note, username must be filled in and nat state must be public or private for the gui to proceed'>Emulation</button>
+            &nbsp;
             <div id='indicator-box'>
-                <b>Mode: </b>
-                <span class='when-not-role-relay'>
+                <b>Mode:&nbsp;</b>
+                <span class='when-not-role-relay mode-label'>
                     <span class='when-peer-disconnected'>disconnected</span>
                     <span class='when-peer-abortingrelayhosting'>abortingRelayHosting</span>
                     <span class='when-peer-abortingrelayconnection'>abortingRelayConnection</span>
@@ -51,17 +52,22 @@
                     <span class='when-peer-connectedtorelayforhosting'>connectedToRelayForHosting</span>
                     <span class='when-peer-connectedtorelayforconnection'>connectedToRelayForConnection</span>
                 </span>
-                <span class='when-role-relay'>
+                <span class='when-role-relay mode-label'>
                     <span class='when-relay-idle'>idleRelay</span>
                     <span class='when-relay-pendinghosting'>pendingRelay</span>
                     <span class='when-relay-hosting'>hostingRelay</span>
                 </span>
-                <span id='modeIndicator'>
-                </span> <b>Online:</b>
+                <span id='modeIndicator'></span>
+                &nbsp;
+                <b>
+                    <span class='when-nat-known'>Online:</span>
+                    <span class='when-nat-notknown'>Offline:</span>
+                </b>
+                &nbsp;
                 <img class='when-nat-notstarted' id='onlineIndicator' src='images/Gray_Light_Icon.svg'>
                 <span class='when-nat-unknown'><b>NEED SWIRLY LIGHT<i class="fas fa-arrow-right"></i></b><img class='when-nat-unknown' id='onlineIndicator' src='images/Gray_Light_Icon.svg'></span>
                 <img class='when-nat-public' id='onlineIndicator' src='images/Green_Light_Icon.svg'>
-                <span class='when-nat-private'><b>NEED TO INDICATE PRIVATE<i class="fas fa-arrow-right"></i></b></span><img class='when-nat-private' id='onlineIndicator' src='images/Green_Light_Icon.svg'>
+                <span class='when-nat-private'><img class='when-nat-private' id='onlineIndicator' src='images/Orange_Light_Icon.svg'></span>
             </div>
         </div>
         <div id='stateButtons'>
@@ -106,7 +112,20 @@
                 <input type="radio" id="hostingRelay" name="relaySelection"> <label for="hostingRelay">Connected to host</label>
             </div>
         </div>
-		<div id='logo'><img src="images/textcraft.png"></div>
+		<div id='logo'>
+            <span id='gui-mode'></span>
+            <span class='fgrow'></span>
+            <img src="images/textcraft.png">
+            <span class='fgrow'></span>
+            <div>
+                <input type="radio" id="storageSection" name="sectionSelection"> <label for="storageSection">Storage</label>
+                <input type="radio" id="connectionSection" name="sectionSelection"> <label for="connectionSection">Connection</label>
+                <input type="radio" id="mudSection" name="sectionSelection"> <label for="mudSection">MUD</label>
+                <input type="radio" id="profileSection" name="sectionSelection"> <label for="profileSection">Profile</label>
+                &nbsp;
+            </div>
+        </div>
+        <div id='sections'>
         <div class='when-section-connection section'>
             <div id='login' class='when-not-connected-with-user'>
                 <div id='userDiv' class='field'>Username:&nbsp;<input id='user' type='text'></div>
@@ -174,8 +193,8 @@
         </div>
         <div class='when-section-mud section'>
             <div id='mudView' class='view'>
-                <textarea id='mudOutput'></textarea>
-                <input id='mudCommand' type='text'>
+                <div id='mud-output'></div>
+                <input id='mud-command' type='text'>
             </div>
         </div>
         <div class='when-section-profile section'>
@@ -186,13 +205,33 @@
         </div>
         <div class='when-section-storage section'>
             <div id='storageView' class='view'>
-                STORAGE
-                <div>Your MUDS <button class='when-peer-connectedtohost'>Request download of current MUD</button></div>
-                <div id='storageList'>
-                    <div>One <button>Rename</button> <button>Delete</button></div>
-                    <div>Two <button>Rename</button> <button>Delete</button></div>
-                </div>
+                <div class='fcenter'>Your MUDS&nbsp;<button id='add-mud-button'><i class="fas fa-plus"></i></button><button class='when-peer-connectedtohost'>Request download of current MUD</button></div>
+                <div id='storage-list'></div>
             </div>
+        </div>
+        <div id='templates'>
+            <div id='mud-item-template' class='mud-view'>
+                <i class="fas fa-fist-raised"></i>&nbsp;<span name='name'></span>&nbsp;<button name='activate-mud'>Activate</button>&nbsp;<button name='delete-mud' class='naked-button'><i class="fas fa-window-close"></i></button>
+            </div>
+            <div id='mud-editor-template' class='dialog fcolumn'>
+                <div class='field'>World name:&nbsp;<input type='text' name='mud-name'></span></div>
+                <div>Users <button name='mud-add-user'><i class="fas fa-plus"></i></button></div>
+                <div class='fcolumn fgrow' name='mud-user-list'>
+                    
+                </div>
+                <div><button name='save' class='left'>Save</button><button name='cancel' class='right'>Cancel</button></div>
+            </div>
+            <div id='mud-user-item' class='field mud-view'>
+                Name:&nbsp;
+                <input name='mud-user-name'>
+                &nbsp;Password:&nbsp;
+                <input name='mud-user-password'>
+                &nbsp;
+                <button name='delete-user' class='naked-button'><i class="fas fa-window-close"></i></button>
+            </div>
+        </div>
+        </div>
+        <div id='parsing'></div>
         </div>
     </body>
 </html>

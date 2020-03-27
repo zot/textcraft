@@ -4,6 +4,12 @@ import {
     natTracker, peerTracker, roleTracker, relayTracker, sectionTracker,
 } from "./base.js"
 
+var app: any
+
+export function init(appObj) {
+    app = appObj
+}
+
 natTracker.observe((state, tracker)=>{
     switch (state) {
         case NatState.Notstarted:

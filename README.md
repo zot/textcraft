@@ -14,7 +14,7 @@ It relies on [libp2p](https://github.com/libp2p/go-libp2p) for peer-to-peer netw
 
 The World is made of things, and only things. Each room is a thing. Exits between rooms are things. People are things. Items are things. Boxes are things.
 
-My good friend, Fritz Passow, came up with this idea, which he called "Container MUD", where everything is a container.
+Bill's good friend, Fritz Passow, came up with this idea, which he called "Container MUD", where everything is a container.
 
 The Thing class has these properties:
 

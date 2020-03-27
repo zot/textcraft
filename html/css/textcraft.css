@@ -22,7 +22,9 @@
  */
 
 #logo {
-	text-align: center;
+	/*text-align: center;*/
+    display: flex;
+    align-items: flex-end;
 }
 body {
 	background-color: #333333;
@@ -119,11 +121,13 @@ body:not(.emulation) #toggleStateButtons {
     right: 0;
     top: 0;
     white-space: nowrap;
+    display: flex;
 }
 #indicator-box {
-    display: inline-block;
+    display: flex;
     border: white solid 2px;
     border-radius: 5px;
+    align-items: center;
 }
 #toggleStateButtons {
     vertical-align: middle;
@@ -156,22 +160,96 @@ body:not(.emulation) #toggleStateButtons {
     display: flex;
     flex-direction: column;
 }
-#mudOutput {
+#mud-output {
     flex-grow: 1;
     resize: none;
+    background: white;
+    color: black;
 }
-#mudCommand {
+#mud-command {
 }
 #profileView {
 }
-#storageView {
+.fcolumn,
+#storageView,
+#storage-list {
     display: flex;
     flex-direction: column;
 }
-#storageList {
+#storage-list {
+    align-items: flex-start;
     flex-grow: 1;
     border: solid white 2px;
     border-radius: 5px;
     overflow: scroll;
     overflow-x: auto;
+}
+#templates,
+#parsing {
+    display: none;
+}
+.fgrow {
+    flex-grow: 1;
+}
+.mud-view {
+    display: flex;
+    align-items: center;
+    background: darkorange;
+    border: solid black 2px;
+    border-radius: 5px;
+    padding-left: 0.5ex;
+    padding-right: 0.5ex;
+}
+.mud-view [name=name] {
+    flex-grow: 1;
+    font-weight: bold;
+}
+[name=mud-user-list] {
+    height: 10em;
+    border: solid white 2px;
+    border-radius: 5px;
+    padding-left: 0.5ex;
+    padding-right: 0.5ex;
+    overflow: scroll;
+    overflow-x: auto;
+}
+.naked-button {
+    padding-left: 1;
+    padding-right: 1;
+    border: none;
+    background: none;
+}
+.fcenter {
+    display: flex;
+    align-items: center;
+}
+#gui-mode {
+    font-weight: bold;
+    font-size: 1.25em;
+    color: orange;
+}
+.mode-label {
+    font-weight: bold;
+    color: cyan;
+}
+.left {
+    float: left;
+}
+.right {
+    float: right;
+}
+.dialog {
+    position: absolute;
+    left: 3ex;
+    right: 3ex;
+    top: 4em;
+    /*bottom: 3ex;*/
+    border: green solid 3px;
+    border-radius: 5px;
+    background: black;
+}
+#sections {
+    display: flex;
+    flex-grow: 1;
+    position: relative;
 }
