@@ -168,6 +168,7 @@ export async function editWorld(world: model.World) {
                 .then(showMuds)
         }
     }
+    let blobToRevoke
 
     for (let user of await world.getAllUsers()) {
         let div = userItem(user, redoUsers)
@@ -189,6 +190,17 @@ export async function editWorld(world: model.World) {
         div.remove()
         success()
     })
+    $find(div, '[name=download-mud]').onclick = async evt=> {
+        evt.stopPropagation()
+        var link = $find(div, '[name=download-mud-link]')
+        link.textContent = "Preparing download..."
+        model.storage.fullBlobForWorld(world.name)
+            .then(blob=> {
+                blobToRevoke = link.href = URL.createObjectURL(blob)
+                link.setAttribute('download', world.name+'.json')
+                link.textContent = 'Click to download '+world.name+'.json'
+            })
+    }
     okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]')
         .then(async ()=> {
             if (!redoUsers[0]) {
@@ -214,9 +226,16 @@ export async function editWorld(world: model.World) {
                 }
                 await world.replaceUsers(newUsers)
             }
+            if (blobToRevoke) {
+                URL.revokeObjectURL(blobToRevoke)
+            }
             success()
         })
-        .catch(()=>{})
+        .catch(()=>{
+            if (blobToRevoke) {
+                URL.revokeObjectURL(blobToRevoke)
+            }
+        })
 }
 
 function userItem(user: any, redoUsers) {
@@ -231,10 +250,8 @@ function userItem(user: any, redoUsers) {
     passwordField.value = password
     $find(div, '[name=delete-user]').onclick = async evt=> {
         evt.stopPropagation()
-        if (confirm('Delete user '+name+'?')) {
-            div.remove()
-            redoUsers[0] = true
-        }
+        div.remove()
+        redoUsers[0] = true
     }
     return div
 }
@@ -291,6 +308,20 @@ export function parseHtml(html, receivingNode = null) {
     }
     return receivingNode
 }
+
+async function uploadMud(evt) {
+    var files = evt.target.files
+
+    if (files.length) {
+        for (let file of files) {
+            var text = await file.text()
+            console.log(text)
+            model.storage.uploadWorld(JSON.parse(await file.text()))
+                .then(showMuds)
+        }
+    }
+}
+
 export function start() {
     radioTracker(natTracker, 'Nat')
     radioTracker(peerTracker, 'Peer')
@@ -313,5 +344,6 @@ export function start() {
             $('#mud-command').value = ''
         }
     }
+    $('#upload-mud').onchange = uploadMud
     showMuds()
 }

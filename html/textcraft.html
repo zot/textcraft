@@ -205,7 +205,7 @@
         </div>
         <div class='when-section-storage section'>
             <div id='storageView' class='view'>
-                <div class='fcenter'>Your MUDS&nbsp;<button id='add-mud-button'><i class="fas fa-plus"></i></button><button class='when-peer-connectedtohost'>Request download of current MUD</button></div>
+                <div class='fcenter'>Your MUDS&nbsp;<button id='add-mud-button'><i class="fas fa-plus"></i></button>&nbsp;Upload MUD&nbsp;<input type='file' id='upload-mud' accept='application/json'><button class='when-peer-connectedtohost'>Request download of current MUD</button></div>
                 <div id='storage-list'></div>
             </div>
         </div>
@@ -214,7 +214,7 @@
                 <i class="fas fa-fist-raised"></i>&nbsp;<span name='name'></span>&nbsp;<button name='activate-mud'>Activate</button>&nbsp;<button name='delete-mud' class='naked-button'><i class="fas fa-window-close"></i></button>
             </div>
             <div id='mud-editor-template' class='dialog fcolumn'>
-                <div class='field'>World name:&nbsp;<input type='text' name='mud-name'></span></div>
+                <div class='field'>World name:&nbsp;<input type='text' name='mud-name'></span>&nbsp;<button name='download-mud'>Generate download</button>&nbsp;<a name='download-mud-link' class='fgrow'></a></div>
                 <div>Users <button name='mud-add-user'><i class="fas fa-plus"></i></button></div>
                 <div class='fcolumn fgrow' name='mud-user-list'>
                     
@@ -227,7 +227,7 @@
                 &nbsp;Password:&nbsp;
                 <input name='mud-user-password'>
                 &nbsp;
-                <button name='delete-user' class='naked-button'><i class="fas fa-window-close"></i></button>
+            <button name='delete-user' class='naked-button'><i class="fas fa-window-close"></i></button>
             </div>
         </div>
         </div>

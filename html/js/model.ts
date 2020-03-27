@@ -90,21 +90,27 @@ export class World {
         return new Promise((succeed, fail)=> {
             var req = storage.upgrade(()=> {
                 this.doTransaction(()=> this.store())
-                succeed()
+                    .then(succeed)
             })
 
             req.onupgradeneeded = ()=> {
                 var txn = req.transaction
-                var userStore = txn.db.createObjectStore(this.users, {autoIncrement: true})
-                //var userStore = txn.db.createObjectStore(this.users, {keyPath: 'name'})
+                //var userStore = txn.db.createObjectStore(this.users, {autoIncrement: true})
+                var userStore = txn.db.createObjectStore(this.users, {keyPath: 'name'})
                 var thingStore = txn.db.createObjectStore(this.storeName, {keyPath: 'id'})
 
-                userStore.createIndex(nameIndex, 'name', {unique: true}) // look up users by name
+                //userStore.createIndex(nameIndex, 'name', {unique: true}) // look up users by name
                 thingStore.createIndex(locationIndex, 'location', {unique: false})
                 thingStore.createIndex(linkOwnerIndex, 'linkOwner', {unique: false})
             }
             req.onerror = fail
         })
+    }
+    loadInfo() {
+        return this.doTransaction(async (store, users, txn)=> this.useInfo(await store.get('info')))
+    }
+    useInfo(info) {
+        this.nextId = info.nextId
     }
     rename(newName) {
         this.storage.renameWorld(this.name, newName)
@@ -146,7 +152,7 @@ export class World {
         return func(this.txn.objectStore(this.storeName), this.txn.objectStore(this.users), this.txn)
     }
     getUser(name: string) {
-        return this.doTransaction(async (store, users, txn)=> await promiseFor(users.index(nameIndex).get(name)))
+        return this.doTransaction(async (store, users, txn)=> await promiseFor(users.get(name)))
     }
     deleteUser(name: string) {
         return this.doTransaction(async (store, users, txn)=> {
@@ -219,15 +225,18 @@ export class World {
         })
     }
     replaceUsers(newUsers: any[]) {
-        return new Promise((succeed, fail)=> {
-            this.doTransaction(async (store, users, txn)=> {
-                deleteAll(users)
-                    .then(async ()=> {
-                        for (let {name, password} of newUsers) {
-                            await this.createUser(name, password)
-                        }
-                    })
-            })
+        return this.doTransaction(async (store, users, txn)=> {
+            deleteAll(users)
+                .then(()=> Promise.all(newUsers.map(u=> users.put(u))))
+        })
+    }
+    replaceThings(newThings: any[]) {
+        return this.doTransaction(async (store, users, txn)=> {
+            deleteAll(store)
+                .then(async ()=> {
+                    this.useInfo(newThings.find(t=> t.id == 'info'))
+                    return Promise.all(newThings.map(t=> store.put(t)))
+                })
         })
     }
     getThing(id: thingId) {
@@ -322,6 +331,8 @@ export class MudStorage {
             this.worlds.push(name)
             this.store()
             await world.initDb()
+        } else {
+            await world.loadInfo()
         }
         this.openWorlds.set(name, world)
         return world
@@ -399,6 +410,99 @@ export class MudStorage {
             }
         })
     }
+    async strippedBlobForWorld(name: string) {
+        var index = this.worlds.indexOf(name)
+
+        if (index == -1) {
+            return Promise.reject(new Error('No world found named '+name))
+        }
+        return new Promise(async (succeed, fail)=> {
+            var txn = this.db.transaction([mudDbName(name)])
+
+            return blobForDb(await txn.objectStore(mudDbName(name)))
+        })
+    }
+    fullBlobForWorld(name: string): Promise<Blob> {
+        var index = this.worlds.indexOf(name)
+        var records = ['{"objects":']
+
+        if (index == -1) {
+            return Promise.reject(new Error('No world found named '+name))
+        }
+        return new Promise(async (succeed, fail)=> {
+            var txn = this.db.transaction([mudDbName(name), userDbName(name)])
+
+            await jsonObjectsForDb(txn.objectStore(mudDbName(name)), records)
+            records.push(', "users":')
+            await jsonObjectsForDb(txn.objectStore(userDbName(name)), records)
+            records.push('}')
+            succeed(blobForJsonObjects(records))
+        })
+    }
+    uploadWorld(world) {
+        return world.users ? this.uploadFullWorld(world)
+            : this.uploadStrippedWorld(world)
+    }
+    uploadFullWorld(worldAndUsers) {
+        var users = worldAndUsers.users
+        var objects = worldAndUsers.objects
+        var info = objects.find(i=> i.id == 'info')
+
+        return this.openWorld(info.name)
+            .then(async world=> {
+                world.doTransaction((thingStore, userStore, txn)=> {
+                    return world.replaceUsers(users)
+                        .then(()=> this.uploadStrippedWorld(objects, world))
+                })
+            })
+    }
+    uploadStrippedWorld(objects, world = null) {
+        if (world) {
+            return world.replaceThings(objects)
+        } else {
+            var info = objects.find(i=> i.id == 'info')
+
+            return this.openWorld(info.name)
+                .then(world=> world.replaceThings(objects))
+        }
+    }
+}
+
+export function blobForJsonObjects(objects) {
+    return new Blob(objects, {type: 'application/json'})
+}
+
+export async function blobForDb(objectStore) {
+    return blobForJsonObjects(await jsonObjectsForDb(objectStore))
+}
+
+export function jsonObjectsForDb(objectStore, records = []) {
+    return new Promise((succeed, fail)=> {
+        var req = objectStore.openCursor()
+        var first = true
+
+        records.push('[')
+        req.onsuccess = evt=> {
+            let cursor = evt.target.result
+
+            if (cursor) {
+                if (first) {
+                    first = false
+                } else {
+                    records.push(',')
+                }
+                records.push(JSON.stringify(cursor.value))
+                cursor.continue()
+            } else {
+                records.push(']')
+                succeed(records)
+            }
+        }
+        req.onerror = evt=> {
+            console.log('failure: ', evt)
+            fail(evt)
+        }
+    })
 }
 
 export function identity(x) {
