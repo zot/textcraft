@@ -3,6 +3,7 @@ import * as model from './model.js';
 import * as mudcontrol from './mudcontrol.js';
 import * as storagecontrol from './storagecontrol.js';
 var relaying = false;
+var nextId = 0;
 export function init(appObj) { }
 function $(sel) {
     return typeof sel == 'string' ? document.querySelector(sel) : sel;
@@ -102,6 +103,20 @@ function cloneTemplate(name) {
     if (t) {
         var node = t.cloneNode(true);
         node.id = null;
+        for (let n of $findAll(node, '*')) {
+            if (!n.id) {
+                n.id = `id-${nextId++}`;
+            }
+        }
+        for (let n of $findAll(node, 'label')) {
+            var name = n.getAttribute('for');
+            if (name) {
+                var target = $find(node, `[name=${name}]`);
+                if (target) {
+                    n.setAttribute('for', target.id);
+                }
+            }
+        }
         return node;
     }
 }
@@ -184,8 +199,10 @@ export async function editWorld(world) {
             for (let div of userList.children) {
                 let nameField = $find(div, '[name=mud-user-name]');
                 let passwordField = $find(div, '[name=mud-user-password]');
-                if (div.originalUserName != nameField.value
-                    || div.originalPassword != passwordField.value) {
+                let adminCheckbox = $find(div, '[name=mud-user-admin]');
+                if (div.originalUser.name != nameField.value
+                    || div.originalUser.password != passwordField.value
+                    || div.originalUser.admin != adminCheckbox.checked) {
                     redoUsers[0] = true;
                     break;
                 }
@@ -194,10 +211,11 @@ export async function editWorld(world) {
         if (redoUsers[0]) {
             let newUsers = [];
             for (let div of userList.children) {
-                newUsers.push({
-                    name: $find(div, '[name=mud-user-name]').value,
-                    password: $find(div, '[name=mud-user-password]').value,
-                });
+                var user = div.originalUser;
+                user.name = $find(div, '[name=mud-user-name]').value;
+                user.password = $find(div, '[name=mud-user-password]').value;
+                user.admin = $find(div, '[name=mud-user-admin]').checked;
+                newUsers.push(user);
             }
             await world.replaceUsers(newUsers);
         }
@@ -210,14 +228,15 @@ export async function editWorld(world) {
     }
 }
 function userItem(user, redoUsers) {
-    let { name, password } = user;
+    let { name, password, admin } = user;
     let div = cloneTemplate('#mud-user-item');
     let nameField = $find(div, '[name=mud-user-name]');
     let passwordField = $find(div, '[name=mud-user-password]');
-    div.originalUserName = name;
-    div.originalPassword = password;
+    let adminCheckbox = $find(div, '[name=mud-user-admin]');
+    div.originalUser = user;
     nameField.value = name;
     passwordField.value = password;
+    adminCheckbox.checked = !!admin;
     $find(div, '[name=delete-user]').onclick = async (evt) => {
         evt.stopPropagation();
         div.remove();
@@ -248,6 +267,7 @@ export function setMudOutput(html) {
 }
 export function addMudOutput(html) {
     parseHtml(html, $('#mud-output'));
+    $('#mud-output').scrollTo(0, $('#mud-output').offsetHeight);
 }
 export function focusMudInput() {
     $('#mud-command').focus();
@@ -290,7 +310,12 @@ export function start() {
     radioTracker(roleTracker, 'Role');
     radioTracker(relayTracker, 'Relay');
     radioTracker(sectionTracker, 'Section');
-    sectionTracker.observe(state => $('#gui-mode').textContent = SectionState[state]);
+    sectionTracker.observe(state => {
+        $('#gui-mode').textContent = SectionState[state];
+        if (state == SectionState.Mud) {
+            $('#mud-command').focus();
+        }
+    });
     sectionTracker.setValue(SectionState.Storage);
     $('#user').onblur = () => setUser($('#user').value);
     $('#user').onkeydown = evt => {

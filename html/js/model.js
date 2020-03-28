@@ -5,6 +5,32 @@ const locationIndex = 'locations';
 const linkOwnerIndex = 'linkOwners';
 const nameIndex = 'names';
 const usersSuffix = ' users';
+const spec2ThingProps = new Map([
+    ['id', '_id'],
+    ['prototype', '_prototype'],
+    ['article', '_article'],
+    ['name', '_name'],
+    ['fullName', '_fullName'],
+    ['description', '_description'],
+    ['count', '_count'],
+    ['location', '_location'],
+    ['linkOwner', '_linkOwner'],
+    ['otherLink', '_otherLink'],
+    ['open', '_open'],
+]);
+const thing2SpecProps = new Map([
+    ['_id', 'id'],
+    ['_prototype', 'prototype'],
+    ['_article', 'article'],
+    ['_name', 'name'],
+    ['_fullName', 'fullName'],
+    ['_description', 'description'],
+    ['_count', 'count'],
+    ['_location', 'location'],
+    ['_linkOwner', 'linkOwner'],
+    ['_otherLink', 'otherLink'],
+    ['_open', 'open'],
+]);
 /*
  * ## The Thing class
  *
@@ -26,34 +52,95 @@ const usersSuffix = ' users';
 export class Thing {
     constructor(id, name, description = '') {
         this._id = id;
-        this.name = name;
-        this.description = description;
+        this._fullName = name;
+        this._name = name.split(/ +/)[0];
+        this._description = description;
+        this._open = true;
+        this._location = null;
+        this._linkOwner = null;
+        this._otherLink = null;
     }
     get id() { return this._id; }
+    get article() { return this._article; }
+    set article(a) { this._article = a; }
+    get count() { return this._count; }
+    set count(n) { this._count = n; }
     get name() { return this._name; }
     set name(n) { this.markDirty(this._name = n); }
+    get fullName() { return this._fullName; }
+    set fullName(n) {
+        this.markDirty(this._fullName = n);
+        this._name = n.split(/ +/)[0].toLowerCase();
+    }
     get description() { return this._description; }
     set description(d) { this.markDirty(this._description = d); }
-    get contents() { return this.world.getContents(this); }
-    get location() { return this.world.getThing(this._location); }
-    set location(t) { this.markDirty(this._location = t.id); }
-    get links() { return this.world.getLinks(this); }
-    get linkOwner() { return this.world.getThing(this._linkOwner); }
-    set linkOwner(t) { this.markDirty(this._linkOwner = t && t.id); }
-    get otherLink() { return this.world.getThing(this._otherLink); }
-    set otherLink(t) { this.markDirty(this._otherLink = t && t.id); }
+    get open() { return this._open; }
+    set open(b) { this.markDirty(this._open = b); }
+    getContents() { return this.world.getContents(this); }
+    getPrototype() { return this.world.getThing(this._prototype); }
+    setPrototype(t) {
+        if (t) {
+            this._prototype = t.id;
+            this.__proto__ = t;
+        }
+        else {
+            this._prototype = null;
+        }
+    }
+    getLocation() { return this.world.getThing(this._location); }
+    setLocation(t) { this.markDirty(this._location = t.id); }
+    getLinks() { return this.world.getLinks(this); }
+    getLinkOwner() { return this.world.getThing(this._linkOwner); }
+    setLinkOwner(t) { this.markDirty(this._linkOwner = t && t.id); }
+    getOtherLink() { return this.world.getThing(this._otherLink); }
+    setOtherLink(t) { this.markDirty(this._otherLink = t && t.id); }
+    formatName() {
+        return (this.article ? this.article + ' ' : '') + this.fullName;
+    }
     markDirty(sideEffect) {
         this.world.markDirty(this);
     }
+    async find(name, exclude = new Set()) {
+        if (exclude.has(this)) {
+            return null;
+        }
+        else if (this.name == name) {
+            return this;
+        }
+        exclude.add(this);
+        for (let item of await this.getContents()) {
+            var result = item.find(name);
+            if (result) {
+                return result;
+            }
+        }
+        return null;
+    }
+    store() {
+        return this.world.putThing(this);
+    }
     spec() {
-        return {
-            id: this._id,
-            name: this._name,
-            description: this._description,
-            location: this._location,
-            linkOwner: this._linkOwner,
-            otherLink: this._otherLink,
-        };
+        var spec = {};
+        for (let prop of thing2SpecProps.keys()) {
+            if (prop in this) {
+                spec[thing2SpecProps.get(prop)] = this[prop];
+            }
+        }
+        return spec;
+    }
+    async useSpec(spec) {
+        for (let prop of spec2ThingProps.keys()) {
+            if (spec[prop]) {
+                this[spec2ThingProps.get(prop)] = spec[prop];
+            }
+        }
+        if (spec.prototype) {
+            var proto = await this.world.getThing(spec.prototype);
+            if (!proto) {
+                throw new Error('Could not find prototype ' + spec.prototype);
+            }
+            this.__proto__ = proto;
+        }
     }
 }
 export class World {
@@ -61,6 +148,8 @@ export class World {
         this.setName(name);
         this.storage = storage;
         this.dirty = new Set();
+        this.thingCache = new Map();
+        this.nextId = 0;
     }
     setName(name) {
         this.name = name;
@@ -69,9 +158,32 @@ export class World {
     }
     initDb() {
         return new Promise((succeed, fail) => {
-            var req = storage.upgrade(async () => {
-                await this.doTransaction(() => this.store());
-                succeed();
+            var req = storage.upgrade(() => {
+                return this.doTransaction(async (store, users, txn) => {
+                    var limbo = await this.createThing('Limbo', 'You are floating in $this');
+                    this.limbo = limbo.id;
+                    limbo.markDirty(limbo._location = this.limbo);
+                    limbo.article = null;
+                    var lobby = await this.createThing('Lobby', 'You are in $this');
+                    lobby.markDirty(this.lobby = lobby.id);
+                    var protos = await this.createThing('Hall of Prototypes', 'You are in $this');
+                    protos.markDirty(this.hallOfPrototypes = protos.id);
+                    var thingProto = await this.createThing('thing', 'This is $this');
+                    this.thingProto = thingProto;
+                    thingProto.markDirty(thingProto._location = this.hallOfPrototypes);
+                    var roomProto = await this.createThing('room', 'You are in $this');
+                    this.roomProto = roomProto;
+                    roomProto.markDirty(roomProto._location = this.hallOfPrototypes);
+                    roomProto._prototype = thingProto.id;
+                    limbo._prototype = roomProto.id;
+                    lobby._prototype = roomProto.id;
+                    protos._prototype = roomProto.id;
+                    var personProto = await this.createThing('room', '$This $is only a dude');
+                    personProto.markDirty(personProto._location = this.hallOfPrototypes);
+                    personProto._prototype = thingProto.id;
+                    this.store();
+                    succeed();
+                });
             });
             req.onupgradeneeded = () => {
                 var txn = req.transaction;
@@ -86,10 +198,28 @@ export class World {
         });
     }
     loadInfo() {
-        return this.doTransaction(async (store, users, txn) => this.useInfo(await store.get('info')));
+        return this.doTransaction(async (store, users, txn) => this.useInfo(await promiseFor(store.get('info'))));
     }
-    useInfo(info) {
+    async useInfo(info) {
         this.nextId = info.nextId;
+        this.name = info.name;
+        this.lobby = info.lobby;
+        this.limbo = info.limbo;
+        this.hallOfPrototypes = info.hallOfPrototypes;
+        this.thingProto = await this.getThing(info.thingProto);
+        this.roomProto = await this.getThing(info.roomProto);
+    }
+    spec() {
+        return {
+            id: infoKey,
+            nextId: this.nextId,
+            name: this.name,
+            lobby: this.lobby,
+            limbo: this.limbo,
+            hallOfPrototypes: this.hallOfPrototypes,
+            thingProto: this.thingProto.id,
+            roomProto: this.roomProto.id,
+        };
     }
     rename(newName) {
         this.storage.renameWorld(this.name, newName);
@@ -109,22 +239,25 @@ export class World {
             var txn = this.db().transaction([this.storeName, this.users], 'readwrite');
             var oldId = this.nextId;
             this.txn = txn;
+            this.thingStore = txn.objectStore(this.storeName);
+            this.userStore = txn.objectStore(this.users);
             return this.processTransaction(func)
                 .finally(async () => {
-                var store = this.txn.objectStore(this.storeName);
-                await Promise.allSettled([...this.dirty].map(dirty => store.put(this.thingCache.get(dirty).spec())));
-                this.txn = null;
+                await Promise.allSettled([...this.dirty].map(dirty => this.thingCache.get(dirty).store()));
+                this.dirty = new Set();
                 if (oldId != this.nextId) {
-                    return this.store();
+                    this.store();
                 }
+                this.txn = null;
+                this.thingStore = this.userStore = null;
             });
         }
     }
     store() {
-        return promiseFor(this.txn.objectStore(this.storeName).put(this.spec()));
+        return promiseFor(this.thingStore.put(this.spec()));
     }
     processTransaction(func) {
-        var result = func(this.txn.objectStore(this.storeName), this.txn.objectStore(this.users), this.txn);
+        var result = func(this.thingStore, this.userStore, this.txn);
         return result instanceof Promise ? result : Promise.resolve(result);
     }
     getUser(name) {
@@ -184,68 +317,127 @@ export class World {
     }
     async createRandomUser() {
         var name = await this.randomUserName();
-        return this.createUser(name, randomName('password'));
+        return this.createUser(name, randomName('password'), false);
     }
-    createUser(name, password) {
+    createUser(name, password, admin) {
         return this.doTransaction(async (store, users, txn) => {
-            let user = { name, password };
-            await users.put(user);
+            let user = { name, password, admin };
+            await this.putUser(user);
             console.log('created user', user);
             return user;
         });
     }
+    putUser(user) {
+        return promiseFor(this.userStore.put(user));
+    }
+    putThing(thing) {
+        return promiseFor(this.thingStore.put(thing.spec()));
+    }
     replaceUsers(newUsers) {
         return this.doTransaction(async (store, users, txn) => {
             await deleteAll(users);
-            return Promise.all(newUsers.map(u => users.put(u)));
+            return Promise.all(newUsers.map(u => this.putUser(u)));
         });
     }
     replaceThings(newThings) {
         return this.doTransaction(async (store, users, txn) => {
             await deleteAll(store);
-            this.useInfo(newThings.find(t => t.id == 'info'));
-            return Promise.all(newThings.map(t => store.put(t)));
+            await this.useInfo(newThings.find(t => t.id == 'info'));
+            return Promise.all(newThings.map(t => this.putThing(t)));
         });
     }
-    getThing(id) {
-        if (!id) {
-            return null;
+    async getThing(tip) {
+        var id;
+        if (typeof tip == 'number') {
+            id = tip;
+        }
+        else if (tip instanceof Thing) {
+            return Promise.resolve(tip);
+        }
+        else if (tip instanceof Promise) {
+            return await tip;
         }
         else {
-            var cached = this.thingCache.get(id);
-            if (cached) {
-                return cached;
-            }
+            return null;
         }
-        this.doTransaction(async (store, users, txn) => this.cacheThingFor(await promiseFor(store.get(id))));
+        var cached = this.thingCache.get(id);
+        if (cached) {
+            return Promise.resolve(cached);
+        }
+        return this.doTransaction(async (store) => this.cacheThingFor(await promiseFor(store.get(id))));
+    }
+    authenticate(name, passwd) {
+        return this.doTransaction(async (store, users, txn) => {
+            var user = await promiseFor(users.get(name));
+            if (!user || user.password != passwd) {
+                throw new Error('Bad user or password');
+            }
+            if (!user.thing) {
+                var thing = await this.createThing(name, 'Just some dude');
+                thing.markDirty(thing._location = this.lobby);
+                thing.article = '';
+                user.thing = thing.id;
+                await this.putUser(user);
+                return [thing, user.admin];
+            }
+            else {
+                return [await this.getThing(user.thing), user.admin];
+            }
+        });
     }
     createThing(name, description = '') {
         var t = new Thing(this.nextId++, name, description);
+        t._location = this.limbo;
+        t._article = 'the';
+        if (this.thingProto)
+            t.setPrototype(this.thingProto);
+        t._count = 1;
+        t.world = this;
         this.thingCache.set(t.id, t);
-        this.doTransaction(async (store, users, txn) => {
-            return await promiseFor(store.put(t));
+        this.doTransaction(async () => {
+            return await this.putThing(t);
         });
         return t;
     }
-    storeThing(thing) {
-        this.txn.objectStore(this.storeName).put(thing.spec());
-    }
     cacheThingFor(thingSpec) {
-        var thing = Object.assign(new Thing(null, null), thingSpec);
+        var thing = new Thing(null, '');
+        thing.world = this;
+        thing.useSpec(thingSpec);
         this.thingCache.set(thing.id, thing);
         return thing;
     }
-    async getContents(thing) {
-        return await promiseFor(this.txn.objectStore(this.storeName).index(locationIndex).getAll(IDBKeyRange.only(thing.id)));
+    async cacheThings(specs) {
+        for (let i = 0; i < specs.length; i++) {
+            var thing = this.thingCache.get(specs[i].id);
+            specs[i] = thing || this.cacheThingFor(specs[i]);
+        }
+        return specs;
     }
-    async getLinks(thing) {
-        return await promiseFor(this.txn.objectStore(this.storeName).index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id)));
+    getContents(thing) {
+        let id = typeof thing == 'number' ? thing : thing.id;
+        return this.doTransaction(async (things) => {
+            return this.cacheThings(await promiseFor(things.index(locationIndex).getAll(IDBKeyRange.only(id))));
+        });
+    }
+    getLinks(thing) {
+        return this.doTransaction(async (things) => {
+            return this.cacheThings(await promiseFor(this.thingStore.index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id))));
+        });
+    }
+    async getAncestors(thing, ancestors = []) {
+        if (thing._prototype) {
+            return this.doTransaction(async () => {
+                var proto = await thing.getPrototype();
+                this.getAncestors(proto, ancestors);
+                return ancestors;
+            });
+        }
+        else {
+            return ancestors;
+        }
     }
     markDirty(thing) {
         this.dirty.add(thing.id);
-    }
-    spec() {
-        return { id: infoKey, nextId: this.nextId, name: this.name };
     }
     async copyWorld(newName) {
         if (this.storage.hasWorld(newName)) {
