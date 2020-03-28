@@ -310,7 +310,7 @@ export function addMudOutput(html) {
             }
         }
     })
-    $('#mud-output').scrollTo(0, $('#mud-output').offsetHeight)
+    $('#mud-output').scrollTo(0, $('#mud-output').scrollHeight)
 }
 
 export function focusMudInput() {

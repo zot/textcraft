@@ -111,7 +111,12 @@ export class MudConnection {
         this.outputHandler(text)
     }
     start() {
-        this.outputHandler('Welcome to the mud, use the "login" command to log in. Help lists commands...')
+        this.outputHandler(`Welcome to the mud, use the "login" command to log in.
+<p>
+<p>
+<p>Help lists commands...
+<p>
+<p>Click on old commands to reuse them`)
     }
     async format(tip: thingId | Thing | Promise<Thing>, str: string) {
         var thing = await this.world.getThing(tip)
@@ -258,6 +263,7 @@ export class MudConnection {
         this.output(
 `<pre>%${thing.id}
    name: ${thing._name}
+   prototype: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
    fullName: ${thing._fullName}
    article: ${thing._article}
    description: ${thing._description}

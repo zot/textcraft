@@ -182,6 +182,7 @@ export class World {
     hallOfPrototypes: thingId
     thingProto: Thing
     roomProto: Thing
+    personProto: Thing
     users: string
     nextId: number
     storage: Storage
@@ -226,8 +227,10 @@ export class World {
                     lobby._prototype = roomProto.id
                     protos._prototype = roomProto.id
                     var personProto = await this.createThing('person', '$This $is only a dude')
+                    this.personProto = personProto
                     personProto.markDirty(personProto._location = this.hallOfPrototypes)
                     personProto._prototype = thingProto.id
+                    personProto._article = ''
                     this.store()
                     succeed()
                 })
@@ -431,6 +434,7 @@ export class World {
                 var thing = await this.createThing(name, 'Just some dude')
 
                 thing.markDirty(thing._location = this.lobby)
+                if (this.personProto) thing.setPrototype(this.personProto)
                 thing.article = ''
                 user.thing = thing.id
                 await this.putUser(user)
@@ -445,7 +449,6 @@ export class World {
 
         t.world = this
         t._location = this.limbo
-        t._article = 'the'
         if (this.thingProto) t.setPrototype(this.thingProto)
         t._count = 1
         this.thingCache.set(t.id, t)
