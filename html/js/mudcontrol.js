@@ -88,7 +88,7 @@ export class MudConnection {
         this.outputHandler(text);
     }
     start() {
-        this.outputHandler('Welcome to the mud, use the "login" command to log in...');
+        this.outputHandler('Welcome to the mud, use the "login" command to log in. Help lists commands...');
     }
     async format(tip, str) {
         var thing = await this.world.getThing(tip);
