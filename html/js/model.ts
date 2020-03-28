@@ -68,11 +68,11 @@ export class Thing {
     _otherLink: thingId   // the other link (if this is a link)
     _open: boolean
     world: World
-    constructor(id: number, name: string, description = '') {
+    constructor(id: number, name: string, description = null) {
         this._id = id
         this._fullName = name
         this._name = name.split(/ +/)[0]
-        this._description = description
+        if (typeof description != 'undefined') this._description = description
         this._open = true
         this._location = null
         this._linkOwner = null
@@ -148,10 +148,8 @@ export class Thing {
         return spec
     }
     async useSpec(spec: any) {
-        for (let prop of spec2ThingProps.keys()) {
-            if (spec[prop]) {
-                this[spec2ThingProps.get(prop)] = spec[prop]
-            }
+        for (let prop in spec) {
+            this[spec2ThingProps.get(prop)] = spec[prop]
         }
         if (spec.prototype) {
             var proto = await this.world.getThing(spec.prototype)

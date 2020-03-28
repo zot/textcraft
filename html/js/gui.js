@@ -134,6 +134,7 @@ export function showMuds() {
         };
         $find(div, '[name=activate-mud]').onclick = async (evt) => {
             evt.stopPropagation();
+            $('#mud-output').innerHTML = '';
             sectionTracker.setValue(SectionState.Mud);
             mudcontrol.runMud(await model.storage.openWorld(world));
         };

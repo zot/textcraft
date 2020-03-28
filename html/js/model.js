@@ -50,11 +50,12 @@ const thing2SpecProps = new Map([
  * * otherLink: the companion to this link, if this is a link
  */
 export class Thing {
-    constructor(id, name, description = '') {
+    constructor(id, name, description = null) {
         this._id = id;
         this._fullName = name;
         this._name = name.split(/ +/)[0];
-        this._description = description;
+        if (typeof description != 'undefined')
+            this._description = description;
         this._open = true;
         this._location = null;
         this._linkOwner = null;
@@ -129,10 +130,8 @@ export class Thing {
         return spec;
     }
     async useSpec(spec) {
-        for (let prop of spec2ThingProps.keys()) {
-            if (spec[prop]) {
-                this[spec2ThingProps.get(prop)] = spec[prop];
-            }
+        for (let prop in spec) {
+            this[spec2ThingProps.get(prop)] = spec[prop];
         }
         if (spec.prototype) {
             var proto = await this.world.getThing(spec.prototype);
