@@ -106,15 +106,27 @@ export class Thing {
         if (exclude.has(this)) {
             return null;
         }
-        else if (this.name == name) {
+        else if (this.name.toLowerCase() == name.toLowerCase()) {
             return this;
         }
         exclude.add(this);
         for (let item of await this.getContents()) {
-            var result = item.find(name);
+            var result = await item.find(name, exclude);
             if (result) {
                 return result;
             }
+        }
+        var loc = await this.getLocation();
+        if (loc) {
+            var result = await loc.find(name, exclude);
+            if (result)
+                return result;
+        }
+        var owner = await this.getLinkOwner();
+        if (owner) {
+            var result = await owner.find(name, exclude);
+            if (result)
+                return result;
         }
         return null;
     }

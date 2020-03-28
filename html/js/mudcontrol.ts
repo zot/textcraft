@@ -241,7 +241,7 @@ export class MudConnection {
         var proto = await this.find(proto, await this.world.getThing(this.world.hallOfPrototypes))
 
         if (!proto) {
-            this.error('Could not find prototype '+name)
+            this.error('Could not find prototype '+proto)
         } else {
             var thing = await this.world.createThing(name, dropArgs(3, line))
 
@@ -329,6 +329,7 @@ export class MudConnection {
             default:
                 this.error('Unknown property: '+property)
         }
+        this.output(`set ${thingStr} ${property} to ${value}`)
     }
     async atDel(line, name, property) {
         var thing = await this.find(name)
