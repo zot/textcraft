@@ -300,7 +300,16 @@ export function setMudOutput(html) {
 }
 
 export function addMudOutput(html) {
-    parseHtml(html, $('#mud-output'))
+    parseHtml(html, $('#mud-output'), (el)=> {
+        console.log('formatting...')
+        for (let node of $findAll(el, '.input')) {
+            node.onclick = ()=> {
+                $('#mud-command').value = $find(node, '.input-text').textContent
+                $('#mud-command').select()
+                $('#mud-command').focus()
+            }
+        }
+    })
     $('#mud-output').scrollTo(0, $('#mud-output').offsetHeight)
 }
 
@@ -308,11 +317,12 @@ export function focusMudInput() {
     $('#mud-command').focus()
 }
 
-export function parseHtml(html, receivingNode = null) {
+export function parseHtml(html, receivingNode = null, formatter:(el: HTMLElement)=>void = null) {
     var parser = $('#parsing')
 
     parser.innerHTML = html
     if (parser.children.length == 1) {
+        if (formatter) formatter(parser.firstChild)
         if (receivingNode) {
             receivingNode.appendChild(parser.firstChild)
         } else {
@@ -324,6 +334,7 @@ export function parseHtml(html, receivingNode = null) {
             receivingNode = document.createElement('div')
         }
         while (parser.firstChild) {
+            if (formatter) formatter(parser.firstChild)
             receivingNode.appendChild(parser.firstChild)
         }
     }

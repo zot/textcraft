@@ -27,6 +27,7 @@ const commands = new Map<String, any>([
     ['look',        {help: `look                      -- See a description of your current location
 look thing                      -- See a description of a thing`}],
     ['@dump',       {help: '@dump thing               -- See properties of a thing'}],
+    ['@create',     {help: '@create proto             -- Create a thing'}],
     ['@info',       {help: '@info                     -- List important information'}],
     ['@set',        {help: `@set thing property value -- Set one of these properties on a thing:
   prototype   -- see the @info command
@@ -176,7 +177,7 @@ export class MudConnection {
         if (contents.length) {
             desc += '<br>'
             for (var thing of contents) {
-                desc += `<br>${thing.formatName()} is here`
+                desc += `<br>${thing== this.thing ? 'You are' : thing.formatName() + ' is'} here`
             }
         }
         this.output(desc)
@@ -192,7 +193,7 @@ export class MudConnection {
             if (cmd[0][0] == '@') {
                 cmd[0] = 'at' + capitalize(cmd[0].substring(1))
             }
-            this.output('<span class="input">&gt; '+text+'</span>')
+            this.output('<span class="input">&gt; <span class="input-text">'+text+'</span></span>')
             // execute command inside a transaction so it will automatically store any dirty objects
             this.world.doTransaction(async ()=> this[cmd[0]](text, ...cmd.slice(1)))
                 .catch(err=> this.error(err.message))
@@ -200,13 +201,13 @@ export class MudConnection {
             this.output('Unknown command: '+cmd[0])
         }
     }
-    async find(name: string) {
+    async find(name: string, start = this.thing) {
         if (!name) return null
         name = name.trim().toLowerCase()
         return name == 'me' ? this.thing
             : name == 'here' ? await this.thing.getLocation()
             : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
-            : this.thing.find(name)
+            : start.find(name)
     }
     async dumpContents(thing: Thing) {
         var items = []
@@ -235,6 +236,18 @@ export class MudConnection {
     }
     async look() {
         this.describe(await this.thing.getLocation())
+    }
+    async atCreate(line, proto, name) {
+        var proto = await this.find(proto, await this.world.getThing(this.world.hallOfPrototypes))
+
+        if (!proto) {
+            this.error('Could not find prototype '+name)
+        } else {
+            var thing = await this.world.createThing(name, dropArgs(3, line))
+
+            thing.setPrototype(proto)
+            this.output(`Created ${await this.dumpName(thing)}`)
+        }
     }
     async atDump(line, thingStr) {
         checkArgs(2, arguments, '@dump');

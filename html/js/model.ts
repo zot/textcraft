@@ -97,6 +97,7 @@ export class Thing {
     getContents():Promise<Thing[]> {return this.world.getContents(this)}
     getPrototype() {return this.world.getThing(this._prototype)}
     setPrototype(t: Thing) {
+        this.markDirty(null)
         if (t) {
             this._prototype = t.id as thingId
             (this as any).__proto__ = t
@@ -430,11 +431,11 @@ export class World {
     createThing(name: string, description = '') {
         var t = new Thing(this.nextId++, name, description)
 
+        t.world = this
         t._location = this.limbo
         t._article = 'the'
         if (this.thingProto) t.setPrototype(this.thingProto)
         t._count = 1
-        t.world = this
         this.thingCache.set(t.id, t)
         this.doTransaction(async ()=> {
             return await this.putThing(t)

@@ -80,6 +80,7 @@ export class Thing {
     getContents() { return this.world.getContents(this); }
     getPrototype() { return this.world.getThing(this._prototype); }
     setPrototype(t) {
+        this.markDirty(null);
         if (t) {
             this._prototype = t.id;
             this.__proto__ = t;
@@ -386,12 +387,12 @@ export class World {
     }
     createThing(name, description = '') {
         var t = new Thing(this.nextId++, name, description);
+        t.world = this;
         t._location = this.limbo;
         t._article = 'the';
         if (this.thingProto)
             t.setPrototype(this.thingProto);
         t._count = 1;
-        t.world = this;
         this.thingCache.set(t.id, t);
         this.doTransaction(async () => {
             return await this.putThing(t);
