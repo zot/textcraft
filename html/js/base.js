@@ -25,6 +25,11 @@ export var SectionState;
     SectionState[SectionState["Profile"] = 2] = "Profile";
     SectionState[SectionState["Storage"] = 3] = "Storage";
 })(SectionState || (SectionState = {}));
+export var MudState;
+(function (MudState) {
+    MudState[MudState["NotPlaying"] = 0] = "NotPlaying";
+    MudState[MudState["Playing"] = 1] = "Playing";
+})(MudState || (MudState = {}));
 export var PeerState;
 (function (PeerState) {
     PeerState[PeerState["disconnected"] = 0] = "disconnected";
@@ -97,4 +102,5 @@ export var peerTracker = new StateTracker(PeerState);
 export var roleTracker = new StateTracker(RoleState);
 export var relayTracker = new StateTracker(RelayState);
 export var sectionTracker = new StateTracker(SectionState);
+export var mudTracker = new StateTracker(MudState);
 //# sourceMappingURL=base.js.map

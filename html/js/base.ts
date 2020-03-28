@@ -26,6 +26,11 @@ export enum SectionState {
     Storage,
 }
 
+export enum MudState {
+    NotPlaying,
+    Playing,
+}
+
 export enum PeerState {
     disconnected,
     abortingRelayHosting,
@@ -107,3 +112,4 @@ export var peerTracker = new StateTracker<PeerState>(PeerState)
 export var roleTracker = new StateTracker<RoleState>(RoleState)
 export var relayTracker = new StateTracker<RelayState>(RelayState)
 export var sectionTracker = new StateTracker<SectionState>(SectionState)
+export var mudTracker = new StateTracker<MudState>(MudState)

@@ -2,7 +2,7 @@ import libp2p from "./protocol.js"
 import {
     NatState, RoleState, RelayState, SectionState, PeerState,
     StateTracker, stateObserver,
-    natTracker, peerTracker, roleTracker, relayTracker, sectionTracker,
+    natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, mudTracker,
 } from "./base.js"
 import * as model from './model.js'
 import * as mudcontrol from './mudcontrol.js'
@@ -141,16 +141,20 @@ function cloneTemplate(name) {
 }
 
 export function showMuds() {
+    var worldList = [...model.storage.worlds]
+
+    worldList.sort()
     $('#storage-list').innerHTML = ''
-    for (let world of model.storage.worlds) {
+    for (let world of worldList) {
         let div = cloneTemplate('#mud-item-template')
 
         $('#storage-list').append(div)
         $find(div, '[name=name]').textContent = world
         div.onclick = async ()=> editWorld(await model.storage.openWorld(world))
-        $find(div, '[name=delete-mud]').onclick = async evt=> {
+        $find(div, '[name=copy-mud]').onclick = async evt=> {
             evt.stopPropagation()
-            await model.storage.deleteWorld(world)
+            var w = await model.storage.openWorld(world)
+            await w.copyWorld(worldCopyName(world))
             showMuds()
         }
         $find(div, '[name=activate-mud]').onclick = async evt=> {
@@ -158,8 +162,23 @@ export function showMuds() {
             $('#mud-output').innerHTML = ''
             sectionTracker.setValue(SectionState.Mud)
             mudcontrol.runMud(await model.storage.openWorld(world))
+            $('#mud-name').textContent = world
         }
     }
+}
+
+function worldCopyName(oldName: string) {
+    var nameTemplate = 'Copy of '+oldName
+
+    if (model.storage.worlds.indexOf(nameTemplate) == -1) {
+        return nameTemplate
+    }
+    var counter = 1
+    
+    while (model.storage.worlds.indexOf(nameTemplate + '-' + counter) == -1) {
+        counter++
+    }
+    return nameTemplate + '-' + counter
 }
 
 export function onEnter(input, action, shouldClear = false) {
@@ -175,6 +194,7 @@ export function onEnter(input, action, shouldClear = false) {
 
 export async function editWorld(world: model.World) {
     let redoUsers = [false]
+    let deleted = false
     let div = cloneTemplate('#mud-editor-template')
     let nameField = $find(div, '[name="mud-name"]')
     let userList = $find(div, '[name=mud-user-list]')
@@ -220,6 +240,11 @@ export async function editWorld(world: model.World) {
         link.setAttribute('download', world.name+'.json')
         link.textContent = 'Click to download '+world.name+'.json'
     }
+    $find(div, '[name=delete-mud]').onclick = async evt=> {
+        evt.stopPropagation()
+        deleted = !deleted
+        div.classList.toggle('mud-deleted')
+    }
     try {
         await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]')
         if (!redoUsers[0]) {
@@ -235,6 +260,12 @@ export async function editWorld(world: model.World) {
                     break
                 }
             }
+        }
+        if (deleted) {
+            console.log("DELETED")
+            await model.storage.deleteWorld(world.name)
+            showMuds()
+            return
         }
         if (redoUsers[0]) {
             let newUsers = []
@@ -359,8 +390,8 @@ export function start() {
     radioTracker(roleTracker, 'Role')
     radioTracker(relayTracker, 'Relay')
     radioTracker(sectionTracker, 'Section')
+    radioTracker(mudTracker, 'Mud')
     sectionTracker.observe(state=> {
-        $('#gui-mode').textContent = SectionState[state]
         if (state == SectionState.Mud) {
             $('#mud-command').focus()
         }

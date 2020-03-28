@@ -1,4 +1,8 @@
 import {
+    MudState,
+    mudTracker,
+} from './base.js'
+import {
     World,
     Thing,
     thingId,
@@ -111,6 +115,7 @@ export class MudConnection {
         this.outputHandler(text)
     }
     start() {
+        mudTracker.setValue(MudState.Playing)
         this.outputHandler(`Welcome to the mud, use the "login" command to log in.
 <p>
 <p>

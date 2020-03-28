@@ -113,125 +113,132 @@
             </div>
         </div>
 		<div id='logo'>
-            <span id='gui-mode'></span>
-            <span class='fgrow'></span>
+            <div class='fcenter'>
+                <span class='when-section-storage section-bar'>Storage&nbsp;<button id='add-mud-button'><i class="fas fa-plus"></i></button><span class='white fcenter'>&nbsp;Upload MUD&nbsp;<input type='file' id='upload-mud' accept='application/json'></span></span>
+                <span class='when-section-mud section-bar'>Mud<span class='when-mud-playing'>: <span id='mud-name'></span></span>&nbsp;<button class='when-peer-connectedtohost'>Request download of current MUD</button></span>
+                <span class='when-section-connection section-bar'>Connection</span>
+                <span class='when-section-profile section-bar'>Profile</span>
+            </div>
             <img src="images/textcraft.png">
-            <span class='fgrow'></span>
-            <div>
-                <input type="radio" id="storageSection" name="sectionSelection"> <label for="storageSection">Storage</label>
-                <input type="radio" id="connectionSection" name="sectionSelection"> <label for="connectionSection">Connection</label>
-                <input type="radio" id="mudSection" name="sectionSelection"> <label for="mudSection">MUD</label>
-                <input type="radio" id="profileSection" name="sectionSelection"> <label for="profileSection">Profile</label>
-                &nbsp;
+            <div class='fcenter'>
+                <span class='fgrow'></span>
+                <span class='when-peer-connectedtohost fcenter'><button class='when-peer-connectedtohost'>Download MUD</button>&nbsp;<button id='mud-disconnect'>Disconnect</button></span>
+                <div>
+                    <input type="radio" id="storageSection" name="sectionSelection"> <label for="storageSection">Storage</label>
+                    <input type="radio" id="connectionSection" name="sectionSelection"> <label for="connectionSection">Connection</label>
+                    <input type="radio" id="mudSection" name="sectionSelection"> <label for="mudSection">MUD</label>
+                    <input type="radio" id="profileSection" name="sectionSelection"> <label for="profileSection">Profile</label>
+                    &nbsp;
+                </div>
             </div>
         </div>
         <div id='sections'>
-        <div class='when-section-connection section'>
-            <div id='login' class='when-not-connected-with-user'>
-                <div id='userDiv' class='field'>Username:&nbsp;<input id='user' type='text'></div>
-                <div>NAT Status: <span id='natStatus'></span> </div>
-                <div>Peer ID: <span id='peerID' type='text'></span></div>
-            </div>
-            <div class='when-connected-with-user'>
-                <div id='panelSelector'>
-                    <input type="radio" id="guestRole" name="panelSelector"> <label for="guestRole">Join a session</label>
-                    <input type="radio" id="hostRole" name="panelSelector"> <label for="hostRole">Host a session</label>
-                    <span class='when-public'>
-                        <input type="radio" id="relayRole" name="panelSelector"> <label for="relayRole">Relay for a private peer</label>
-                    </span>
+            <div class='when-section-connection section'>
+                <div id='login' class='when-not-connected-with-user'>
+                    <div id='userDiv' class='field'>Username:&nbsp;<input id='user' type='text'></div>
+                    <div>NAT Status: <span id='natStatus'></span> </div>
+                    <div>Peer ID: <span id='peerID' type='text'></span></div>
                 </div>
-                <div id='connectDiv' class='when-role-guest'>
-                    <hr>
-                    <div class='field'>
-                        <button id='connect'>Connect</button>
-                        &nbsp;
-                        <span id='connectStatus'></span>
-                        <input id='toHostID' type='text'>
+                <div class='when-connected-with-user'>
+                    <div id='panelSelector'>
+                        <input type="radio" id="guestRole" name="panelSelector"> <label for="guestRole">Join a session</label>
+                        <input type="radio" id="hostRole" name="panelSelector"> <label for="hostRole">Host a session</label>
+                        <span class='when-public'>
+                            <input type="radio" id="relayRole" name="panelSelector"> <label for="relayRole">Relay for a private peer</label>
+                        </span>
                     </div>
-                </div>
-                <div id='hostDiv' class='when-role-host'>
-                    <hr>
-                    <h1 class='when-host'>Give your connect string to people you want to invite</h1>
-                    <div class='field'>
-                        <button id='host'>Host</button>
-                        &nbsp;
-                        <span class='when-private when-peer-disconnected'>Relay connect string:&nbsp;</span>
-                        <input class='when-private when-peer-disconnected' id='hostingRelay' type='text' placeholder='You must use a relay because your connection is private'>
-                        <span class='when-private when-not-peer-disconnected'>Your Connect string:&nbsp;</span>
-                        <input class='when-private when-not-peer-disconnected' id='connectString' type='text' readonly='true'>
-                    </div>
-                    <h1 class='when-private'>
-                        Your peer does not have public access so you must use a relay
-                        <ol>
-                            <li>Copy your peer ID and send it to someone who will relay for you</li>
-                            <li>Once they relay, they will send you the relay connect string</li>
-                            <li>Paste the relay connect string above and click Host</li>
-                        </ol>
-                    </h1>
-                </div>
-                <div id='relayPanel' class='when-role-relay'>
-                    <hr>
-                    <h1 class='when-not-relay-idle'>Give your relay connect string to the private peer's owner</h1>
-                    <div id='relayHosting'>
+                    <div id='connectDiv' class='when-role-guest'>
+                        <hr>
                         <div class='field'>
-                            <button id='relayForHost'>Relay</button>
-                            <span class='when-relay-idle'>&nbsp;Host Peer:&nbsp;</span>
-                            <input id='relayRequestHost' type='text' class='when-relay-idle' placeholder="'Paste the session host's peer ID here">
-                            <span class='when-not-relay-idle'>&nbsp;Relay connect string:&nbsp;</span>
-                            <input class='when-not-relay-idle' id='relayConnectString' type='text' readonly='true'>
+                            <button id='connect'>Connect</button>
+                            &nbsp;
+                            <span id='connectStatus'></span>
+                            <input id='toHostID' type='text'>
                         </div>
                     </div>
-                    <h1 class='when-public when-relay-idle'>
-                        <ol>
-                            <li>Paste the private peer's id above</li>
-                            <li>Click Relay</li>
-                            <li>Copy the relay connect string and send it to the private peer's owner</li>
-                        </ol>
-                    </h1>
+                    <div id='hostDiv' class='when-role-host'>
+                        <hr>
+                        <h1 class='when-host'>Give your connect string to people you want to invite</h1>
+                        <div class='field'>
+                            <button id='host'>Host</button>
+                            &nbsp;
+                            <span class='when-private when-peer-disconnected'>Relay connect string:&nbsp;</span>
+                            <input class='when-private when-peer-disconnected' id='hostingRelay' type='text' placeholder='You must use a relay because your connection is private'>
+                            <span class='when-private when-not-peer-disconnected'>Your Connect string:&nbsp;</span>
+                            <input class='when-private when-not-peer-disconnected' id='connectString' type='text' readonly='true'>
+                        </div>
+                        <h1 class='when-private'>
+                            Your peer does not have public access so you must use a relay
+                            <ol>
+                                <li>Copy your peer ID and send it to someone who will relay for you</li>
+                                <li>Once they relay, they will send you the relay connect string</li>
+                                <li>Paste the relay connect string above and click Host</li>
+                            </ol>
+                        </h1>
+                    </div>
+                    <div id='relayPanel' class='when-role-relay'>
+                        <hr>
+                        <h1 class='when-not-relay-idle'>Give your relay connect string to the private peer's owner</h1>
+                        <div id='relayHosting'>
+                            <div class='field'>
+                                <button id='relayForHost'>Relay</button>
+                                <span class='when-relay-idle'>&nbsp;Host Peer:&nbsp;</span>
+                                <input id='relayRequestHost' type='text' class='when-relay-idle' placeholder="'Paste the session host's peer ID here">
+                                <span class='when-not-relay-idle'>&nbsp;Relay connect string:&nbsp;</span>
+                                <input class='when-not-relay-idle' id='relayConnectString' type='text' readonly='true'>
+                            </div>
+                        </div>
+                        <h1 class='when-public when-relay-idle'>
+                            <ol>
+                                <li>Paste the private peer's id above</li>
+                                <li>Click Relay</li>
+                                <li>Copy the relay connect string and send it to the private peer's owner</li>
+                            </ol>
+                        </h1>
+                    </div>
                 </div>
             </div>
-        </div>
-        <div class='when-section-mud section'>
-            <div id='mudView' class='view'>
-                <div id='mud-output'></div>
-                <input id='mud-command' type='text'>
-            </div>
-        </div>
-        <div class='when-section-profile section'>
-            <div id='profileView' class='view'>
-                PROFILE
-                <div class='field'><span>Name:&nbsp;</span><input id='profileName'></div>
-            </div>
-        </div>
-        <div class='when-section-storage section'>
-            <div id='storageView' class='view'>
-                <div class='fcenter'>Your MUDS&nbsp;<button id='add-mud-button'><i class="fas fa-plus"></i></button>&nbsp;Upload MUD&nbsp;<input type='file' id='upload-mud' accept='application/json'><button class='when-peer-connectedtohost'>Request download of current MUD</button></div>
-                <div id='storage-list'></div>
-            </div>
-        </div>
-        <div id='templates'>
-            <div id='mud-item-template' class='mud-view'>
-                <i class="fas fa-fist-raised"></i>&nbsp;<span name='name'></span>&nbsp;<button name='activate-mud'>Activate</button>&nbsp;<button name='delete-mud' class='naked-button'><i class="fas fa-window-close"></i></button>
-            </div>
-            <div id='mud-editor-template' class='dialog fcolumn'>
-                <div class='field'>World name:&nbsp;<input type='text' name='mud-name'></span>&nbsp;<button name='download-mud'>Generate download</button>&nbsp;<a name='download-mud-link' class='fgrow'></a></div>
-                <div>Users <button name='mud-add-user'><i class="fas fa-plus"></i></button></div>
-                <div class='fcolumn fgrow' name='mud-user-list'>
-                    
+            <div class='when-section-mud section'>
+                <div id='mudView' class='view'>
+                    <div id='mud-output'></div>
+                    <input id='mud-command' type='text'>
                 </div>
-                <div><button name='save' class='left'>Save</button><button name='cancel' class='right'>Cancel</button></div>
             </div>
-            <div id='mud-user-item' class='field mud-view'>
-                Name:&nbsp;
-                <input name='mud-user-name'>
-                &nbsp;Password:&nbsp;
-                <input name='mud-user-password'>
-                &nbsp;
-                <span class='fslim'><input type="checkbox" name="mud-user-admin"> <label for="mud-user-admin">admin</label></span>
-                &nbsp;
-                <button name='delete-user' class='naked-button'><i class="fas fa-window-close"></i></button>
+            <div class='when-section-profile section'>
+                <div id='profileView' class='view'>
+                    PROFILE
+                    <div class='field'><span>Name:&nbsp;</span><input id='profileName'></div>
+                </div>
             </div>
-        </div>
+            <div class='when-section-storage section'>
+                <div id='storageView' class='view'>
+                    <div id='storage-list'></div>
+                </div>
+            </div>
+            <div id='templates'>
+                <div id='mud-item-template' class='mud-view'>
+                    <i class="fas fa-fist-raised"></i>&nbsp;<span name='name'></span>&nbsp;&nbsp;<button name='activate-mud'>Activate</button>&nbsp;&nbsp;&nbsp;&nbsp;<button name='copy-mud'>Copy</button>&nbsp;</div>
+                <div id='mud-editor-template' class='dialog fcolumn'>
+                    <div class='field mud-edit-top'>
+                        World name:&nbsp;<input type='text' name='mud-name'>&nbsp;<button name='download-mud'>Generate download</button>&nbsp;<a name='download-mud-link' class='fgrow'></a><span name='mud-deleted' class='when-mud-deleted error'>DELETED&nbsp;</span><button name='delete-mud' class='naked-button'><i class="fas fa-window-close"></i></button>
+                    </div>
+                    <div>Users <button name='mud-add-user'><i class="fas fa-plus"></i></button></div>
+                    <div class='fcolumn fgrow' name='mud-user-list'>
+                            
+                    </div>
+                    <div><button name='save' class='left'>Save</button><button name='cancel' class='right'>Cancel</button></div>
+                </div>
+                <div id='mud-user-item' class='field mud-view'>
+                    Name:&nbsp;
+                    <input name='mud-user-name'>
+                    &nbsp;Password:&nbsp;
+                    <input name='mud-user-password'>
+                    &nbsp;
+                    <span class='fslim'><input type="checkbox" name="mud-user-admin"> <label for="mud-user-admin">admin</label></span>
+                    &nbsp;
+                    <button name='delete-user' class='naked-button'><i class="fas fa-window-close"></i></button>
+                </div>
+            </div>
         </div>
         <div id='parsing'></div>
         </div>

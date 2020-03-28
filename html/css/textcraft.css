@@ -22,8 +22,8 @@
  */
 
 #logo {
-	/*text-align: center;*/
-    display: flex;
+    display: grid;
+    grid: auto / 50fr auto 50fr;
     align-items: flex-end;
 }
 body {
@@ -105,7 +105,12 @@ body.hostingRelay .when-not-relay-hosting,
 body:not(.connectionSection) .when-section-connection,
 body:not(.mudSection) .when-section-mud,
 body:not(.profileSection) .when-section-profile,
-body:not(.storageSection) .when-section-storage
+body:not(.storageSection) .when-section-storage,
+/* mud */
+body:not(.notplayingMud) .when-mud-notplaying,
+body:not(.playingMud) .when-mud-playing,
+/* mud editor */
+.dialog:not(.mud-deleted) .when-mud-deleted
 {
     display: none;
 }
@@ -230,10 +235,25 @@ body:not(.emulation) #toggleStateButtons {
     display: flex;
     align-items: center;
 }
-#gui-mode {
+.fzero {
+    flex-basis: 0;
+}
+#gui-mode,
+.section-bar {
+    display: flex;
+    align-items: center;
+    flex-grow: 1;
     font-weight: bold;
     font-size: 1.25em;
     color: orange;
+}
+.mud-edit-top {
+    background: orange;
+    padding: 0.2ex;
+    border-radius: 5px;
+}
+.white {
+    color: #dddddd;
 }
 .mode-label {
     font-weight: bold;
@@ -252,6 +272,9 @@ body:not(.emulation) #toggleStateButtons {
 }
 .right {
     float: right;
+}
+.h100 {
+    height: 100%;
 }
 .dialog {
     position: absolute;

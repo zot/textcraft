@@ -458,18 +458,14 @@ export class World {
         if (this.storage.hasWorld(newName)) {
             throw new Error('there is already a world named "' + newName + '"');
         }
-        var newWorld = this.storage.openWorld(newName);
-        var txn = this.db().transaction([this.storeName, newWorld.storeName], 'readwrite');
-        var srcStore = txn.objectStore(this.storeName);
-        var dstStore = txn.objectStore(newWorld.storeName);
-        var evt = await rawPromiseFor(srcStore.openCursor());
-        var cursor = evt.target.result;
-        if (cursor) {
-            while (cursor.value) {
-                await promiseFor(dstStore.put(cursor.value));
-                cursor.continue();
-            }
-        }
+        var newWorld = await this.storage.openWorld(newName);
+        var txn = this.db().transaction([this.storeName, newWorld.storeName, this.users, newWorld.users], 'readwrite');
+        var newThings = txn.objectStore(newWorld.storeName);
+        await copyAll(txn.objectStore(this.users), txn.objectStore(newWorld.users));
+        await copyAll(txn.objectStore(this.storeName), newThings);
+        var newInfo = await promiseFor(newThings.get('info'));
+        newInfo.name = newName;
+        return promiseFor(newThings.put(newInfo));
     }
 }
 export class MudStorage {
@@ -485,16 +481,10 @@ export class MudStorage {
         if (this.openWorlds.has(name)) {
             return this.openWorlds.get(name);
         }
-        var world = new World(name, this);
         if (!name) {
-            for (;;) {
-                name = randomName('mud');
-                if (!this.hasWorld(name)) {
-                    world.setName(name);
-                    break;
-                }
-            }
+            name = this.randomWorldName();
         }
+        var world = new World(name, this);
         if (!this.hasWorld(name)) {
             this.worlds.push(name);
             this.store();
@@ -505,6 +495,15 @@ export class MudStorage {
         }
         this.openWorlds.set(name, world);
         return world;
+    }
+    randomWorldName() {
+        var name;
+        for (;;) {
+            name = randomName('mud');
+            if (!this.hasWorld(name)) {
+                return name;
+            }
+        }
     }
     store() {
         var txn = this.db.transaction(centralDbName, 'readwrite');
@@ -745,6 +744,23 @@ function deleteAll(store) {
             let cursor = evt.target.result;
             if (cursor) {
                 cursor.delete();
+                cursor.continue();
+            }
+            else {
+                succeed(null);
+            }
+        };
+    });
+}
+async function copyAll(srcStore, dstStore) {
+    await deleteAll(dstStore);
+    return new Promise((succeed, fail) => {
+        let req = srcStore.openCursor();
+        req.onerror = fail;
+        req.onsuccess = async (evt) => {
+            let cursor = evt.target.result;
+            if (cursor) {
+                await dstStore.put(cursor.value);
                 cursor.continue();
             }
             else {
