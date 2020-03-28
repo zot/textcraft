@@ -29,7 +29,7 @@ look thing                      -- See a description of a thing`}],
     ['@dump',       {help: '@dump thing               -- See properties of a thing'}],
     ['@info',       {help: '@info                     -- List important information'}],
     ['@set',        {help: `@set thing property value -- Set one of these properties on a thing:
-  prototype   -- see the prototypes command
+  prototype   -- see the @info command
   article     -- the article for a thing's name
   name        -- the thing's fullName (the name will be set to the first word)
   count       -- how many there are of the thing (defaults to 1)
@@ -332,6 +332,12 @@ export class MudConnection {
         delete thing[properties[propIndex]]
     }
     async atInfo() {
+        var hall = await this.world.getThing(this.world.hallOfPrototypes)
+        var protos = []
+
+        for (let proto of await hall.getContents()) {
+            protos.push(await this.dumpName(proto))
+        }
         this.output(
 `<pre>Name: ${this.world.name}
 Your user name: ${this.user}${this.admin ? ' (admin)' : ''}
@@ -339,8 +345,15 @@ You: ${await this.dumpName(this.thing)}
 lobby: ${await this.dumpName(this.world.lobby)}
 limbo: ${await this.dumpName(this.world.limbo)}
 hall of prototypes: ${await this.dumpName(this.world.hallOfPrototypes)}
+
+${protos.join('<br>')}
 </pre>`)
         }
+    async atPrototypes() {
+        var hall = await this.world.getThing(this.world.hallOfPrototypes)
+
+        this.output(`Prototypes:<br><br>${(await hall.getContents()).map(t=> this.dumpName(t)).join('<br>')}`)
+    }
     help(line, cmd) {
         if (!this.thing) {
             this.output(

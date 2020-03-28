@@ -212,7 +212,7 @@ export class World {
                     limbo._prototype = roomProto.id
                     lobby._prototype = roomProto.id
                     protos._prototype = roomProto.id
-                    var personProto = await this.createThing('room', '$This $is only a dude')
+                    var personProto = await this.createThing('person', '$This $is only a dude')
                     personProto.markDirty(personProto._location = this.hallOfPrototypes)
                     personProto._prototype = thingProto.id
                     this.store()
