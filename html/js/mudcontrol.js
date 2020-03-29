@@ -25,9 +25,6 @@ const properties = [
 ];
 const lowercaseProperties = properties.map(p => p.toLowerCase());
 const setHelp = [
-    'thing property boolean', '',
-    'thing property number', '',
-    'thing property bigInt', '',
     'thing property value', `Set one of these properties on a thing:
   prototype   -- see the @info command
   article     -- the article for a thing's name
@@ -51,31 +48,34 @@ const commands = new Map([
                 'thing', 'See a description of a thing'] }],
     ['@dump', { help: ['thing', 'See properties of a thing'] }],
     ['@create', { help: ['proto', 'Create a thing'] }],
+    ['@find', { help: ['thing', 'Find a thing',
+                'thing location', 'Find a thing from a location',] }],
     ['@link', { help: ['loc1 link1 link2 exit2', 'create links between two things'] }],
     ['@info', { help: ['', 'List important information'] }],
-    ['@setBool', { help: setHelp, admin: true }],
-    ['@setNum', { help: setHelp, admin: true }],
-    ['@setBigint', { help: setHelp, admin: true }],
+    ['@setNum', { help: ['thing property number'], admin: true, alt: '@set' }],
+    ['@setBigint', { help: ['thing property bigint'], admin: true, alt: '@set' }],
+    ['@setBool', { help: ['thing property boolean'], admin: true, alt: '@set' }],
     ['@set', { help: setHelp, admin: true }],
-    ['@del', { help: ['thing property', `Delete one of these properties from a thing so it will inherit from its prototype:
-     article
-     name
-     fullName
-     description
-     count`] }],
+    ['@del', { help: ['thing property', `Delete a properties from a thing so it will inherit from its prototype`] }],
 ]);
 export function init(appObj) {
     app = appObj;
     console.log(yaml);
     for (let cmd of commands.keys()) {
         let command = commands.get(cmd);
-        command.minArgs = 0;
+        command.minArgs = 1000;
         command.name = cmd;
+        if (command.alt) {
+            let alt = commands.get(command.alt);
+            if (!alt.alts)
+                alt.alts = [];
+            commands.get(command.alt).alts.push(command);
+        }
         if (cmd[0] == '@') {
             command.admin = true;
         }
         for (let i = 0; i < command.help.length; i += 2) {
-            command.minArgs = Math.max(command.minArgs, command.help[i].split(/ +/).length);
+            command.minArgs = Math.min(command.minArgs, command.help[i].split(/ +/).length);
         }
     }
 }
@@ -464,19 +464,25 @@ Prototypes:
         this.output(`set ${thingStr} ${property} to ${value}`);
     }
     async atDel(cmdInfo, thingStr, property) {
-        if (arguments.length < 3) {
-            return this.error('Not enough arguments to @del');
-        }
+        checkArgs(cmdInfo, arguments);
         var [thing, lowerProp, realProp, value, propMap] = await this.thingProps(thingStr, property, null, cmdInfo);
         if (!thing)
             return;
         if (!propMap.has(lowerProp)) {
-            this.error('Bad property name ' + property);
-            return;
+            return this.error('Bad property: ' + property);
+        }
+        if (reservedProperties.has(propMap(lowerProp))) {
+            return this.error('Reserved property: ' + property);
         }
         delete thing[propMap.get(lowerProp)];
         thing.markDirty();
         this.output(`deleted ${property} from ${thing.name}`);
+    }
+    async atFind(cmdInfo, target, startStr) {
+        checkArgs(cmdInfo, arguments);
+        var start = startStr ? await this.find(startStr, this.thing, 'location') : this.thing;
+        var thing = await this.find(target, start, 'target');
+        this.output(await this.dumpName(thing));
     }
     async atInfo() {
         var hall = await this.world.getThing(this.world.hallOfPrototypes);
@@ -515,11 +521,19 @@ Prototypes:
         cmds.sort();
         for (let name of cmds) {
             var cmd = commands.get(name);
+            if (cmd.alt)
+                continue;
+            if (cmd.alts) {
+                for (let alt of cmd.alts) {
+                    if (result)
+                        result += '\n';
+                    result += `<b>${alt.name} ${alt.help[0]}</b>`;
+                }
+            }
             for (let i = 0; i < cmd.help.length; i += 2) {
                 let args = name + ' ' + cmd.help[i];
-                if (result) {
+                if (result)
                     result += '\n';
-                }
                 result += `<b>${args}</b>`;
                 if (cmd.help[i + 1]) {
                     result += indent(argLen - args.length, '') + '  --  ' + cmd.help[i + 1];
