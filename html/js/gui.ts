@@ -193,26 +193,59 @@ export function onEnter(input, action, shouldClear = false) {
 }
 
 export async function editWorld(world: model.World) {
-    let redoUsers = [false]
+    let processUsers = false
     let deleted = false
     let div = cloneTemplate('#mud-editor-template')
     let nameField = $find(div, '[name="mud-name"]')
     let userList = $find(div, '[name=mud-user-list]')
+    let blobToRevoke = null
     let success = async ()=> {
         var name = nameField.value
 
+        if (blobToRevoke) {
+            URL.revokeObjectURL(blobToRevoke)
+        }
+        if (deleted) {
+            console.log("DELETED")
+            await model.storage.deleteWorld(world.name)
+            showMuds()
+            return
+        }
         if (name != world.name) {
             await model.storage.renameWorld(world.name, name)
             showMuds()
         }
-        if (blobToRevoke) {
-            URL.revokeObjectURL(blobToRevoke)
+        if (!processUsers) {
+            for (let div of userList.children) {
+                let nameField = $find(div, '[name=mud-user-name]')
+                let passwordField = $find(div, '[name=mud-user-password]')
+                let adminCheckbox = $find(div, '[name=mud-user-admin]')
+
+                if (div.originalUser.name != nameField.value
+                    || div.originalUser.password != passwordField.value
+                    || div.originalUser.admin != adminCheckbox.checked) {
+                    processUsers = true
+                    break
+                }
+            }
+        }
+        if (processUsers) {
+            let newUsers = []
+
+            for (let div of userList.children) {
+                var user = div.originalUser
+
+                user.name = $find(div, '[name=mud-user-name]').value
+                user.password = $find(div, '[name=mud-user-password]').value
+                user.admin = $find(div, '[name=mud-user-admin]').checked
+                newUsers.push(user)
+            }
+            await world.replaceUsers(newUsers)
         }
     }
-    let blobToRevoke
 
     for (let user of await world.getAllUsers()) {
-        let div = userItem(user, redoUsers)
+        let div = userItem(user, ()=> processUsers = true)
 
         userList.appendChild(div)
     }
@@ -222,9 +255,11 @@ export async function editWorld(world: model.World) {
         let randomName = await world.randomUserName()
         let password = model.randomName('password')
         let user = {name: randomName, password}
-        let userDiv = userItem(user, redoUsers)
+        let userDiv = userItem(user, ()=> processUsers = true)
         userList.appendChild(userDiv, user)
-        redoUsers[0] = true
+        $find(userDiv, '[name=mud-user-name]').select()
+        $find(userDiv, '[name=mud-user-name]').focus()
+        processUsers = true
     }
     nameField.value = world.name
     onEnter(nameField, newName=> {
@@ -247,48 +282,15 @@ export async function editWorld(world: model.World) {
     }
     try {
         await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]')
-        if (!redoUsers[0]) {
-            for (let div of userList.children) {
-                let nameField = $find(div, '[name=mud-user-name]')
-                let passwordField = $find(div, '[name=mud-user-password]')
-                let adminCheckbox = $find(div, '[name=mud-user-admin]')
-
-                if (div.originalUser.name != nameField.value
-                    || div.originalUser.password != passwordField.value
-                    || div.originalUser.admin != adminCheckbox.checked) {
-                    redoUsers[0] = true
-                    break
-                }
-            }
-        }
-        if (deleted) {
-            console.log("DELETED")
-            await model.storage.deleteWorld(world.name)
-            showMuds()
-            return
-        }
-        if (redoUsers[0]) {
-            let newUsers = []
-
-            for (let div of userList.children) {
-                var user = div.originalUser
-
-                user.name = $find(div, '[name=mud-user-name]').value
-                user.password = $find(div, '[name=mud-user-password]').value
-                user.admin = $find(div, '[name=mud-user-admin]').checked
-                newUsers.push(user)
-            }
-            await world.replaceUsers(newUsers)
-        }
         success()
-    } catch(err) {
+    } catch(err) { // revoke URL on cancel
         if (blobToRevoke) {
             URL.revokeObjectURL(blobToRevoke)
         }
     }
 }
 
-function userItem(user: any, redoUsers) {
+function userItem(user: any, processUsersFunc) {
     let {name, password, admin} = user
     let div = cloneTemplate('#mud-user-item')
     let nameField = $find(div, '[name=mud-user-name]')
@@ -302,7 +304,7 @@ function userItem(user: any, redoUsers) {
     $find(div, '[name=delete-user]').onclick = async evt=> {
         evt.stopPropagation()
         div.remove()
-        redoUsers[0] = true
+        processUsersFunc()
     }
     return div
 }
@@ -332,7 +334,6 @@ export function setMudOutput(html) {
 
 export function addMudOutput(html) {
     parseHtml(html, $('#mud-output'), (el)=> {
-        console.log('formatting...')
         for (let node of $findAll(el, '.input')) {
             node.onclick = ()=> {
                 $('#mud-command').value = $find(node, '.input-text').textContent

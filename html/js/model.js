@@ -135,16 +135,16 @@ export class Thing {
     }
     spec() {
         var spec = {};
-        for (let prop of thing2SpecProps.keys()) {
-            if (prop in this) {
-                spec[thing2SpecProps.get(prop)] = this[prop];
+        for (let prop of Object.keys(this)) {
+            if (prop[0] == '_') {
+                spec[prop.substring(1)] = this[prop];
             }
         }
         return spec;
     }
     async useSpec(spec) {
-        for (let prop in spec) {
-            this[spec2ThingProps.get(prop)] = spec[prop];
+        for (let prop in Object.keys(spec)) {
+            this['_' + prop] = spec[prop];
         }
         if (spec.prototype) {
             var proto = await this.world.getThing(spec.prototype);
@@ -231,8 +231,8 @@ export class World {
             lobby: this.lobby,
             limbo: this.limbo,
             hallOfPrototypes: this.hallOfPrototypes,
-            thingProto: this.thingProto.id,
-            roomProto: this.roomProto.id,
+            thingProto: this.thingProto?.id,
+            roomProto: this.roomProto?.id,
         };
     }
     rename(newName) {
@@ -547,9 +547,9 @@ export class MudStorage {
         });
     }
     renameWorld(name, newName) {
-        var index = this.worlds.indexOf(name);
         return new Promise((succeed, fail) => {
-            if (name != newName && index != -1 && !this.hasWorld(newName)) {
+            var index = this.worlds.indexOf(name);
+            if (newName && name != newName && index != -1 && !this.hasWorld(newName)) {
                 var req = this.upgrade(() => {
                     console.log('STORING MUD INFO');
                     this.store();
@@ -557,9 +557,13 @@ export class MudStorage {
                 });
                 req.onupgradeneeded = () => {
                     var txn = req.transaction;
+                    var openWorld = this.openWorlds.get(name);
                     this.db = req.result;
                     this.worlds[index] = newName;
-                    this.openWorlds.set(newName, this.openWorlds.get(name));
+                    if (openWorld) {
+                        openWorld.setName(newName);
+                        this.openWorlds.set(newName, openWorld);
+                    }
                     this.openWorlds.delete(name);
                     txn.objectStore(mudDbName(name)).name = mudDbName(newName);
                     txn.objectStore(userDbName(name)).name = userDbName(newName);

@@ -99,6 +99,8 @@ export class MudConnection {
 <p>Click on old commands to reuse them`);
     }
     async format(tip, str) {
+        if (!str)
+            return str;
         var thing = await this.world.getThing(tip);
         var result = '';
         var parts = str.split(/( *\$\w*)/);
