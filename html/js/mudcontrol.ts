@@ -44,13 +44,16 @@ const setHelp = [
   location    -- move the thing to another location
   linkowner   -- set the thing's linkOwner
   otherlink   -- set the thing's otherLink 
-  description -- the thing's description, you can use the following format words in a description:
-     \$This -- capitalized formatted name
-     \$this -- uncapitalized formatted name
-     \$is   -- is or are, depending on the thing's count
-     \$s    -- optional s, if count is 1 (like run$s)
-     \$Here -- capitalized formatted name of the thing's location
-\$here -- uncapitalized formatted name of the thing's location`
+  description -- the thing's description, you can use the following format words in a description (if you capitalize a format word, the substitution will be capitalized), :
+     \$is       -- is or are, depending on the thing's count (does not capitalize)
+     \$s        -- optional s, if count is 1 (like run$s, does not capitalize)
+     \$this     -- the thing
+     \$links    -- the thing's links
+     \$contents -- the thing's contents
+     \$location -- the thing's location
+     \$owner    -- the link's owner when the thing acts as a link
+     \$link     -- the link's destination when the thing acts as a link
+`
 ]
 
 const commands = new Map<String, any>([
@@ -58,6 +61,7 @@ const commands = new Map<String, any>([
     ['login',       {help: ['user password', 'Login to the mud']}],
     ['look',        {help: ['', `See a description of your current location`,
                             'thing', 'See a description of a thing']}],
+    ['go',          {help: ['location', `move to another location (may be a direction)`]}],
     ['@dump',       {help: ['thing', 'See properties of a thing']}],
     ['@create',     {help: ['proto', 'Create a thing']}],
     ['@find',       {help: ['thing', 'Find a thing',
@@ -165,8 +169,7 @@ export class MudConnection {
                 var [_, space, format] = match
 
                 result += space
-                switch(format) {
-                    case 'This' :
+                switch(format.toLowerCase()) {
                     case 'this' : {
                         var name: string
 
@@ -186,17 +189,14 @@ export class MudConnection {
                         result += !thing || thing.count == 1 ? 's' : ''
                         continue
                     }
-                    case 'Here':
-                    case 'here': {
+                    case 'location': {
                         result += capitalize((await thing.getLocation()).formatName(), format)
                         continue
                     }
-                    case 'Owner':
                     case 'owner': {
                         result += capitalize((await thing.getLinkOwner()).formatName(), format)
                         continue
                     }
-                    case 'Link':
                     case 'link': {
                         var other = await thing.getOtherLink()
                         var dest = await other?.getLinkOwner()
@@ -366,6 +366,19 @@ export class MudConnection {
         } else {
             this.output(await this.examination(await this.thing.getLocation()))
         }
+    }
+    async go(cmdInfo, locationStr) {
+        var location = await this.find(locationStr, this.thing, 'location')
+        var link = location._otherLink && await location.getOtherLink()
+
+        if (link) {
+            location = link && await link.getLinkOwner()
+            if (!location) {
+                return this.error(`${locationStr} does not lead anywhere`)
+            }
+        }
+        await this.thing.setLocation(location)
+        this.output(`Moved ${link ? link.formatName() + ' to' : ''} ${location.formatName()}`)
     }
     async atCreate(cmdInfo, protoStr, name) {
         var proto = await this.find(protoStr, await this.world.getThing(this.world.hallOfPrototypes))
