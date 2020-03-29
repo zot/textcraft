@@ -50,7 +50,7 @@ const thing2SpecProps = new Map([
  * * otherLink: the companion to this link, if this is a link
  */
 export class Thing {
-    constructor(id, name, description = null) {
+    constructor(id, name, description = undefined) {
         this._id = id;
         this._fullName = name;
         this._name = name.split(/ +/)[0];
@@ -75,6 +75,12 @@ export class Thing {
     }
     get description() { return this._description; }
     set description(d) { this.markDirty(this._description = d); }
+    get contentsFormat() { return this._contentsFormat; }
+    set contentsFormat(f) { this.markDirty(this._contentsFormat = f); }
+    get examineFormat() { return this._examineFormat; }
+    set examineFormat(f) { this.markDirty(this._examineFormat = f); }
+    get linkFormat() { return this._linkFormat; }
+    set linkFormat(f) { this.markDirty(this._linkFormat = f); }
     get open() { return this._open; }
     set open(b) { this.markDirty(this._open = b); }
     getContents() { return this.world.getContents(this); }
@@ -143,7 +149,7 @@ export class Thing {
         return spec;
     }
     async useSpec(spec) {
-        for (let prop in Object.keys(spec)) {
+        for (let prop of Object.keys(spec)) {
             this['_' + prop] = spec[prop];
         }
         if (spec.prototype) {
@@ -172,28 +178,34 @@ export class World {
         return new Promise((succeed, fail) => {
             var req = storage.upgrade(() => {
                 return this.doTransaction(async (store, users, txn) => {
-                    var limbo = await this.createThing('Limbo', 'You are floating in $this');
+                    var limbo = await this.createThing('Limbo', 'You are floating in $this<br>$links<br><br>$contents');
                     this.limbo = limbo.id;
                     limbo.markDirty(limbo._location = this.limbo);
-                    limbo.article = null;
+                    limbo.article = '';
                     var lobby = await this.createThing('Lobby', 'You are in $this');
                     lobby.markDirty(this.lobby = lobby.id);
-                    var protos = await this.createThing('Hall of Prototypes', 'You are in $this');
+                    var protos = await this.createThing('Hall of Prototypes');
                     protos.markDirty(this.hallOfPrototypes = protos.id);
                     var thingProto = await this.createThing('thing', 'This is $this');
                     this.thingProto = thingProto;
                     thingProto.markDirty(thingProto._location = this.hallOfPrototypes);
+                    thingProto.article = 'the';
+                    thingProto.contentsFormat = '$This $is here';
+                    thingProto.examineFormat = 'Exits: $links<br>Contents: $contents';
+                    thingProto.linkFormat = '$This leads to $link';
+                    var linkProto = await this.createThing('link', '$This to $link');
+                    linkProto.markDirty(linkProto._location = this.hallOfPrototypes);
+                    linkProto.article = '';
                     var roomProto = await this.createThing('room', 'You are in $this');
-                    this.roomProto = roomProto;
                     roomProto.markDirty(roomProto._location = this.hallOfPrototypes);
-                    roomProto._prototype = thingProto.id;
-                    limbo._prototype = roomProto.id;
-                    lobby._prototype = roomProto.id;
-                    protos._prototype = roomProto.id;
+                    roomProto.setPrototype(thingProto);
+                    limbo.setPrototype(roomProto);
+                    lobby.setPrototype(roomProto);
+                    protos.setPrototype(roomProto);
                     var personProto = await this.createThing('person', '$This $is only a dude');
                     this.personProto = personProto;
                     personProto.markDirty(personProto._location = this.hallOfPrototypes);
-                    personProto._prototype = thingProto.id;
+                    personProto.setPrototype(thingProto);
                     personProto._article = '';
                     this.store();
                     succeed();
@@ -221,7 +233,7 @@ export class World {
         this.limbo = info.limbo;
         this.hallOfPrototypes = info.hallOfPrototypes;
         this.thingProto = await this.getThing(info.thingProto);
-        this.roomProto = await this.getThing(info.roomProto);
+        this.personProto = await this.getThing(info.personProto);
     }
     spec() {
         return {
@@ -231,8 +243,8 @@ export class World {
             lobby: this.lobby,
             limbo: this.limbo,
             hallOfPrototypes: this.hallOfPrototypes,
-            thingProto: this.thingProto?.id,
-            roomProto: this.roomProto?.id,
+            thingProto: this.thingProto.id,
+            personProto: this.personProto.id,
         };
     }
     rename(newName) {
@@ -378,7 +390,7 @@ export class World {
         if (cached) {
             return Promise.resolve(cached);
         }
-        return this.doTransaction(async (store) => this.cacheThingFor(await promiseFor(store.get(id))));
+        return this.doTransaction(async (store) => await this.cacheThingFor(await promiseFor(store.get(id))));
     }
     authenticate(name, passwd) {
         return this.doTransaction(async (store, users, txn) => {
@@ -387,7 +399,7 @@ export class World {
                 throw new Error('Bad user or password');
             }
             if (!user.thing) {
-                var thing = await this.createThing(name, 'Just some dude');
+                var thing = await this.createThing(name);
                 thing.markDirty(thing._location = this.lobby);
                 if (this.personProto)
                     thing.setPrototype(this.personProto);
@@ -401,7 +413,7 @@ export class World {
             }
         });
     }
-    createThing(name, description = '') {
+    createThing(name, description = undefined) {
         var t = new Thing(this.nextId++, name, description);
         t.world = this;
         t._location = this.limbo;
@@ -414,17 +426,17 @@ export class World {
         });
         return t;
     }
-    cacheThingFor(thingSpec) {
+    async cacheThingFor(thingSpec) {
         var thing = new Thing(null, '');
         thing.world = this;
-        thing.useSpec(thingSpec);
+        await thing.useSpec(thingSpec);
         this.thingCache.set(thing.id, thing);
         return thing;
     }
     async cacheThings(specs) {
         for (let i = 0; i < specs.length; i++) {
             var thing = this.thingCache.get(specs[i].id);
-            specs[i] = thing || this.cacheThingFor(specs[i]);
+            specs[i] = thing || await this.cacheThingFor(specs[i]);
         }
         return specs;
     }

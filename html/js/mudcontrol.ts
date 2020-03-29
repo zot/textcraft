@@ -13,6 +13,17 @@ var yaml = (window as any).jsyaml
 var app: any
 var connection: MudConnection
 
+const reservedProperties = new Set([
+    '_id',
+    '_prototype',
+    '_location',
+    '_contents',
+    '_links',
+    '_linkOwner',
+    '_otherLink',
+    '__proto__',
+])
+
 const properties = [
     'prototype',
     'article',
@@ -24,16 +35,11 @@ const properties = [
     'otherLink',
 ]
 const lowercaseProperties = properties.map(p=> p.toLowerCase())
-
-const commands = new Map<String, any>([
-    ['help',        {help: 'help                      -- Show this message'}],
-    ['login',       {help: 'login user password       -- Login to the mud'}],
-    ['look',        {help: `look                      -- See a description of your current location
-look thing                      -- See a description of a thing`}],
-    ['@dump',       {help: '@dump thing               -- See properties of a thing'}],
-    ['@create',     {help: '@create proto             -- Create a thing'}],
-    ['@info',       {help: '@info                     -- List important information'}],
-    ['@set',        {help: `@set thing property value -- Set one of these properties on a thing:
+const setHelp = [
+    'thing property boolean', '',
+    'thing property number', '',
+    'thing property bigInt', '',
+    'thing property value', `Set one of these properties on a thing:
   prototype   -- see the @info command
   article     -- the article for a thing's name
   name        -- the thing's fullName (the name will be set to the first word)
@@ -47,22 +53,43 @@ look thing                      -- See a description of a thing`}],
      \$is   -- is or are, depending on the thing's count
      \$s    -- optional s, if count is 1 (like run$s)
      \$Here -- capitalized formatted name of the thing's location
-     \$here -- uncapitalized formatted name of the thing's location
-`, admin: true}],
-    ['@del',        {help: `@del thing property       -- Delete one of these properties from a thing so it will inherit from its prototype:
+\$here -- uncapitalized formatted name of the thing's location`
+]
+
+const commands = new Map<String, any>([
+    ['help',        {help: ['','Show this message']}],
+    ['login',       {help: ['user password', 'Login to the mud']}],
+    ['look',        {help: ['', `See a description of your current location`,
+                            'thing', 'See a description of a thing']}],
+    ['@dump',       {help: ['thing', 'See properties of a thing']}],
+    ['@create',     {help: ['proto', 'Create a thing']}],
+    ['@link',       {help: ['loc1 link1 link2 exit2', 'create links between two things']}],
+    ['@info',       {help: ['', 'List important information']}],
+    ['@setBool',    {help: setHelp, admin: true}],
+    ['@setNum',     {help: setHelp, admin: true}],
+    ['@setBigint',  {help: setHelp, admin: true}],
+    ['@set',        {help: setHelp, admin: true}],
+     ['@del',        {help: ['thing property', `Delete one of these properties from a thing so it will inherit from its prototype:
      article
      name
      fullName
      description
-     count`}],
+     count`]}],
 ])
 
 export function init(appObj) {
     app = appObj
     console.log(yaml)
     for (let cmd of commands.keys()) {
+        let command = commands.get(cmd)
+
+        command.minArgs = 0
+        command.name = cmd
         if (cmd[0] == '@') {
-            commands.get(cmd).admin = true
+            command.admin = true
+        }
+        for (let i = 0; i < command.help.length; i+= 2) {
+            command.minArgs = Math.max(command.minArgs, command.help[i].split(/ +/).length)
         }
     }
 }
@@ -100,9 +127,11 @@ export class MudConnection {
     admin: boolean
     thing: Thing
     outputHandler: (output: string)=> void
+    created: Thing[]
     constructor(world, outputHandler) {
         this.world = world
         this.outputHandler = outputHandler
+        this.created = []
     }
     async configure(user: string, thing: thingId) {
         this.user = user
@@ -146,14 +175,11 @@ export class MudConnection {
                         } else {
                             name = thing.formatName()
                         }
-                        if (format == 'This') {
-                            name = capitalize(name)
-                        }
-                        result += name
+                        result += capitalize(name, format)
                         continue
                     }
                     case 'is': {
-                        result += !thing || thing.count == 1 ? 'is' : 'are'
+                        result += thing && (thing.count != 1 || thing == this.thing) ? 'are' : 'is'
                         continue
                     }
                     case 's': {
@@ -162,12 +188,44 @@ export class MudConnection {
                     }
                     case 'Here':
                     case 'here': {
-                        var name = (await this.thing.getLocation()).formatName()
+                        result += capitalize((await thing.getLocation()).formatName(), format)
+                        continue
+                    }
+                    case 'Owner':
+                    case 'owner': {
+                        result += capitalize((await thing.getLinkOwner()).formatName(), format)
+                        continue
+                    }
+                    case 'Link':
+                    case 'link': {
+                        var other = await thing.getOtherLink()
+                        var dest = await other?.getLinkOwner()
 
-                        if (format == 'Here') {
-                            name = capitalize(name)
+                        if (dest) {
+                            result += capitalize(dest.formatName(), format)
                         }
-                        result += name
+                        continue
+                    }
+                    case 'contents': {
+                        var contents = await thing.getContents()
+
+                        if (contents.length) {
+                            for (var item of contents) {
+                                result += `<br>&nbsp;&nbsp;${await this.format(item, thing.contentsFormat)}`
+                            }
+                            result += '<br>'
+                        }
+                        continue
+                    }
+                    case 'links': {
+                        var links = await thing.getLinks()
+
+                        if (links.length) {
+                            for (var item of links) {
+                                result += `<br>&nbsp;&nbsp;${await this.format(item, item.linkFormat)}`
+                            }
+                            result += '<br>'
+                        }
                         continue
                     }
                 }
@@ -179,60 +237,115 @@ export class MudConnection {
     async dumpName(tip: thingId | Thing | Promise<Thing>) {
         var thing = await this.world.getThing(tip)
 
-        return thing ? `%${thing._id} ${await thing.formatName()}` : 'null'
+        return escape(thing ? `%${thing._id} ${thing.formatName()}` : 'null')
+    }
+    description(thing: Thing) {
+        return this.format(thing, thing.description)
+    }
+    async examination(thing: Thing) {
+        var result = await this.description(thing)
+
+        return result + (thing.examineFormat ? `<br>${await this.format(thing, thing.examineFormat)}` : '')
     }
     async describe(thing: Thing) {
-        var desc = await this.format(thing, thing.description)
-        var contents = await thing.getContents()
-
-        if (contents.length) {
-            desc += '<br>'
-            for (var thing of contents) {
-                desc += `<br>${thing== this.thing ? 'You are' : thing.formatName() + ' is'} here`
-            }
-        }
-        this.output(desc)
+        this.output(await this.description(thing))
     }
-    command(text: string) {
-        var cmd = text.split(/\s+/)
+    command(line: string) {
+        var cmd = line.split(/\s+/)
 
         cmd[0] == cmd[0].toLowerCase()
         if (this.thing ? commands.has(cmd[0]) : cmd[0] == 'login' || cmd[0] == 'help') {
-            if (commands.get(cmd[0]).admin && !this.admin) {
+            var command = commands.get(cmd[0])
+
+            if (command.admin && !this.admin) {
                 return this.error('Unknown command: '+cmd[0])
             }
             if (cmd[0][0] == '@') {
                 cmd[0] = 'at' + capitalize(cmd[0].substring(1))
             }
-            this.output('<span class="input">&gt; <span class="input-text">'+text+'</span></span>')
+            this.output('<span class="input">&gt; <span class="input-text">'+line+'</span></span>')
             // execute command inside a transaction so it will automatically store any dirty objects
-            this.world.doTransaction(async ()=> this[cmd[0]](text, ...cmd.slice(1)))
+            this.world.doTransaction(()=> this[cmd[0]]({command, line}, ...cmd.slice(1)))
                 .catch(err=> this.error(err.message))
         } else {
             this.output('Unknown command: '+cmd[0])
         }
     }
-    async find(name: string, start = this.thing) {
+    async find(name: string, start: Thing = this.thing, errTag: string = ''): Promise<Thing> {
         if (!name) return null
         name = name.trim().toLowerCase()
-        return name == 'me' ? this.thing
+        var result: Thing = name == 'me' ? this.thing
             : name == 'here' ? await this.thing.getLocation()
+            : name == '%limbo' ? await this.world.getThing(this.world.limbo)
+            : name == '%lobby' ? await this.world.getThing(this.world.lobby)
+            : name == '%protos' ? await this.world.getThing(this.world.hallOfPrototypes)
+            : name.match(/^%proto:/) ? await (await this.world.getThing(this.world.hallOfPrototypes)).find(name.replace(/^%proto:/, ''))
+            : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
             : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
-            : start.find(name)
+            : await start.find(name)
+
+        if (!result && errTag) {
+            throw new Error(`Could not find ${errTag}: ${name}`)
+        }
+        return result
     }
-    async dumpContents(thing: Thing) {
+    async dumpThingNames(things: Thing[]) {
         var items = []
 
-        for (let item of await thing.getContents()) {
+        for (let item of things) {
             items.push(await this.dumpName(item))
         }
         return items.join(', ')
-//        return (await thing.getContents()).map(async t=> await this.dumpName(t)).join(', ')
+    }
+    async thingProps(thingStr: string, property: string, value: any, cmd: any) {
+        var thing = await this.find(thingStr)
+        var propMap = new Map()
+        var lowerProp = property.toLowerCase()
+        var realProp
+
+        if (!thing) {
+            this.error('Could not find thing '+thingStr)
+            return []
+        } else if (lowerProp == 'id') {
+            this.error('Cannot change id!')
+            return []
+        } else if (lowerProp == '_proto__') {
+            this.error('Cannot change __proto__!')
+            return []
+        }
+        for (let key of Object.keys(thing)) {
+            if (key != '_id' && key[0] == '_') {
+                propMap.set(key.substring(1).toLowerCase(), key)
+            }
+        }
+        if (propMap.has(lowerProp)) {
+            realProp = propMap.get(lowerProp)
+            var curVal = thing[property]
+
+            switch (typeof curVal) {
+                case 'number':
+                    value = Number(value)
+                    break
+                case 'boolean':
+                    value = Boolean(value)
+                    break
+                case 'bigint':
+                    value = BigInt(value)
+                    break
+                default:
+                    value = dropArgs(3, cmd)
+                    break
+            }
+        } else {
+            realProp = '_'+property
+            value = dropArgs(3, cmd)
+        }
+        return [thing, lowerProp, realProp, value, propMap]
     }
     ///
     /// COMMANDS
     ///
-    async login(line, user, password) {
+    async login(cmdInfo, user, password) {
         try {
             var [thing, admin] = await this.world.authenticate(user, password)
 
@@ -240,64 +353,113 @@ export class MudConnection {
             this.thing = thing
             this.admin = admin
             this.output('Connected.')
-            this.look()
+            return this.look(null, null)
         } catch (err) {
             this.error(err.message)
         }
     }
-    async look() {
-        this.describe(await this.thing.getLocation())
+    async look(cmdInfo, target) {
+        if (target) {
+            var thing = await this.find(target, this.thing, 'object')
+
+            this.output(await this.description(thing))
+        } else {
+            this.output(await this.examination(await this.thing.getLocation()))
+        }
     }
-    async atCreate(line, proto, name) {
-        var proto = await this.find(proto, await this.world.getThing(this.world.hallOfPrototypes))
+    async atCreate(cmdInfo, protoStr, name) {
+        var proto = await this.find(protoStr, await this.world.getThing(this.world.hallOfPrototypes))
 
         if (!proto) {
-            this.error('Could not find prototype '+proto)
+            var hall = await this.world.getThing(this.world.hallOfPrototypes)
+            var protos = []
+
+            for (let proto of await hall.getContents()) {
+                protos.push(`%${proto._id} %proto:${proto.name}`)
+            }
+            this.error(`<pre>Could not find prototype ${protoStr}
+Prototypes:
+  ${protos.join('\n  ')}`)
         } else {
-            var thing = await this.world.createThing(name, dropArgs(3, line))
+            var thing = await this.world.createThing(name, dropArgs(3, cmdInfo))
 
             thing.setPrototype(proto)
+            this.created.push(thing)
+            if (this.created.length > 100) this.created = this.created.slice(this.created.length - 50)
             this.output(`Created ${await this.dumpName(thing)}`)
         }
     }
-    async atDump(line, thingStr) {
-        checkArgs(2, arguments, '@dump');
+    async getPrototype(name: string) {
+        return this.find(name, await this.world.getThing(this.world.hallOfPrototypes), `${name} prototype`)
+    }
+    async atLink(cmdInfo, loc1Str, exit1Str, exit2Str, loc2Str) {
+        checkArgs(cmdInfo, arguments)
+        var loc1 = await this.find(loc1Str, this.thing, 'location1')
+        var loc2 = await this.find(loc2Str, this.thing, 'location2')
+        var linkProto = await this.getPrototype('link')
+        var exit1 = await this.world.createThing(exit1Str)
+        var exit2 = await this.world.createThing(exit2Str)
+
+        exit1.name = exit1Str
+        exit1.setPrototype(linkProto)
+        exit1.setLinkOwner(loc1)
+        exit1.setOtherLink(exit2)
+        exit2.name = exit2Str
+        exit2.setPrototype(linkProto)
+        exit2.setLinkOwner(loc2)
+        exit2.setOtherLink(exit1)
+        this.output(`Linked ${await this.dumpName(loc1)}->${await this.dumpName(exit1)}--${await this.dumpName(exit2)}<-${await this.dumpName(loc2)}`)
+    }
+    async atDump(cmdInfo, thingStr) {
+        checkArgs(cmdInfo, arguments)
         var thing = await this.find(thingStr)
         if (!thing) return this.error('could not find '+thingStr)
         var spec = thing.spec()
-
-        this.output(
-`<pre>%${thing.id}
-   name: ${thing._name}
+        var myKeys = new Set(Object.keys(thing).filter(k=> !reservedProperties.has(k) && k[0] == '_'))
+        var allKeys = []
+        var result = `<pre>${await this.dumpName(thing)}
    prototype: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
-   fullName: ${thing._fullName}
-   article: ${thing._article}
-   description: ${thing._description}
-   count: ${thing._count}
-   location: ${await this.dumpName(thing._location)}
-   contents: ${await this.dumpContents(thing)}
+   location:  ${await this.dumpName(thing._location)}
+   contents:  ${await this.dumpThingNames(await thing.getContents())}
+   links:     ${await this.dumpThingNames(await thing.getLinks())}
    linkOwner: ${await this.dumpName(thing._linkOwner)}
-   otherLink: ${await this.dumpName(thing._otherLink)}
-   open: ${thing._open}</pre>`
-        )
-    }
-    async atSet(line, thingStr, property, value) {
-        var thing = await this.find(thingStr)
+   otherLink: ${await this.dumpName(thing._otherLink)}`
 
-        if (!thing) {
-            this.error('Could not find thing '+thingStr)
-            return
+        for (let prop in thing) {
+            if (prop[0] == '_' && !reservedProperties.has(prop)) {
+                allKeys.push(prop)
+            }
         }
-        switch (property.toLowerCase()) {
-            case 'article':
-                thing.article = value
-                break
-            case 'name':
-                thing.fullName = value
-                break
-            case 'description':
-                thing.description = dropArgs(3, line)
-                break
+        allKeys.sort()
+        for (let prop of allKeys) {
+            var propName = prop.substring(1)
+
+            if (!myKeys.has(prop)) {
+                propName = `(${propName})`
+            }
+            result += `\n   ${propName}: ${escape(thing[prop])}`
+        }
+        result += '</pre>'
+        this.output(result)
+    }
+    atSetBigInt(cmdInfo, thingStr, property, value) {
+        checkArgs(cmdInfo, arguments)
+        return this.atSet(cmdInfo, thingStr, property, BigInt(value))
+    }
+    atSetBool(cmdInfo, thingStr, property, value) {
+        checkArgs(cmdInfo, arguments)
+        return this.atSet(cmdInfo, thingStr, property, Boolean(value))
+    }
+    atSetNum(cmdInfo, thingStr, property, value) {
+        checkArgs(cmdInfo, arguments)
+        return this.atSet(cmdInfo, thingStr, property, Number(value))
+    }
+    async atSet(cmdInfo, thingStr, property, value) {
+        checkArgs(cmdInfo, arguments)
+        var [thing, lowerProp, realProp, value] = await this.thingProps(thingStr, property, value, cmdInfo)
+
+        if (!thing) return
+        switch (lowerProp) {
             case 'count':
                 thing.count = Number(value)
                 break
@@ -330,7 +492,7 @@ export class MudConnection {
                 await thing.setOtherLink(other)
                 break
             case 'prototype':
-                var proto = await this.find(value)
+                var proto = await this.find(value, await this.world.getThing(this.world.hallOfPrototypes))
 
                 if (!proto) {
                     this.error('Could not find prototype '+value)
@@ -339,30 +501,32 @@ export class MudConnection {
                 await thing.setPrototype(proto)
                 break
             default:
-                this.error('Unknown property: '+property)
+                thing.markDirty(thing[realProp] = value)
+                break
         }
         this.output(`set ${thingStr} ${property} to ${value}`)
     }
-    async atDel(line, name, property) {
-        var thing = await this.find(name)
-        var propIndex = lowercaseProperties.indexOf(property.toLowerCase())
-
-        if (!thing) {
-            this.error('Could not find thing '+name)
-            return
+    async atDel(cmdInfo, thingStr, property) {
+        if (arguments.length < 3) {
+            return this.error('Not enough arguments to @del')
         }
-        if (propIndex == -1) {
+        var [thing, lowerProp, realProp, value, propMap] = await this.thingProps(thingStr, property, null, cmdInfo)
+
+        if (!thing) return
+        if (!propMap.has(lowerProp)) {
             this.error('Bad property name '+property)
             return
         }
-        delete thing[properties[propIndex]]
+        delete thing[propMap.get(lowerProp)]
+        thing.markDirty()
+        this.output(`deleted ${property} from ${thing.name}`)
     }
     async atInfo() {
         var hall = await this.world.getThing(this.world.hallOfPrototypes)
         var protos = []
 
         for (let proto of await hall.getContents()) {
-            protos.push(await this.dumpName(proto))
+            protos.push(`%${proto._id} %proto:${proto.name}`)
         }
         this.output(
 `<pre>Name: ${this.world.name}
@@ -372,7 +536,8 @@ lobby: ${await this.dumpName(this.world.lobby)}
 limbo: ${await this.dumpName(this.world.limbo)}
 hall of prototypes: ${await this.dumpName(this.world.hallOfPrototypes)}
 
-${protos.join('<br>')}
+Prototypes:
+  ${protos.join('<br>  ')}
 </pre>`)
         }
     async atPrototypes() {
@@ -380,31 +545,44 @@ ${protos.join('<br>')}
 
         this.output(`Prototypes:<br><br>${(await hall.getContents()).map(t=> this.dumpName(t)).join('<br>')}`)
     }
-    help(line, cmd) {
-        if (!this.thing) {
-            this.output(
-`<pre>${commands.get('help').help}
-${commands.get('login').help}</pre>`)
-            return
-        }
-        var cmds = [...commands.keys()]
+    help(cmdInfo, cmd) {
+        var cmds = [...commands.keys()].filter(k=> !commands.get(k).admin || this.admin)
         var result = ''
+        var argLen = 0
 
+        if (!this.thing) {
+            cmds = ['help', 'login']
+        }
+        for (let name of cmds) {
+            let help = commands.get(name).help
+
+            for (let i = 0; i < help.length; i += 2) {
+                argLen = Math.max(argLen, name.length + 1 + help[i].length)
+            }
+        }
         cmds.sort()
         for (let name of cmds) {
             var cmd = commands.get(name)
 
-            if (!cmd.admin || this.admin) {
+            for (let i = 0; i < cmd.help.length; i += 2) {
+                let args = name + ' ' + cmd.help[i]
+
                 if (result) {
                     result += '\n'
                 }
-                result += cmd.help
+                result += `<b>${args}</b>`
+                if (cmd.help[i + 1]) {
+                    result += indent(argLen - args.length, '') + '  --  ' + cmd.help[i + 1]
+                }
             }
         }
         this.output('<pre>'+result+`
 
-You can use <b>me</b> for yourself and <b>here</b> for your location</pre>
-${this.admin ? 'You can use %NUMBER to refer to an object by its ID (try <b>@dump me</b> for an example)' : ''}`)
+You can use <b>me</b> for yourself and <b>here</b> for your location${this.admin ? `
+You can use %lobby, %limbo, and %protos for the standard rooms
+You can use %proto:name for a prototype
+You can use %NUMBER for an object by its ID (try <b>@dump me</b> for an example)
+You can use %-N for an item you created recently (%-1 is the last item, %-2 is the next to last, etc.)` : ''}</pre>`)
     }
 }
 
@@ -421,12 +599,14 @@ function indent(spaces: number, str: string) {
     return str.replace(/(^|\n)/g, '$1'+indent)
 }
 
-function dropArgs(count: number, text: string) {
-    return text.split(/( +)/).slice(count * 2).join('')
+function dropArgs(count: number, cmdInfo: any) {
+    return cmdInfo.line.split(/( +)/).slice(count * 2).join('')
 }
 
-export function capitalize(str: string) {
-    return str[0].toUpperCase() + str.substring(1)
+export function capitalize(str: string, templateWord: string = '') {
+    return !templateWord || templateWord[0].toUpperCase() == templateWord[0]
+        ? str[0].toUpperCase() + str.substring(1)
+        : str
 }
 
 export function runMud(world: World) {
@@ -434,8 +614,8 @@ export function runMud(world: World) {
     connection.start()
 }
 
-function checkArgs(count: number, args: any, command: string) {
-    check(count == args.length, 'Not enough arguments to '+command)
+function checkArgs(cmdInfo: any, args: any) {
+    check(args.length >= cmdInfo.command.minArgs + 1, 'Not enough arguments to '+cmdInfo.command.name)
 }
 
 function check(test: boolean, msg: string) {
@@ -446,4 +626,8 @@ export function command(text: string) {
     if (connection) {
         connection.command(text)
     }
+}
+
+export function escape(text: string) {
+    return typeof text == 'string' ? text.replace(/</g, '&lt;') : text
 }

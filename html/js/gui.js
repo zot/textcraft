@@ -132,8 +132,10 @@ export function showMuds() {
         $find(div, '[name=copy-mud]').onclick = async (evt) => {
             evt.stopPropagation();
             var w = await model.storage.openWorld(world);
-            await w.copyWorld(worldCopyName(world));
+            var newName = worldCopyName(world);
+            await w.copyWorld(newName);
             showMuds();
+            editWorld(await model.storage.openWorld(newName));
         };
         $find(div, '[name=activate-mud]').onclick = async (evt) => {
             evt.stopPropagation();
@@ -150,10 +152,10 @@ function worldCopyName(oldName) {
         return nameTemplate;
     }
     var counter = 1;
-    while (model.storage.worlds.indexOf(nameTemplate + '-' + counter) == -1) {
+    while (model.storage.worlds.indexOf(nameTemplate + ' ' + counter) != -1) {
         counter++;
     }
-    return nameTemplate + '-' + counter;
+    return nameTemplate + ' ' + counter;
 }
 export function onEnter(input, action, shouldClear = false) {
     input.onkeydown = evt => {

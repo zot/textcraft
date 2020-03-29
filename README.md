@@ -55,3 +55,7 @@ Run this in another terminal to serve up the web page -- we use modules so file:
 ```shell
 libp2p-websocket -files html -browse textcraft.html
 ```
+
+# Things to look out for with async functions with database operations
+
+When you call an async function, make sure to use await or return or the transaction will be lost!
