@@ -9,7 +9,6 @@ import {
 } from './model.js'
 import * as gui from './gui.js'
 
-var yaml = (window as any).jsyaml
 var app: any
 var connection: MudConnection
 
@@ -77,7 +76,6 @@ const commands = new Map<String, any>([
 
 export function init(appObj) {
     app = appObj
-    console.log(yaml)
     for (let cmd of commands.keys()) {
         let command = commands.get(cmd)
 
@@ -149,7 +147,7 @@ export class MudConnection {
     }
     start() {
         mudTracker.setValue(MudState.Playing)
-        this.outputHandler(`Welcome to the mud, use the "login" command to log in.
+        this.outputHandler(`Welcome to ${this.world.name}, use the "login" command to log in.
 <p>
 <p>
 <p>Help lists commands...
@@ -272,18 +270,30 @@ export class MudConnection {
         }
     }
     async find(name: string, start: Thing = this.thing, errTag: string = ''): Promise<Thing> {
+        var result: Thing
+
         if (!name) return null
         name = name.trim().toLowerCase()
-        var result: Thing = name == 'me' ? this.thing
-            : name == 'here' ? await this.thing.getLocation()
-            : name == '%limbo' ? await this.world.getThing(this.world.limbo)
-            : name == '%lobby' ? await this.world.getThing(this.world.lobby)
-            : name == '%protos' ? await this.world.getThing(this.world.hallOfPrototypes)
-            : name.match(/^%proto:/) ? await (await this.world.getThing(this.world.hallOfPrototypes)).find(name.replace(/^%proto:/, ''))
-            : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
-            : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
-            : await start.find(name)
+        if (start[0] != '%' || this.admin) {
+            if (name == 'out') {
+                var location = await this.thing.getLocation()
 
+                result = location && await location.getLocation()
+                if (!result || result.id == this.world.limbo) {
+                    throw new Error('You are not in a container')
+                }
+            } else {
+                result = name == 'me' ? this.thing
+                    : name == 'here' ? await this.thing.getLocation()
+                    : name == '%limbo' ? await this.world.getThing(this.world.limbo)
+                    : name == '%lobby' ? await this.world.getThing(this.world.lobby)
+                    : name == '%protos' ? await this.world.getThing(this.world.hallOfPrototypes)
+                    : name.match(/^%proto:/) ? await (await this.world.getThing(this.world.hallOfPrototypes)).find(name.replace(/^%proto:/, ''))
+                    : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
+                    : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
+                    : await start.find(name)
+            }
+        }
         if (!result && errTag) {
             throw new Error(`Could not find ${errTag}: ${name}`)
         }
@@ -603,7 +613,7 @@ Prototypes:
         }
         this.output('<pre>'+result+`
 
-You can use <b>me</b> for yourself and <b>here</b> for your location${this.admin ? `
+You can use <b>me</b> for yourself, <b>here</b> for your location, and <b>out</b> for your location's location (if you're in a container)${this.admin ? `
 You can use %lobby, %limbo, and %protos for the standard rooms
 You can use %proto:name for a prototype
 You can use %NUMBER for an object by its ID (try <b>@dump me</b> for an example)
@@ -634,11 +644,6 @@ export function capitalize(str: string, templateWord: string = '') {
         : str
 }
 
-export function runMud(world: World) {
-    connection = new MudConnection(world, text=> gui.addMudOutput('<div>'+text+'</div>'))
-    connection.start()
-}
-
 function checkArgs(cmdInfo: any, args: any) {
     check(args.length >= cmdInfo.command.minArgs + 1, 'Not enough arguments to '+cmdInfo.command.name)
 }
@@ -647,12 +652,28 @@ function check(test: boolean, msg: string) {
     if (!test) throw new Error(msg)
 }
 
+export function escape(text: string) {
+    return typeof text == 'string' ? text.replace(/</g, '&lt;') : text
+}
+
+////
+//// CONTROL API
+////
+//// At this point it's just telnet
+////   You send command strings to the (remote or local) MUD
+////   The MUD sends back HTML strings to output
+////
+
+/**
+ * send a command to the controller
+ */
 export function command(text: string) {
     if (connection) {
         connection.command(text)
     }
 }
 
-export function escape(text: string) {
-    return typeof text == 'string' ? text.replace(/</g, '&lt;') : text
+export function runMud(world: World, handleOutput: (str: string)=> void) {
+    connection = new MudConnection(world, handleOutput)
+    connection.start()
 }

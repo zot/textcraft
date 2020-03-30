@@ -1088,6 +1088,7 @@ export default {
     BlankHandler,
     CommandHandler,
     TrackingHandler,
+    DelegatingHandler,
     LoggingHandler,
     checkProt,
     checkPeerID,

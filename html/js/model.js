@@ -690,7 +690,6 @@ export function openStorage() {
     return new Promise((succeed, fail) => {
         console.log('opening storage');
         var req = indexedDB.open(centralDbName);
-        console.log('req', req);
         req.onupgradeneeded = () => {
             var db = req.result;
             var txn = req.transaction;

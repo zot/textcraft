@@ -199,7 +199,7 @@ export class World {
     thingStore: IDBObjectStore
     userStore: IDBObjectStore
     dirty: Set<thingId>
-
+        
     constructor(name, storage) {
         this.setName(name)
         this.storage = storage
@@ -756,7 +756,6 @@ export function openStorage() {
         console.log('opening storage')
         var req = indexedDB.open(centralDbName)
         
-        console.log('req', req)
         req.onupgradeneeded = ()=> {
             var db = req.result
             var txn = req.transaction

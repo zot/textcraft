@@ -7,6 +7,7 @@ import {
 import * as model from './model.js'
 import * as mudcontrol from './mudcontrol.js'
 import * as storagecontrol from './storagecontrol.js'
+import * as mudproto from './mudproto.js'
 
 var relaying = false
 var nextId = 0
@@ -76,6 +77,7 @@ class RadioTracker {
         for (let name of this.tracker.names) {
             for (let node of $all('#'+name.toLowerCase()+this.idSuffix)) {
                 node.onclick = evt=> this.clicked(evt.target)
+                if (!node.name) node.name = idSuffix + '-radio'
             }
         }
         tracker.observe(state=>{
@@ -163,7 +165,12 @@ export function showMuds() {
             evt.stopPropagation()
             $('#mud-output').innerHTML = ''
             sectionTracker.setValue(SectionState.Mud)
-            mudcontrol.runMud(await model.storage.openWorld(world))
+            roleTracker.setValue(RoleState.Solo)
+            $('#mud-command').removeAttribute('disabled')
+            $('#mud-command').focus()
+            mudcontrol.runMud(await model.storage.openWorld(world), text=> {
+                addMudOutput('<div>'+text+'</div>')
+            })
             $('#mud-name').textContent = world
         }
     }
@@ -387,6 +394,30 @@ async function uploadMud(evt) {
     }
 }
 
+export function setConnectString(cst: string) {
+    $('#connectString').value = cst
+}
+
+export function setPeerId(id: string) {
+    $('#peerID').textContent = id;
+}
+
+export function noConnection() {
+    $('#connectStatus').textContent = '';
+    $('#connectString').value = '';
+    $('#connect').disabled = false;
+    $('#connect').textContent = 'Connect';
+    $('#toHostID').value = '';
+    $('#toHostID').disabled = false;
+    $('#toHostID').readOnly = false;
+    $('#send').value = '';
+    $('#hostingRelay').readOnly = false;
+}
+
+export function connectedToHost(peerId: string) {
+    $('#connectStatus').textContent = 'Connected to '+ peerId
+}
+
 export function start() {
     radioTracker(natTracker, 'Nat')
     radioTracker(peerTracker, 'Peer')
@@ -415,5 +446,16 @@ export function start() {
         }
     }
     $('#upload-mud').onchange = uploadMud
+    $('#mud-host').onclick = ()=> {
+        sectionTracker.setValue(SectionState.Connection)
+        roleTracker.setValue(RoleState.Host)
+    }
+    $('#mud-quit').onclick = ()=> {
+        roleTracker.setValue(RoleState.None)
+        $('#mud-output').innerHTML = ''
+        sectionTracker.setValue(SectionState.Storage)
+        $('#mud-command').value = ''
+        $('#mud-command').setAttribute('disabled', true)
+    }
     showMuds()
 }

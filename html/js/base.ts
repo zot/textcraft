@@ -8,12 +8,15 @@ export enum NatState {
 }
 
 export enum RoleState {
+    None,
     Guest,
     Host,
     Relay,
+    Solo,
 }
 
 export enum RelayState {
+    None,
     Idle,
     PendingHosting,
     Hosting,

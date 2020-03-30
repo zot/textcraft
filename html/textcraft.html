@@ -33,7 +33,7 @@
             &nbsp;
             <div id='indicator-box'>
                 <b>Mode:&nbsp;</b>
-                <span class='when-not-role-relay mode-label'>
+                <span class='when-relay-idle mode-label'>
                     <span class='when-peer-disconnected'>disconnected</span>
                     <span class='when-peer-abortingrelayhosting'>abortingRelayHosting</span>
                     <span class='when-peer-abortingrelayconnection'>abortingRelayConnection</span>
@@ -52,7 +52,7 @@
                     <span class='when-peer-connectedtorelayforhosting'>connectedToRelayForHosting</span>
                     <span class='when-peer-connectedtorelayforconnection'>connectedToRelayForConnection</span>
                 </span>
-                <span class='when-role-relay mode-label'>
+                <span class='when-nat-public mode-label'>
                     <span class='when-relay-idle'>idleRelay</span>
                     <span class='when-relay-pendinghosting'>pendingRelay</span>
                     <span class='when-relay-hosting'>hostingRelay</span>
@@ -72,57 +72,66 @@
         </div>
         <div id='stateButtons'>
             <div>
-                <span>GUI SECTIONS:</span>
-                <input type="radio" id="connectionSection" name="sectionSelection"> <label for="connectionSection">Connection</label>
-                <input type="radio" id="mudSection" name="sectionSelection"> <label for="mudSection">MUD</label>
-                <input type="radio" id="profileSection" name="sectionSelection"> <label for="profileSection">Profile</label>
-                <input type="radio" id="storageSection" name="sectionSelection"> <label for="storageSection">Storage</label>
-            </div>
-            <div class='when-section-connection'>
                 <span>EMULATE GATEWAY:</span>
-                <input type="radio" id="notstartedNat" name="natSelection"> <label for="notstartedNat">Not Started</label>
-                <input type="radio" id="unknownNat" name="natSelection"> <label for="unknownNat">Unknown Nat</label>
-                <input type="radio" id="publicNat" name="natSelection"> <label for="publicNat">Public Nat</label>
-                <input type="radio" id="privateNat" name="natSelection"> <label for="privateNat">Private Nat</label>
+                <input type="radio" id="notstartedNat"> <label for="notstartedNat">Not Started</label>
+                <input type="radio" id="unknownNat"> <label for="unknownNat">Unknown Nat</label>
+                <input type="radio" id="publicNat"> <label for="publicNat">Public Nat</label>
+                <input type="radio" id="privateNat"> <label for="privateNat">Private Nat</label>
             </div>
-            <div id='peerStates' class='when-section-connection'>
+            <div id='peerStates'>
                 <span>EMULATE PEER:</span>
-                <input type='radio' id='disconnectedPeer' name='peerState'> <label for='disconnectedPeer'>disconnected</label>
-                <input type='radio' id='abortingRelayHostingPeer' name='peerState'> <label for='abortingRelayHostingPeer'>abortingRelayHosting</label>
-                <input type='radio' id='abortingRelayConnectionPeer' name='peerState'> <label for='abortingRelayConnectionPeer'>abortingRelayConnection</label>
-                <input type='radio' id='stoppingHostingPeer' name='peerState'> <label for='stoppingHostingPeer'>stoppingHosting</label>
-                <input type='radio' id='disconnectingFromHostPeer' name='peerState'> <label for='disconnectingFromHostPeer'>disconnectingFromHost</label>
-                <input type='radio' id='disconnectingFromRelayForHostingPeer' name='peerState'> <label for='disconnectingFromRelayForHostingPeer'>disconnectingFromRelayForHosting</label>
-                <input type='radio' id='disconnectingFromRelayForConnectionPeer' name='peerState'> <label for='disconnectingFromRelayForConnectionPeer'>disconnectingFromRelayForConnection</label>
-                <input type='radio' id='connectingToHostPeer' name='peerState'> <label for='connectingToHostPeer'>connectingToHost</label>
-                <input type='radio' id='connectingToRelayForHostingPeer' name='peerState'> <label for='connectingToRelayForHostingPeer'>connectingToRelayForHosting</label>
-                <input type='radio' id='connectingToRelayForConnectionPeer' name='peerState'> <label for='connectingToRelayForConnectionPeer'>connectingToRelayForConnection</label>
-                <input type='radio' id='connectingToRelayForCallbackPeer' name='peerState'> <label for='connectingToRelayForCallbackPeer'>connectingToRelayForCallback</label>
-                <input type='radio' id='awaitingTokenConnectionPeer' name='peerState'> <label for='awaitingTokenConnectionPeer'>awaitingTokenConnection</label>
-                <input type='radio' id='awaitingTokenPeer' name='peerState'> <label for='awaitingTokenPeer'>awaitingToken</label>
-                <input type='radio' id='connectedToHostPeer' name='peerState'> <label for='connectedToHostPeer'>connectedToHost</label>
-                <input type='radio' id='hostingDirectlyPeer' name='peerState'> <label for='hostingDirectlyPeer'>hostingDirectly</label>
-                <input type='radio' id='connectedToRelayForHostingPeer' name='peerState'> <label for='connectedToRelayForHostingPeer'>connectedToRelayForHosting</label>
-                <input type='radio' id='connectedToRelayForConnectionPeer' name='peerState'> <label for='connectedToRelayForConnectionPeer'>connectedToRelayForConnection</label>
+                <input type='radio' id='disconnectedPeer'> <label for='disconnectedPeer'>disconnected</label>
+                <input type='radio' id='abortingRelayHostingPeer'> <label for='abortingRelayHostingPeer'>abortingRelayHosting</label>
+                <input type='radio' id='abortingRelayConnectionPeer'> <label for='abortingRelayConnectionPeer'>abortingRelayConnection</label>
+                <input type='radio' id='stoppingHostingPeer'> <label for='stoppingHostingPeer'>stoppingHosting</label>
+                <input type='radio' id='disconnectingFromHostPeer'> <label for='disconnectingFromHostPeer'>disconnectingFromHost</label>
+                <input type='radio' id='disconnectingFromRelayForHostingPeer'> <label for='disconnectingFromRelayForHostingPeer'>disconnectingFromRelayForHosting</label>
+                <input type='radio' id='disconnectingFromRelayForConnectionPeer'> <label for='disconnectingFromRelayForConnectionPeer'>disconnectingFromRelayForConnection</label>
+                <input type='radio' id='connectingToHostPeer'> <label for='connectingToHostPeer'>connectingToHost</label>
+                <input type='radio' id='connectingToRelayForHostingPeer'> <label for='connectingToRelayForHostingPeer'>connectingToRelayForHosting</label>
+                <input type='radio' id='connectingToRelayForConnectionPeer'> <label for='connectingToRelayForConnectionPeer'>connectingToRelayForConnection</label>
+                <input type='radio' id='connectingToRelayForCallbackPeer'> <label for='connectingToRelayForCallbackPeer'>connectingToRelayForCallback</label>
+                <input type='radio' id='awaitingTokenConnectionPeer'> <label for='awaitingTokenConnectionPeer'>awaitingTokenConnection</label>
+                <input type='radio' id='awaitingTokenPeer'> <label for='awaitingTokenPeer'>awaitingToken</label>
+                <input type='radio' id='connectedToHostPeer'> <label for='connectedToHostPeer'>connectedToHost</label>
+                <input type='radio' id='hostingDirectlyPeer'> <label for='hostingDirectlyPeer'>hostingDirectly</label>
+                <input type='radio' id='connectedToRelayForHostingPeer'> <label for='connectedToRelayForHostingPeer'>connectedToRelayForHosting</label>
+                <input type='radio' id='connectedToRelayForConnectionPeer'> <label for='connectedToRelayForConnectionPeer'>connectedToRelayForConnection</label>
             </div>
-            <div class='when-section-connection'>
+            <div>
                 <span>EMULATE RELAY:</span>
-                <input type="radio" id="idleRelay" name="relaySelection"> <label for="idleRelay">Disconnected</label>
-                <input type="radio" id="pendingHostingRelay" name="relaySelection"> <label for="pendingHostingRelay">Waiting for host</label>
-                <input type="radio" id="hostingRelay" name="relaySelection"> <label for="hostingRelay">Connected to host</label>
+                <input type="radio" id="noneRelay"> <label for="noneRelay">No Relay</label>
+                <input type="radio" id="idleRelay"> <label for="idleRelay">Idle</label>
+                <input type="radio" id="pendingHostingRelay"> <label for="pendingHostingRelay">Waiting for host</label>
+                <input type="radio" id="hostingRelay"> <label for="hostingRelay">Connected to host</label>
+            </div>
+            <div>
+                <span>EMULATE ROLE:</span>
+                <input type="radio" id="noneRole"> <label for="noneRole">Not Playing</label>
+                <input type="radio" id="guestRole"> <label for="guestRole">Guest</label>
+                <input type="radio" id="hostRole"> <label for="hostRole">Host</label>
+                <input type="radio" id="relayRole"> <label for="relayRole">Relay</label>
+                <input type="radio" id="soloRole"> <label for="soloRole">Solo</label>
             </div>
         </div>
 		<div id='logo'>
             <div class='fcenter'>
                 <span class='when-section-storage section-bar'>Storage&nbsp;<button id='add-mud-button'><i class="fas fa-plus"></i></button><span class='white fcenter'>&nbsp;Upload MUD&nbsp;<input type='file' id='upload-mud' accept='application/json'></span></span>
-                <span class='when-section-mud section-bar'>Mud<span class='when-mud-playing'>: <span id='mud-name'></span></span>&nbsp;<button class='when-peer-connectedtohost'>Request download of current MUD</button></span>
+                <span class='when-not-role-none when-section-mud section-bar'>
+                    Mud<span class='when-mud-playing fcenter'>:&nbsp;<span id='mud-name'></span></span>
+                    &nbsp;<button class='when-peer-connectedtohost'>Request download of current MUD</button></span>
                 <span class='when-section-connection section-bar'>Connection</span>
                 <span class='when-section-profile section-bar'>Profile</span>
             </div>
             <img src="images/textcraft.png">
             <div class='fcenter'>
                 <span class='fgrow'></span>
-                <span class='when-peer-connectedtohost fcenter'><button class='when-peer-connectedtohost'>Download MUD</button>&nbsp;<button id='mud-disconnect'>Disconnect</button></span>
+                <button id='mud-download' class='when-section-mud when-role-player'>Download MUD</button>
+                <button id='mud-stop-hosting' span class='when-section-mud when-role-host'>Stop Hosting</button>
+                <button class='when-role-solo' id='mud-host'>Host</button>
+                &nbsp;
+                <button id='mud-quit' class='when-not-role-none'>Quit</button>
+                &nbsp;
                 <div>
                     <input type="radio" id="storageSection" name="sectionSelection"> <label for="storageSection">Storage</label>
                     <input type="radio" id="connectionSection" name="sectionSelection"> <label for="connectionSection">Connection</label>
@@ -134,16 +143,17 @@
         </div>
         <div id='sections'>
             <div class='when-section-connection section'>
-                <div id='login' class='when-not-connected-with-user'>
+                <hr>
+                <div id='login' class='when-not-connected-with-user hidden'>
                     <div id='userDiv' class='field'>Username:&nbsp;<input id='user' type='text'></div>
                     <div>NAT Status: <span id='natStatus'></span> </div>
                     <div>Peer ID: <span id='peerID' type='text'></span></div>
                 </div>
-                <div class='when-connected-with-user'>
+                <div class='when-connected-with-userX when-nat-known'>
                     <div id='panelSelector'>
                         <input type="radio" id="guestRole" name="panelSelector"> <label for="guestRole">Join a session</label>
                         <input type="radio" id="hostRole" name="panelSelector"> <label for="hostRole">Host a session</label>
-                        <span class='when-public'>
+                        <span class='when-nat-public'>
                             <input type="radio" id="relayRole" name="panelSelector"> <label for="relayRole">Relay for a private peer</label>
                         </span>
                     </div>
@@ -158,16 +168,16 @@
                     </div>
                     <div id='hostDiv' class='when-role-host'>
                         <hr>
-                        <h1 class='when-host'>Give your connect string to people you want to invite</h1>
+                        <h1 class='when-peer-connectedtorelayforhosting'>Give your connect string to people you want to invite</h1>
                         <div class='field'>
                             <button id='host'>Host</button>
                             &nbsp;
-                            <span class='when-private when-peer-disconnected'>Relay connect string:&nbsp;</span>
-                            <input class='when-private when-peer-disconnected' id='hostingRelay' type='text' placeholder='You must use a relay because your connection is private'>
-                            <span class='when-private when-not-peer-disconnected'>Your Connect string:&nbsp;</span>
-                            <input class='when-private when-not-peer-disconnected' id='connectString' type='text' readonly='true'>
+                            <span class='when-nat-private when-peer-disconnected'>Relay connect string:&nbsp;</span>
+                            <input class='when-nat-private when-peer-disconnected' id='hostingRelay' type='text' placeholder='You must use a relay because your connection is private'>
+                            <span class='when-nat-private when-not-peer-disconnected'>Your Connect string:&nbsp;</span>
+                            <input class='when-nat-private when-not-peer-disconnected' id='connectString' type='text' readonly='true'>
                         </div>
-                        <h1 class='when-private'>
+                        <h1 class='when-nat-private'>
                             Your peer does not have public access so you must use a relay
                             <ol>
                                 <li>Copy your peer ID and send it to someone who will relay for you</li>
@@ -188,7 +198,7 @@
                                 <input class='when-not-relay-idle' id='relayConnectString' type='text' readonly='true'>
                             </div>
                         </div>
-                        <h1 class='when-public when-relay-idle'>
+                        <h1 class='when-relay-hosting'>
                             <ol>
                                 <li>Paste the private peer's id above</li>
                                 <li>Click Relay</li>
@@ -201,7 +211,7 @@
             <div class='when-section-mud section'>
                 <div id='mudView' class='view'>
                     <div id='mud-output'></div>
-                    <input id='mud-command' type='text'>
+                    <input id='mud-command' type='text' disabled>
                 </div>
             </div>
             <div class='when-section-profile section'>

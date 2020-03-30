@@ -55,11 +55,11 @@ peerTracker.observe((state, tracker) => {
 });
 roleTracker.observe((state, tracker) => {
     switch (state) {
+        case RoleState.None:
+            break;
         case RoleState.Guest:
             break;
         case RoleState.Host:
-            break;
-        case RoleState.Relay:
             break;
     }
 });

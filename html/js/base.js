@@ -8,15 +8,18 @@ export var NatState;
 })(NatState || (NatState = {}));
 export var RoleState;
 (function (RoleState) {
-    RoleState[RoleState["Guest"] = 0] = "Guest";
-    RoleState[RoleState["Host"] = 1] = "Host";
-    RoleState[RoleState["Relay"] = 2] = "Relay";
+    RoleState[RoleState["None"] = 0] = "None";
+    RoleState[RoleState["Guest"] = 1] = "Guest";
+    RoleState[RoleState["Host"] = 2] = "Host";
+    RoleState[RoleState["Relay"] = 3] = "Relay";
+    RoleState[RoleState["Solo"] = 4] = "Solo";
 })(RoleState || (RoleState = {}));
 export var RelayState;
 (function (RelayState) {
-    RelayState[RelayState["Idle"] = 0] = "Idle";
-    RelayState[RelayState["PendingHosting"] = 1] = "PendingHosting";
-    RelayState[RelayState["Hosting"] = 2] = "Hosting";
+    RelayState[RelayState["None"] = 0] = "None";
+    RelayState[RelayState["Idle"] = 1] = "Idle";
+    RelayState[RelayState["PendingHosting"] = 2] = "PendingHosting";
+    RelayState[RelayState["Hosting"] = 3] = "Hosting";
 })(RelayState || (RelayState = {}));
 export var SectionState;
 (function (SectionState) {
