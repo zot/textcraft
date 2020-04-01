@@ -1,5 +1,6 @@
 export var storage: MudStorage
 
+const jsyaml: any = (window as any).jsyaml
 const centralDbName = 'textcraft'
 const infoKey = 'info'
 const locationIndex = 'locations'
@@ -301,7 +302,7 @@ export class World {
         return this.storage.db
     }
     // perform a transaction, then write all dirty things to storage
-    async doTransaction(func, allowIdChange = false) {
+    async doTransaction(func: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction)=> Promise<any>, allowIdChange = false) {
         if (this.txn) {
             return this.processTransaction(func)
         } else {
@@ -326,7 +327,7 @@ export class World {
     store() {
         return promiseFor(this.thingStore.put(this.spec()))
     }
-    processTransaction(func: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction)=> any) {
+    processTransaction(func: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction)=> Promise<any>) {
         var result = func(this.thingStore, this.userStore, this.txn)
 
         return result instanceof Promise ? result : Promise.resolve(result)
@@ -340,8 +341,10 @@ export class World {
                 var req = users.index(nameIndex).openCursor(name)
 
                 req.onsuccess = evt=> {
-                    if (evt.target.result) {
-                        var dreq = evt.target.result.delete()
+                    var cursor = (evt.target as any).result
+
+                    if (cursor) {
+                        var dreq = cursor.delete()
 
                         dreq.onsuccess = succeed
                         dreq.onerror = fail
@@ -360,7 +363,7 @@ export class World {
             this.doTransaction(async (store, users, txn)=> {
                 var req = users.openCursor()
                 req.onsuccess = evt=> {
-                    let cursor = evt.target.result
+                    var cursor = (evt.target as any).result
 
                     if (cursor) {
                         userList.push(cursor.value)
@@ -409,17 +412,23 @@ export class World {
     putThing(thing: Thing) {
         return promiseFor(this.thingStore.put(thing.spec()))
     }
-    replaceUsers(newUsers: any[]) {
-        return this.doTransaction(async (store, users, txn)=> {
-            await deleteAll(users)
-            return Promise.all(newUsers.map(u=> this.putUser(u)))
-        })
+    async replaceUsers(newUsers: any[]) {
+        await this.doTransaction(async (store, users, txn)=> deleteAll(users))
+        this.doTransaction(async (store, users, txn)=> Promise.all(newUsers.map(u=> this.putUser(u))))
     }
-    replaceThings(newThings: any[]) {
+    async replaceThings(newThings: any[]) {
+        var info: any
+
+        await this.doTransaction(async (store, users, txn)=> {
+            var index = newThings.findIndex(t=> t.id == 'info')
+
+            info = newThings[index]
+            newThings.splice(index, 1)
+            return deleteAll(store)
+        })
         return this.doTransaction(async (store, users, txn)=> {
-            await deleteAll(store)
-            await this.useInfo(newThings.find(t=> t.id == 'info'))
-            return Promise.all(newThings.map(t=> this.putThing(t)))
+            await this.useInfo(info)
+            return Promise.all(newThings.map(t=> promiseFor(this.thingStore.put(t))))
         })
     }
     async getThing(tip: thingId | Thing | Promise<Thing>): Promise<Thing> {
@@ -666,19 +675,18 @@ export class MudStorage {
     }
     fullBlobForWorld(name: string): Promise<Blob> {
         var index = this.worlds.indexOf(name)
-        var records = ['{"objects":']
 
         if (index == -1) {
             return Promise.reject(new Error('No world found named '+name))
         }
         return new Promise(async (succeed, fail)=> {
             var txn = this.db.transaction([mudDbName(name), userDbName(name)])
+            var result = {
+                objects: await jsonObjectsForDb(txn.objectStore(mudDbName(name))),
+                users: await jsonObjectsForDb(txn.objectStore(userDbName(name)))
+            }
 
-            await jsonObjectsForDb(txn.objectStore(mudDbName(name)), records)
-            records.push(', "users":')
-            await jsonObjectsForDb(txn.objectStore(userDbName(name)), records)
-            records.push('}')
-            succeed(blobForJsonObjects(records))
+            succeed(blobForYamlObject(result))
         })
     }
     uploadWorld(world) {
@@ -692,8 +700,8 @@ export class MudStorage {
 
         var world = await this.openWorld(info.name)
         world.doTransaction(async (thingStore, userStore, txn)=> {
+            await this.uploadStrippedWorld(objects, world)
             await world.replaceUsers(users)
-            return this.uploadStrippedWorld(objects, world)
         })
     }
     async uploadStrippedWorld(objects, world = null) {
@@ -703,11 +711,14 @@ export class MudStorage {
             var info = objects.find(i=> i.id == 'info')
 
             world = await this.openWorld(info.name)
-            return world.replaceThings(objects)
+            await world.replaceThings(objects)
         }
     }
 }
 
+export function blobForYamlObject(object) {
+    return new Blob([jsyaml.dump(object, {flowLevel: 3})], {type: 'text/yaml'})
+}
 export function blobForJsonObjects(objects) {
     return new Blob(objects, {type: 'application/json'})
 }
@@ -721,20 +732,13 @@ export function jsonObjectsForDb(objectStore, records = []) {
         var req = objectStore.openCursor()
         var first = true
 
-        records.push('[')
         req.onsuccess = evt=> {
             let cursor = evt.target.result
 
             if (cursor) {
-                if (first) {
-                    first = false
-                } else {
-                    records.push(',')
-                }
-                records.push(JSON.stringify(cursor.value))
+                records.push(cursor.value)
                 cursor.continue()
             } else {
-                records.push(']')
                 succeed(records)
             }
         }

@@ -25,6 +25,7 @@
     <head>
         <link rel = "stylesheet" type = "text/css" href = "css/textcraft.css" />
         <script src="https://kit.fontawesome.com/02a1a974ac.js" crossorigin="anonymous"></script>
+        <script src='js/js-yaml.min.js'></script>
         <script src='js/textcraft.js' type='module'></script>
     </head>
     <body>
@@ -117,29 +118,39 @@
             </div>
         </div>
 		<div id='logo'>
-            <div class='fcenter nowrap'>
-                <div class='tab'><input type="radio" id="mudSection" name="sectionSelection"> <label for="mudSection">MUD</label></div>
-                &nbsp;
-                <div class='tab'><input type="radio" id="storageSection" name="sectionSelection"> <label for="storageSection">Storage</label></div>
-                &nbsp;
-                <div class='tab'><input type="radio" id="connectionSection" name="sectionSelection"> <label for="connectionSection">Connection</label></div>
-                &nbsp;
-                <div class='tab'><input type="radio" id="profileSection" name="sectionSelection"> <label for="profileSection">Profile</label></div>
-                &nbsp;
-                <span class='when-section-storage section-bar'><button id='add-mud-button'><i class="fas fa-plus"></i></button><label for='upload-mud' class='white fcenter'>&nbsp;Upload MUD&nbsp;<input type='file' id='upload-mud' accept='application/json'></span>
-                </span>
-                <span class='when-not-role-none when-section-mud section-bar'>
-                    <span class='when-mud-playing fcenter'>&nbsp;<span id='mud-name'></span></span>
-                    &nbsp;<button class='when-peer-connectedtohost'>Request download of current MUD</button></span>
+            <div class='fcolumn fspread'>
+                <div class='field'>
+                    <span class='mud-title'>Playing:&nbsp;</span>
+                    <span class='when-mud-playing fgrow mud-title field fcenter'>
+                        <span id='mud-name'></span>
+                        <span class='fgrow'></span>
+                        <span class='when-peer-connectedtohost fcenter'>
+                            <button id='mud-download' class='when-peer-connectedtohost'>Download</button>
+                            &nbsp;
+                        </span>
+                        <button id='mud-stop-hosting' span class='when-role-host'>Stop Hosting</button>
+                        <button id='mud-host' class='when-role-solo'>Host</button>
+                        &nbsp;
+                        <button id='mud-quit' class='when-not-role-none'>Quit</button>
+                        &nbsp;
+                    </span>
+                </div>
+                <div class='fcenter nowrap'>
+                    <div class='tab'><input type="radio" id="mudSection" name="sectionSelection"> <label for="mudSection">MUD</label></div>
+                    &nbsp;
+                    <div class='tab'><input type="radio" id="storageSection" name="sectionSelection"> <label for="storageSection">Storage</label></div>
+                    &nbsp;
+                    <div class='tab'><input type="radio" id="connectionSection" name="sectionSelection"> <label for="connectionSection">Connection</label></div>
+                    &nbsp;
+                    <div class='tab'><input type="radio" id="profileSection" name="sectionSelection"> <label for="profileSection">Profile</label></div>
+                    <span class='fgrow'></span>
+                    <button id='add-mud-button'>Create</button>
+                    &nbsp;<button><label for='upload-mud' class='fcenter'>Upload</label></button>
+                    &nbsp;<input type='file' id='upload-mud' accept='text/yaml'>
+                </div>
             </div>
             <img src="images/textcraft.png">
             <div class='fcenter'>
-                <button id='mud-download' class='when-section-mud when-role-player'>Download MUD</button>
-                <button id='mud-stop-hosting' span class='when-section-mud when-role-host'>Stop Hosting</button>
-                <button class='when-role-solo' id='mud-host'>Host</button>
-                &nbsp;
-                <button id='mud-quit' class='when-not-role-none'>Quit</button>
-                &nbsp;
                 <span class='fgrow'></span>
             </div>
         </div>
@@ -213,8 +224,8 @@
                     </div>
                 </div>
             </div>
-            <div id='mud-section' class='when-section-mud section fcolumn'>
-                <!-- div id='mud-view' class='view' -->
+            <!-- div id='mud-section' class='when-section-mud section fcolumn' -->
+            <div id='mud-section' class='when-section-mud section'>
                 <div id='mud-view'>
                     <div id='mud-output'></div>
                     <input id='mud-command' type='text' disabled>

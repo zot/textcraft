@@ -24,7 +24,8 @@
 #logo {
     display: grid;
     grid: auto / minmax(auto, 50fr) auto minmax(auto, 50fr);
-    align-items: flex-end;
+    /*align-items: flex-end;*/
+    align-items: stretch;
 }
 #logo > * {
     overflow: hidden;
@@ -35,13 +36,16 @@ body {
 	font-family: Verdana, Geneva, sans-serif;
 	font-size: 24px;
 	color: #dddddd;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid: auto auto minmax(200px, 1fr) / auto;
     margin: 0;
     padding: 0;
-    width: 100%;
-    height: 100%;
     user-select: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
 }
 /* STATES
  * State classes are on the body, the lowercased state name suffixed with capitalized state type
@@ -84,6 +88,9 @@ body.hostRole .when-not-role-host,
 body.guestRole .when-not-role-guest,
 body.relayRole .when-not-role-relay,
 body.soloRole .when-not-role-solo,
+/* mud */
+body:not(.playingMud) .when-mud-playing,
+body.playingMud .when-not-mud-playing,
 /* peer */
 body:not(.emulation) #stateButtons > *,
 body:not(.disconnectedPeer) .when-peer-disconnected,
@@ -121,7 +128,7 @@ body.mudSection .when-not-section-mud,
 /* mud editor */
 .dialog:not(.mud-deleted) .when-mud-deleted
 {
-    display: none;
+    display: none !important;
 }
 #stateButtons > * > span {
     font-weight: bold;
@@ -174,19 +181,17 @@ body:not(.emulation) #toggleStateButtons {
 #mud-view {
     display: flex;
     flex-direction: column;
-    flex-grow: 1;
+    position: relative;
 }
 #mud-output {
     flex-grow: 1;
-    resize: none;
     background: white;
     color: black;
     overflow-x: auto;
     overflow-y: scroll;
     user-select: text;
 }
-#mud-command {
-}
+#mud-command {}
 #profileView {
 }
 .fcolumn,
@@ -309,7 +314,9 @@ body:not(.emulation) #toggleStateButtons {
     border-radius: 5px;
 }
 #mud-section {
-    flex-direction: row;
+    /*flex-direction: row;*/
+    display: grid;
+    grid: minmax(200px, 1fr) / minmax(200px, 1fr) auto;
 }
 #mud-section:not(.show-users) #mud-users {
     display: none;
@@ -328,6 +335,10 @@ body:not(.emulation) #toggleStateButtons {
 {
     color: orange;
 }
+.mud-title {
+    color: orange;
+    font-weight: bold;
+}
 .nowrap {
     white-space: nowrap;
 }
@@ -345,4 +356,7 @@ body:not(.emulation) #toggleStateButtons {
 }
 #upload-mud {
     display: none;
+}
+.fspread {
+    justify-content: space-between;
 }

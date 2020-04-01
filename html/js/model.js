@@ -1,4 +1,5 @@
 export var storage;
+const jsyaml = window.jsyaml;
 const centralDbName = 'textcraft';
 const infoKey = 'info';
 const locationIndex = 'locations';
@@ -298,8 +299,9 @@ export class World {
             return new Promise((succeed, fail) => {
                 var req = users.index(nameIndex).openCursor(name);
                 req.onsuccess = evt => {
-                    if (evt.target.result) {
-                        var dreq = evt.target.result.delete();
+                    var cursor = evt.target.result;
+                    if (cursor) {
+                        var dreq = cursor.delete();
                         dreq.onsuccess = succeed;
                         dreq.onerror = fail;
                     }
@@ -317,7 +319,7 @@ export class World {
             this.doTransaction(async (store, users, txn) => {
                 var req = users.openCursor();
                 req.onsuccess = evt => {
-                    let cursor = evt.target.result;
+                    var cursor = evt.target.result;
                     if (cursor) {
                         userList.push(cursor.value);
                         console.log('found user', cursor.value);
@@ -363,17 +365,21 @@ export class World {
     putThing(thing) {
         return promiseFor(this.thingStore.put(thing.spec()));
     }
-    replaceUsers(newUsers) {
-        return this.doTransaction(async (store, users, txn) => {
-            await deleteAll(users);
-            return Promise.all(newUsers.map(u => this.putUser(u)));
-        });
+    async replaceUsers(newUsers) {
+        await this.doTransaction(async (store, users, txn) => deleteAll(users));
+        this.doTransaction(async (store, users, txn) => Promise.all(newUsers.map(u => this.putUser(u))));
     }
-    replaceThings(newThings) {
+    async replaceThings(newThings) {
+        var info;
+        await this.doTransaction(async (store, users, txn) => {
+            var index = newThings.findIndex(t => t.id == 'info');
+            info = newThings[index];
+            newThings.splice(index, 1);
+            return deleteAll(store);
+        });
         return this.doTransaction(async (store, users, txn) => {
-            await deleteAll(store);
-            await this.useInfo(newThings.find(t => t.id == 'info'));
-            return Promise.all(newThings.map(t => this.putThing(t)));
+            await this.useInfo(info);
+            return Promise.all(newThings.map(t => promiseFor(this.thingStore.put(t))));
         });
     }
     async getThing(tip) {
@@ -608,17 +614,16 @@ export class MudStorage {
     }
     fullBlobForWorld(name) {
         var index = this.worlds.indexOf(name);
-        var records = ['{"objects":'];
         if (index == -1) {
             return Promise.reject(new Error('No world found named ' + name));
         }
         return new Promise(async (succeed, fail) => {
             var txn = this.db.transaction([mudDbName(name), userDbName(name)]);
-            await jsonObjectsForDb(txn.objectStore(mudDbName(name)), records);
-            records.push(', "users":');
-            await jsonObjectsForDb(txn.objectStore(userDbName(name)), records);
-            records.push('}');
-            succeed(blobForJsonObjects(records));
+            var result = {
+                objects: await jsonObjectsForDb(txn.objectStore(mudDbName(name))),
+                users: await jsonObjectsForDb(txn.objectStore(userDbName(name)))
+            };
+            succeed(blobForYamlObject(result));
         });
     }
     uploadWorld(world) {
@@ -631,8 +636,8 @@ export class MudStorage {
         var info = objects.find(i => i.id == 'info');
         var world = await this.openWorld(info.name);
         world.doTransaction(async (thingStore, userStore, txn) => {
+            await this.uploadStrippedWorld(objects, world);
             await world.replaceUsers(users);
-            return this.uploadStrippedWorld(objects, world);
         });
     }
     async uploadStrippedWorld(objects, world = null) {
@@ -642,9 +647,12 @@ export class MudStorage {
         else {
             var info = objects.find(i => i.id == 'info');
             world = await this.openWorld(info.name);
-            return world.replaceThings(objects);
+            await world.replaceThings(objects);
         }
     }
+}
+export function blobForYamlObject(object) {
+    return new Blob([jsyaml.dump(object, { flowLevel: 3 })], { type: 'text/yaml' });
 }
 export function blobForJsonObjects(objects) {
     return new Blob(objects, { type: 'application/json' });
@@ -656,21 +664,13 @@ export function jsonObjectsForDb(objectStore, records = []) {
     return new Promise((succeed, fail) => {
         var req = objectStore.openCursor();
         var first = true;
-        records.push('[');
         req.onsuccess = evt => {
             let cursor = evt.target.result;
             if (cursor) {
-                if (first) {
-                    first = false;
-                }
-                else {
-                    records.push(',');
-                }
-                records.push(JSON.stringify(cursor.value));
+                records.push(cursor.value);
                 cursor.continue();
             }
             else {
-                records.push(']');
                 succeed(records);
             }
         };

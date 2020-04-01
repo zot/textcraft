@@ -3,6 +3,7 @@ import * as model from './model.js';
 import * as mudcontrol from './mudcontrol.js';
 import * as storagecontrol from './storagecontrol.js';
 import * as mudproto from './mudproto.js';
+const jsyaml = window.jsyaml;
 var relaying = false;
 var nextId = 0;
 export function init(appObj) { }
@@ -265,8 +266,8 @@ export async function editWorld(world) {
         link.textContent = "Preparing download...";
         var blob = await model.storage.fullBlobForWorld(world.name);
         blobToRevoke = link.href = URL.createObjectURL(blob);
-        link.setAttribute('download', world.name + '.json');
-        link.textContent = 'Click to download ' + world.name + '.json';
+        link.setAttribute('download', world.name + '.yaml');
+        link.textContent = 'Click to download ' + world.name + '.yaml';
     };
     $find(div, '[name=delete-mud]').onclick = async (evt) => {
         evt.stopPropagation();
@@ -366,7 +367,7 @@ async function uploadMud(evt) {
     var files = evt.target.files;
     if (files.length) {
         for (let file of files) {
-            await model.storage.uploadWorld(JSON.parse(await file.text()));
+            await model.storage.uploadWorld(jsyaml.load(await file.text()));
         }
         $('#upload-mud').value = null;
         showMuds();
@@ -450,7 +451,10 @@ export function start() {
         }
     };
     $('#toggleStatebuttons').onclick = () => document.body.classList.toggle('emulation');
-    $('#add-mud-button').onclick = storagecontrol.addMud;
+    $('#add-mud-button').onclick = () => {
+        sectionTracker.setValue(SectionState.Storage);
+        storagecontrol.addMud();
+    };
     $('#mud-command').onkeydown = evt => {
         if (evt.key == 'Enter') {
             mudcontrol.command($('#mud-command').value);
@@ -458,6 +462,7 @@ export function start() {
         }
     };
     $('#upload-mud').onchange = uploadMud;
+    $('#upload-mud').onclick = () => sectionTracker.setValue(SectionState.Storage);
     $('#mud-host').onclick = () => {
         mudproto.startHosting();
     };

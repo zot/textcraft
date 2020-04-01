@@ -44,7 +44,8 @@ const setHelp = [
   location    -- move the thing to another location
   linkowner   -- set the thing's linkOwner
   otherlink   -- set the thing's otherLink 
-  description -- the thing's description, you can use the following format words in a description (if you capitalize a format word, the substitution will be capitalized), :
+  description -- the thing's description, you can use the following format words in a description
+                 (if you capitalize a format word, the substitution will be capitalized):
      \$is       -- is or are, depending on the thing's count (does not capitalize)
      \$s        -- optional s, if count is 1 (like run$s, does not capitalize)
      \$this     -- the thing
