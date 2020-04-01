@@ -1,6 +1,6 @@
 import {
-    MudState,
-    mudTracker,
+    MudState, RoleState,
+    mudTracker, roleTracker,
 } from './base.js'
 import {
     World,
@@ -11,6 +11,7 @@ import * as gui from './gui.js'
 
 var app: any
 var connection: MudConnection
+export var activeWorld: World
 
 const reservedProperties = new Set([
     '_id',
@@ -138,6 +139,16 @@ export class MudConnection {
     async configure(user: string, thing: thingId) {
         this.user = user
         this.thing = await this.world.getThing(thing)
+    }
+    close() {
+        this.world = null
+        this.user = null
+        this.admin = false
+        this.thing = null
+        this.outputHandler = null
+        this.created = null
+        mudTracker.setValue(MudState.NotPlaying)
+        roleTracker.setValue(RoleState.None)
     }
     error(text: string) {
         this.output('<div class="error">'+text+'</div>')
@@ -674,6 +685,12 @@ export function command(text: string) {
 }
 
 export function runMud(world: World, handleOutput: (str: string)=> void) {
+    activeWorld = world
     connection = new MudConnection(world, handleOutput)
     connection.start()
+}
+
+export function quit() {
+    connection?.close()
+    connection = null
 }

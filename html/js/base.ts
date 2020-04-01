@@ -39,6 +39,7 @@ export enum PeerState {
     abortingRelayHosting,
     abortingRelayConnection,
     stoppingHosting,
+    startingHosting,
     disconnectingFromHost,
     disconnectingFromRelayForHosting,
     disconnectingFromRelayForConnection,
@@ -108,6 +109,10 @@ function enumNames(enumObj) {
         return names
     }
     return enumNameMaps.get(enumObj)
+}
+
+export function assertUnreachable(s: never): never {
+    throw new Error("Shouldn't ever get here")
 }
 
 export var natTracker = new StateTracker<NatState>(NatState)

@@ -6,6 +6,7 @@ namespace proto {
 
     export declare var relayErrors: any
 
+    export declare function listen(protocol: string, frames: boolean)
     export declare function close(conID: number, callback?: ()=>void)
     export declare function stop(protocol: string, retainConnections: boolean)
     export declare function start(peerKey: string)
@@ -59,6 +60,7 @@ namespace proto {
     }
     export declare class CommandHandler <H extends P2pHandler> extends DelegatingHandler<H> {
         connections: any
+        protocols: Set<string>
 
         constructor(delegate: H, connections: any, commands: any, delegateData: boolean, protocols: string[])
     }

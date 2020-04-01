@@ -32,6 +32,8 @@ peerTracker.observe((state, tracker)=>{
             break
         case PeerState.stoppingHosting:
             break
+        case PeerState.startingHosting:
+            break
         case PeerState.disconnectingFromHost:
             break
         case PeerState.disconnectingFromRelayForHosting:

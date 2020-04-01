@@ -1,6 +1,6 @@
 import libp2p from "./protocol.js"
 import {
-    NatState, RoleState, RelayState, SectionState, PeerState,
+    NatState, RoleState, RelayState, SectionState, PeerState, MudState,
     StateTracker, stateObserver,
     natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, mudTracker,
 } from "./base.js"
@@ -68,18 +68,12 @@ function $findAll(el: nodespec, sel) {
     }
 }
 
-class RadioTracker {
+class CssClassTracker {
     tracker: StateTracker<any>
     idSuffix: string
     constructor(tracker: StateTracker<any>, idSuffix: string) {
         this.tracker = tracker
         this.idSuffix = idSuffix
-        for (let name of this.tracker.names) {
-            for (let node of $all('#'+name.toLowerCase()+this.idSuffix)) {
-                node.onclick = evt=> this.clicked(evt.target)
-                if (!node.name) node.name = idSuffix + '-radio'
-            }
-        }
         tracker.observe(state=>{
             for (let node of $all('#'+this.tracker.currentStateName().toLowerCase()+this.idSuffix)) {
                 node.checked = true
@@ -87,13 +81,6 @@ class RadioTracker {
             this.show()
         })
         this.show()
-    }
-    enumForId(id: string) {
-        return this.tracker.stateForName(id.substring(0, id.length - this.idSuffix.length))
-    }
-    clicked(button: HTMLInputElement) {
-        console.log('New state:::', button.id)
-        this.tracker.setValue(this.enumForId(button.id))
     }
     classForEnumName(n: string) {
         return n.toLowerCase() + this.idSuffix
@@ -104,6 +91,30 @@ class RadioTracker {
             document.body.classList.remove(this.classForEnumName(st))
         }
         document.body.classList.add(this.classForEnumName(this.tracker.currentStateName()))
+    }
+}
+
+class RadioTracker extends CssClassTracker {
+    constructor(tracker: StateTracker<any>, idSuffix: string) {
+        super(tracker, idSuffix)
+        for (let name of this.tracker.names) {
+            for (let node of $all('#'+name.toLowerCase()+this.idSuffix)) {
+                node.onclick = evt=> this.clicked(evt.target)
+                if (!node.name) node.name = idSuffix + '-radio'
+            }
+        }
+        tracker.observe(state=>{
+            for (let node of $all('#'+this.tracker.currentStateName().toLowerCase()+this.idSuffix)) {
+                node.checked = true
+            }
+        })
+    }
+    enumForId(id: string) {
+        return this.tracker.stateForName(id.substring(0, id.length - this.idSuffix.length))
+    }
+    clicked(button: HTMLInputElement) {
+        console.log('New state:::', button.id)
+        this.tracker.setValue(this.enumForId(button.id))
     }
 }
 
@@ -163,16 +174,21 @@ export function showMuds() {
         }
         $find(div, '[name=activate-mud]').onclick = async evt=> {
             evt.stopPropagation()
-            $('#mud-output').innerHTML = ''
-            sectionTracker.setValue(SectionState.Mud)
-            roleTracker.setValue(RoleState.Solo)
-            $('#mud-command').removeAttribute('disabled')
-            $('#mud-command').focus()
-            mudcontrol.runMud(await model.storage.openWorld(world), text=> {
-                addMudOutput('<div>'+text+'</div>')
-            })
-            $('#mud-name').textContent = world
+            if (mudTracker.value == MudState.NotPlaying) {
+                $('#mud-output').innerHTML = ''
+                sectionTracker.setValue(SectionState.Mud)
+                roleTracker.setValue(RoleState.Solo)
+                $('#mud-command').removeAttribute('disabled')
+                $('#mud-command').focus()
+                mudcontrol.runMud(await model.storage.openWorld(world), text=> {
+                    addMudOutput('<div>'+text+'</div>')
+                })
+                $('#mud-name').textContent = world
+            } else {
+                mudcontrol.quit()
+            }
         }
+        $find(div, '[name=activate-mud]').setAttribute('mud', world)
     }
 }
 
@@ -410,12 +426,53 @@ export function noConnection() {
     $('#toHostID').value = '';
     $('#toHostID').disabled = false;
     $('#toHostID').readOnly = false;
-    $('#send').value = '';
+    //$('#send').value = '';
     $('#hostingRelay').readOnly = false;
 }
 
-export function connectedToHost(peerId: string) {
-    $('#connectStatus').textContent = 'Connected to '+ peerId
+export function connectedToHost(peerID: string) {
+    $('#connectStatus').textContent = 'Connected to '+ peerID
+}
+
+export function connectionRefused(peerID: string, protocol: string, msg) {
+    $('#toHostID').value = 'Failed to connect to '+peerID+' on protocol '+protocol
+}
+
+export function hosting(protocol: string) {
+    $('#host-protocol').value = 'WAITING TO ESTABLISH LISTENER ON '+protocol
+}
+
+export function showUsers(users: mudproto.UserInfo[]) {
+}
+
+function showPeerState() {
+    switch (peerTracker.value) {
+        case PeerState.hostingDirectly:
+            $('#direct-connect-string').value = mudproto.directConnectString()
+            break
+    }
+}
+
+function showMudState() {
+    var playing = mudTracker.value == MudState.Playing
+    var mudTabButton = $('#mudSection')
+    var mudTab = mudTabButton.closest('.tab')
+
+    if (mudTab.classList.contains('disabled') == playing) {
+        mudTab.classList.toggle('disabled')
+    }
+    mudTabButton.disabled = !playing
+    if (playing) {
+        $(`button[mud=${mudcontrol.activeWorld.name}]`).textContent = 'Quit'
+    } else {
+        for (let button of $all(`button[mud]`)) {
+            button.textContent = 'Activate'
+        }
+        $('#mud-output').innerHTML = ''
+        sectionTracker.setValue(SectionState.Storage)
+        $('#mud-command').value = ''
+        $('#mud-command').setAttribute('disabled', true)
+    }
 }
 
 export function start() {
@@ -431,6 +488,8 @@ export function start() {
         }
     })
     sectionTracker.setValue(SectionState.Storage)
+    peerTracker.observe(showPeerState)
+    mudTracker.observe(showMudState)
     $('#user').onblur = ()=> setUser($('#user').value)
     $('#user').onkeydown = evt=> {
         if (evt.key == 'Enter') {
@@ -447,15 +506,22 @@ export function start() {
     }
     $('#upload-mud').onchange = uploadMud
     $('#mud-host').onclick = ()=> {
-        sectionTracker.setValue(SectionState.Connection)
-        roleTracker.setValue(RoleState.Host)
+        mudproto.startHosting()
     }
-    $('#mud-quit').onclick = ()=> {
-        roleTracker.setValue(RoleState.None)
-        $('#mud-output').innerHTML = ''
-        sectionTracker.setValue(SectionState.Storage)
-        $('#mud-command').value = ''
-        $('#mud-command').setAttribute('disabled', true)
+    $('#mud-quit').onclick = mudcontrol.quit
+    $('#mud-users-toggle').onclick = ()=> $('#mud-section').classList.toggle('show-users')
+    $('#direct-connect-string').onclick = evt=> {
+        setTimeout(()=> {
+            evt.target.select()
+            evt.target.focus()
+        }, 1)
+    }
+    $('#connect').onclick = evt=> {
+        try {
+            mudproto.peer.joinSession($('#toHostID').value)
+        } catch (err) {
+            alert('Problem joining: ' + err.message)
+        }
     }
     showMuds()
 }

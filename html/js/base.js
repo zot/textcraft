@@ -39,19 +39,20 @@ export var PeerState;
     PeerState[PeerState["abortingRelayHosting"] = 1] = "abortingRelayHosting";
     PeerState[PeerState["abortingRelayConnection"] = 2] = "abortingRelayConnection";
     PeerState[PeerState["stoppingHosting"] = 3] = "stoppingHosting";
-    PeerState[PeerState["disconnectingFromHost"] = 4] = "disconnectingFromHost";
-    PeerState[PeerState["disconnectingFromRelayForHosting"] = 5] = "disconnectingFromRelayForHosting";
-    PeerState[PeerState["disconnectingFromRelayForConnection"] = 6] = "disconnectingFromRelayForConnection";
-    PeerState[PeerState["connectingToHost"] = 7] = "connectingToHost";
-    PeerState[PeerState["connectingToRelayForHosting"] = 8] = "connectingToRelayForHosting";
-    PeerState[PeerState["connectingToRelayForConnection"] = 9] = "connectingToRelayForConnection";
-    PeerState[PeerState["connectingToRelayForCallback"] = 10] = "connectingToRelayForCallback";
-    PeerState[PeerState["awaitingTokenConnection"] = 11] = "awaitingTokenConnection";
-    PeerState[PeerState["awaitingToken"] = 12] = "awaitingToken";
-    PeerState[PeerState["connectedToHost"] = 13] = "connectedToHost";
-    PeerState[PeerState["hostingDirectly"] = 14] = "hostingDirectly";
-    PeerState[PeerState["connectedToRelayForHosting"] = 15] = "connectedToRelayForHosting";
-    PeerState[PeerState["connectedToRelayForConnection"] = 16] = "connectedToRelayForConnection";
+    PeerState[PeerState["startingHosting"] = 4] = "startingHosting";
+    PeerState[PeerState["disconnectingFromHost"] = 5] = "disconnectingFromHost";
+    PeerState[PeerState["disconnectingFromRelayForHosting"] = 6] = "disconnectingFromRelayForHosting";
+    PeerState[PeerState["disconnectingFromRelayForConnection"] = 7] = "disconnectingFromRelayForConnection";
+    PeerState[PeerState["connectingToHost"] = 8] = "connectingToHost";
+    PeerState[PeerState["connectingToRelayForHosting"] = 9] = "connectingToRelayForHosting";
+    PeerState[PeerState["connectingToRelayForConnection"] = 10] = "connectingToRelayForConnection";
+    PeerState[PeerState["connectingToRelayForCallback"] = 11] = "connectingToRelayForCallback";
+    PeerState[PeerState["awaitingTokenConnection"] = 12] = "awaitingTokenConnection";
+    PeerState[PeerState["awaitingToken"] = 13] = "awaitingToken";
+    PeerState[PeerState["connectedToHost"] = 14] = "connectedToHost";
+    PeerState[PeerState["hostingDirectly"] = 15] = "hostingDirectly";
+    PeerState[PeerState["connectedToRelayForHosting"] = 16] = "connectedToRelayForHosting";
+    PeerState[PeerState["connectedToRelayForConnection"] = 17] = "connectedToRelayForConnection";
 })(PeerState || (PeerState = {}));
 export class StateTracker {
     constructor(enumObj) {
@@ -99,6 +100,9 @@ function enumNames(enumObj) {
         return names;
     }
     return enumNameMaps.get(enumObj);
+}
+export function assertUnreachable(s) {
+    throw new Error("Shouldn't ever get here");
 }
 export var natTracker = new StateTracker(NatState);
 export var peerTracker = new StateTracker(PeerState);

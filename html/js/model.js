@@ -224,7 +224,11 @@ export class World {
         });
     }
     loadInfo() {
-        return this.doTransaction(async (store, users, txn) => this.useInfo(await promiseFor(store.get('info'))));
+        return this.doTransaction(async (store, users, txn) => {
+            this.thingStore = store;
+            this.userStore = users;
+            this.useInfo(await promiseFor(store.get('info')));
+        }, true);
     }
     async useInfo(info) {
         this.nextId = info.nextId;
@@ -257,7 +261,7 @@ export class World {
         return this.storage.db;
     }
     // perform a transaction, then write all dirty things to storage
-    async doTransaction(func) {
+    async doTransaction(func, allowIdChange = false) {
         if (this.txn) {
             return this.processTransaction(func);
         }
@@ -271,7 +275,7 @@ export class World {
                 .finally(async () => {
                 await Promise.allSettled([...this.dirty].map(dirty => this.thingCache.get(dirty).store()));
                 this.dirty = new Set();
-                if (oldId != this.nextId) {
+                if (oldId != this.nextId && !allowIdChange) {
                     this.store();
                 }
                 this.txn = null;
@@ -559,23 +563,22 @@ export class MudStorage {
         });
     }
     renameWorld(name, newName) {
-        return new Promise((succeed, fail) => {
+        return new Promise(async (succeed, fail) => {
             var index = this.worlds.indexOf(name);
             if (newName && name != newName && index != -1 && !this.hasWorld(newName)) {
-                var req = this.upgrade(() => {
+                var world = await this.openWorld(name);
+                var req = this.upgrade(async () => {
+                    world.setName(newName);
+                    await world.doTransaction(() => world.store());
                     console.log('STORING MUD INFO');
                     this.store();
                     succeed();
                 });
-                req.onupgradeneeded = () => {
+                req.onupgradeneeded = async () => {
                     var txn = req.transaction;
-                    var openWorld = this.openWorlds.get(name);
                     this.db = req.result;
                     this.worlds[index] = newName;
-                    if (openWorld) {
-                        openWorld.setName(newName);
-                        this.openWorlds.set(newName, openWorld);
-                    }
+                    this.openWorlds.set(newName, world);
                     this.openWorlds.delete(name);
                     txn.objectStore(mudDbName(name)).name = mudDbName(newName);
                     txn.objectStore(userDbName(name)).name = userDbName(newName);

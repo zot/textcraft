@@ -5,31 +5,32 @@
 //   Message sequencing: NONCE.counter
 //   Signed JSON: {json: text, signature: sig} -- text is NONCE,JSON
 //
-import { natTracker, roleTracker, peerTracker, NatState, RoleState, PeerState, } from './base.js';
+import { natTracker, roleTracker, peerTracker, sectionTracker, NatState, RoleState, PeerState, SectionState, } from './base.js';
 import proto from './protocol-shim.js';
 import { promiseFor, } from './model.js';
 import * as gui from './gui.js';
+import { activeWorld, MudConnection, } from './mudcontrol.js';
 const peerDbName = 'peer';
 const textcraftProtocol = 'textcraft';
 const callbackProtocol = 'textcraft-callback';
 const relayProtocol = 'textcraft-relay';
 var app;
-var peer;
+export var peer;
 export function init(appObj) {
     app = appObj;
     console.log('Mudproto', proto);
 }
 const mudCommands = Object.freeze({
+    // to source
     command: true,
-    output: true,
-    // to host
-    user: true,
     // to peer
+    output: true,
     welcome: true,
-    updateUser: true,
-    addUser: true,
+    setUser: true,
     removeUser: true,
 });
+export class UserInfo {
+}
 // Peer
 //
 // Connects LoggingHandler -> TrackingHandler -> Peer -> CommandHandler -> strategy
@@ -53,13 +54,36 @@ class Peer extends proto.DelegatingHandler {
             this.createPeerDb();
         }
         this.trackingHandler = new proto.TrackingHandler(this, this.connections);
-        this.commandHandler = new MudCommands(null);
-        this.delegate = this.commandHandler;
-        this.setStrategy(new EmptyStrategy());
+        this.setStrategy(new Strategy(this));
+    }
+    startHosting() {
+        roleTracker.setValue(RoleState.Host);
+        if (natTracker.value == NatState.Public) {
+            var strategy = new DirectHostStrategy(this);
+            this.setStrategy(strategy);
+            strategy.start();
+        }
+        sectionTracker.setValue(SectionState.Connection);
+    }
+    joinSession(sessionID) {
+        if (!sessionID) {
+            throw new Error('Enter a session ID to join');
+        }
+        console.log('JOIN', decodeObject(sessionID));
     }
     setStrategy(strat) {
-        this.strategy = strat;
-        this.commandHandler.delegate = strat;
+        this.delegate = this.strategy = strat;
+    }
+    setUser(peerID, user) {
+        this.userMap.set(peerID, user);
+    }
+    removeUser(peerID) {
+        this.userMap.delete(peerID);
+    }
+    showUsers() {
+        var users = [...this.userMap.values()];
+        users.sort((a, b) => a.name == b.name ? 0 : a.name < b.name ? -1 : 1);
+        gui.showUsers(users);
     }
     start() {
         var url = "ws://" + document.location.host + "/";
@@ -116,11 +140,10 @@ class Peer extends proto.DelegatingHandler {
         this.peerKey = info.peerKey;
     }
     reset() {
-        //// TODO
-    }
-    abortStrategy() {
-        this.strategy.aborted();
-        this.setStrategy(new EmptyStrategy);
+        peerTracker.setValue(PeerState.disconnected);
+        this.strategy.close();
+        this.setStrategy(new Strategy(this));
+        gui.noConnection();
     }
     // P2P API
     hello(started) {
@@ -146,30 +169,49 @@ class Peer extends proto.DelegatingHandler {
         super.ident(status, peerID, addresses, peerKey);
     }
 }
-class Strategy extends proto.DelegatingHandler {
-    constructor(delegate) {
-        super(delegate);
+class Strategy extends proto.CommandHandler {
+    constructor(peer) {
+        super(null, peer.connections, mudCommands, null, []);
     }
     sendObject(conID, obj) {
         proto.sendObject(conID, obj);
     }
-}
-class EmptyStrategy extends Strategy {
-    constructor() {
-        super(null);
-    }
-    aborted() { }
+    close() { }
 }
 class HostStrategy extends Strategy {
-    constructor(delegate) {
-        super(delegate);
+    constructor(peer) {
+        super(peer);
         this.hosting = new Map();
+        this.mudConnections = new Map();
     }
+    close() {
+        for (let con of this.mudConnections.values()) {
+            con.close();
+        }
+        this.mudConnections = null;
+        this.hosting = null;
+        this.sessionID = null;
+    }
+    // P2P API
+    listenerConnection(conID, peerID, protocol) {
+        super.listenerConnection(conID, peerID, protocol);
+        this.mudConnections.set(peerID, new MudConnection(activeWorld, text => {
+            this.sendObject(conID, { text });
+        }));
+    }
+    // chat API message
+    command(info, msg) { }
 }
 class GuestStrategy extends Strategy {
-    constructor(delegate, chatHost) {
-        super(delegate);
+    constructor(peer, chatHost) {
+        super(peer);
         this.chatHost = chatHost;
+    }
+    close() {
+        if (this.chatConnection != null) {
+            proto.close(this.chatConnection);
+            this.chatConnection = null;
+        }
     }
     isConnectedToHost() {
         return peerTracker.value == PeerState.connectedToHost;
@@ -179,21 +221,67 @@ class GuestStrategy extends Strategy {
         gui.connectedToHost(peerID);
         this.sendObject(conID, { name: 'user', peer: peer.peerID });
     }
+    // P2P API
+    peerConnectionRefused(peerID, prot, msg) {
+        peer.reset();
+        gui.connectionRefused(peerID, prot, msg);
+    }
+    // P2P API
+    connectionClosed(conID, msg) {
+        if (this.chatConnection == conID) {
+            peer.reset();
+        }
+        super.connectionClosed(conID, msg);
+    }
+    // chat API message
+    output(info, msg) {
+    }
+    // chat API message
+    welcome(info, msg) {
+    }
+    // chat API message
+    setUser(info, msg) {
+    }
+    // chat API message
+    removeUser(info, msg) {
+    }
 }
 class DirectHostStrategy extends HostStrategy {
-    constructor(delegate) {
-        super(delegate);
+    constructor(peer) {
+        super(peer);
     }
-    aborted() {
-        ////
+    close() {
+        if (this.mudConnections) {
+            proto.stop(this.protocol, false);
+        }
+        super.close();
+    }
+    start() {
+        var protocol = textcraftProtocol + '-';
+        var a = 'a'.charCodeAt(0);
+        var A = 'A'.charCodeAt(0);
+        for (var i = 0; i < 16; i++) {
+            var n = Math.round(Math.random() * 51);
+            protocol += String.fromCharCode(n < 26 ? a + n : A + n - 26);
+        }
+        this.sessionID = {
+            type: 'peerAddr',
+            peerID: this.connections.peerID,
+            protocol: protocol,
+            addrs: peer.peerAddrs
+        };
+        this.protocol = protocol;
+        this.protocols.add(protocol);
+        peerTracker.setValue(PeerState.startingHosting);
+        proto.listen(this.protocol, true);
     }
     // P2P API
     listening(protocol) {
-        if (protocol == textcraftProtocol) {
+        if (protocol == this.protocol) {
             this.sessionID = {
                 type: 'peerAddr',
                 peerID: peer.peerID,
-                protocol: textcraftProtocol,
+                protocol: this.protocol,
                 addrs: peer.peerAddrs
             };
             gui.setConnectString(encodeObject(this.sessionID));
@@ -203,37 +291,50 @@ class DirectHostStrategy extends HostStrategy {
         super.listening(protocol);
     }
     // P2P API
-    listenerConnection(conID, peerID, prot) {
-        if (prot == textcraftProtocol) {
+    listenerConnection(conID, peerID, protocol) {
+        if (protocol == this.protocol) {
             var users = [];
-            console.log("Got connection " + conID + " for protocol " + prot + " from peer " + peerID);
-            this.hosting.set(conID, { conID: conID, peerID, protocol: prot });
+            console.log("Got connection " + conID + " for protocol " + protocol + " from peer " + peerID);
+            this.hosting.set(conID, { conID, peerID, protocol });
         }
-        super.listenerConnection(conID, peerID, prot);
+        super.listenerConnection(conID, peerID, protocol);
+    }
+    // P2P API
+    connectionClosed(conID, msg) {
+        var con = this.hosting.get(conID);
+        if (con) {
+            this.hosting.delete(conID);
+            peer.removeUser(con.peerID);
+            for (var [id, con] of this.hosting) {
+                if (id != conID) {
+                    this.sendObject(id, { name: 'removeUser', peerID: con.peerID });
+                }
+            }
+            peer.showUsers();
+        }
+        super.connectionClosed(conID, msg);
+    }
+    // P2P API
+    listenerClosed(protocol) {
+        if (protocol == this.protocol) {
+            peer.reset();
+        }
+        super.listenerClosed(protocol);
     }
 }
-class IndirectHostStrategy extends HostStrategy {
-    constructor(delegate) {
-        super(delegate);
-    }
-    aborted() {
-        ////
+class RelayedHostStrategy extends HostStrategy {
+    constructor(peer) {
+        super(peer);
     }
     abortCallback() {
         proto.stop(callbackProtocol, false);
         proto.close(this.callbackRelayConID);
-        this.reset();
-    }
-    reset() {
-        ////
+        peer.reset();
     }
 }
 class DirectGuestStrategy extends GuestStrategy {
-    constructor(delegate, chatHost) {
-        super(delegate, chatHost);
-    }
-    aborted() {
-        ////
+    constructor(peer, chatHost) {
+        super(peer, chatHost);
     }
     // P2P API
     peerConnection(conID, peerID, protocol) {
@@ -249,24 +350,19 @@ class DirectGuestStrategy extends GuestStrategy {
                 }
                 break;
             default:
+                throw new Error(`Illegal peer state: ${peerTracker.currentStateName()}`);
                 break;
         }
     }
 }
 class RelayGuestStrategy extends GuestStrategy {
-    constructor(delegate, chatHost) {
-        super(delegate, chatHost);
-    }
-    aborted() {
-        ////
+    constructor(peer, chatHost) {
+        super(peer, chatHost);
     }
 }
 class CallbackGuestStrategy extends GuestStrategy {
-    constructor(delegate, chatHost) {
-        super(delegate, chatHost);
-    }
-    aborted() {
-        ////
+    constructor(peer, chatHost) {
+        super(peer, chatHost);
     }
     // P2P API
     listenerConnection(conID, peerID, prot) {
@@ -276,26 +372,12 @@ class CallbackGuestStrategy extends GuestStrategy {
                 return;
             }
             else if (this.abort) {
-                peer.abortStrategy();
+                peer.reset();
                 return;
             }
             peerTracker.setValue(PeerState.awaitingToken);
         }
         super.listenerConnection(conID, peerID, prot);
-    }
-}
-class MudCommands extends proto.CommandHandler {
-    constructor(peer) {
-        super(null, peer.connections, mudCommands, null, [textcraftProtocol]);
-        this.userMap = new Map(); // peerID -> user
-        this.reset();
-    }
-    reset() {
-        peerTracker.setValue(PeerState.disconnected);
-        this.token = null;
-        this.relayConID = null;
-        this.userMap = new Map();
-        gui.noConnection();
     }
 }
 function encodePeerId(peerID, addrs) {
@@ -316,5 +398,11 @@ export function start(storage) {
     peer = new Peer(storage);
     natTracker.setValue(NatState.Unknown);
     peer.start();
+}
+export function startHosting() {
+    peer?.startHosting();
+}
+export function directConnectString() {
+    return peer?.strategy instanceof DirectHostStrategy && encodeObject(peer.strategy.sessionID);
 }
 //# sourceMappingURL=mudproto.js.map

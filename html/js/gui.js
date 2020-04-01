@@ -1,7 +1,8 @@
-import { RoleState, SectionState, natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, mudTracker, } from "./base.js";
+import { RoleState, SectionState, PeerState, MudState, natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, mudTracker, } from "./base.js";
 import * as model from './model.js';
 import * as mudcontrol from './mudcontrol.js';
 import * as storagecontrol from './storagecontrol.js';
+import * as mudproto from './mudproto.js';
 var relaying = false;
 var nextId = 0;
 export function init(appObj) { }
@@ -57,10 +58,32 @@ function $findAll(el, sel) {
         return $(el).querySelectorAll(sel);
     }
 }
-class RadioTracker {
+class CssClassTracker {
     constructor(tracker, idSuffix) {
         this.tracker = tracker;
         this.idSuffix = idSuffix;
+        tracker.observe(state => {
+            for (let node of $all('#' + this.tracker.currentStateName().toLowerCase() + this.idSuffix)) {
+                node.checked = true;
+            }
+            this.show();
+        });
+        this.show();
+    }
+    classForEnumName(n) {
+        return n.toLowerCase() + this.idSuffix;
+    }
+    show() {
+        console.log('showing emulation state:', this.tracker.currentStateName());
+        for (var st of this.tracker.names) {
+            document.body.classList.remove(this.classForEnumName(st));
+        }
+        document.body.classList.add(this.classForEnumName(this.tracker.currentStateName()));
+    }
+}
+class RadioTracker extends CssClassTracker {
+    constructor(tracker, idSuffix) {
+        super(tracker, idSuffix);
         for (let name of this.tracker.names) {
             for (let node of $all('#' + name.toLowerCase() + this.idSuffix)) {
                 node.onclick = evt => this.clicked(evt.target);
@@ -72,9 +95,7 @@ class RadioTracker {
             for (let node of $all('#' + this.tracker.currentStateName().toLowerCase() + this.idSuffix)) {
                 node.checked = true;
             }
-            this.show();
         });
-        this.show();
     }
     enumForId(id) {
         return this.tracker.stateForName(id.substring(0, id.length - this.idSuffix.length));
@@ -82,16 +103,6 @@ class RadioTracker {
     clicked(button) {
         console.log('New state:::', button.id);
         this.tracker.setValue(this.enumForId(button.id));
-    }
-    classForEnumName(n) {
-        return n.toLowerCase() + this.idSuffix;
-    }
-    show() {
-        console.log('showing emulation state:', this.tracker.currentStateName());
-        for (var st of this.tracker.names) {
-            document.body.classList.remove(this.classForEnumName(st));
-        }
-        document.body.classList.add(this.classForEnumName(this.tracker.currentStateName()));
     }
 }
 function radioTracker(tracker, idSuffix) {
@@ -141,16 +152,22 @@ export function showMuds() {
         };
         $find(div, '[name=activate-mud]').onclick = async (evt) => {
             evt.stopPropagation();
-            $('#mud-output').innerHTML = '';
-            sectionTracker.setValue(SectionState.Mud);
-            roleTracker.setValue(RoleState.Solo);
-            $('#mud-command').removeAttribute('disabled');
-            $('#mud-command').focus();
-            mudcontrol.runMud(await model.storage.openWorld(world), text => {
-                addMudOutput('<div>' + text + '</div>');
-            });
-            $('#mud-name').textContent = world;
+            if (mudTracker.value == MudState.NotPlaying) {
+                $('#mud-output').innerHTML = '';
+                sectionTracker.setValue(SectionState.Mud);
+                roleTracker.setValue(RoleState.Solo);
+                $('#mud-command').removeAttribute('disabled');
+                $('#mud-command').focus();
+                mudcontrol.runMud(await model.storage.openWorld(world), text => {
+                    addMudOutput('<div>' + text + '</div>');
+                });
+                $('#mud-name').textContent = world;
+            }
+            else {
+                mudcontrol.quit();
+            }
         };
+        $find(div, '[name=activate-mud]').setAttribute('mud', world);
     }
 }
 function worldCopyName(oldName) {
@@ -369,11 +386,47 @@ export function noConnection() {
     $('#toHostID').value = '';
     $('#toHostID').disabled = false;
     $('#toHostID').readOnly = false;
-    $('#send').value = '';
+    //$('#send').value = '';
     $('#hostingRelay').readOnly = false;
 }
-export function connectedToHost(peerId) {
-    $('#connectStatus').textContent = 'Connected to ' + peerId;
+export function connectedToHost(peerID) {
+    $('#connectStatus').textContent = 'Connected to ' + peerID;
+}
+export function connectionRefused(peerID, protocol, msg) {
+    $('#toHostID').value = 'Failed to connect to ' + peerID + ' on protocol ' + protocol;
+}
+export function hosting(protocol) {
+    $('#host-protocol').value = 'WAITING TO ESTABLISH LISTENER ON ' + protocol;
+}
+export function showUsers(users) {
+}
+function showPeerState() {
+    switch (peerTracker.value) {
+        case PeerState.hostingDirectly:
+            $('#direct-connect-string').value = mudproto.directConnectString();
+            break;
+    }
+}
+function showMudState() {
+    var playing = mudTracker.value == MudState.Playing;
+    var mudTabButton = $('#mudSection');
+    var mudTab = mudTabButton.closest('.tab');
+    if (mudTab.classList.contains('disabled') == playing) {
+        mudTab.classList.toggle('disabled');
+    }
+    mudTabButton.disabled = !playing;
+    if (playing) {
+        $(`button[mud=${mudcontrol.activeWorld.name}]`).textContent = 'Quit';
+    }
+    else {
+        for (let button of $all(`button[mud]`)) {
+            button.textContent = 'Activate';
+        }
+        $('#mud-output').innerHTML = '';
+        sectionTracker.setValue(SectionState.Storage);
+        $('#mud-command').value = '';
+        $('#mud-command').setAttribute('disabled', true);
+    }
 }
 export function start() {
     radioTracker(natTracker, 'Nat');
@@ -388,6 +441,8 @@ export function start() {
         }
     });
     sectionTracker.setValue(SectionState.Storage);
+    peerTracker.observe(showPeerState);
+    mudTracker.observe(showMudState);
     $('#user').onblur = () => setUser($('#user').value);
     $('#user').onkeydown = evt => {
         if (evt.key == 'Enter') {
@@ -404,15 +459,23 @@ export function start() {
     };
     $('#upload-mud').onchange = uploadMud;
     $('#mud-host').onclick = () => {
-        sectionTracker.setValue(SectionState.Connection);
-        roleTracker.setValue(RoleState.Host);
+        mudproto.startHosting();
     };
-    $('#mud-quit').onclick = () => {
-        roleTracker.setValue(RoleState.None);
-        $('#mud-output').innerHTML = '';
-        sectionTracker.setValue(SectionState.Storage);
-        $('#mud-command').value = '';
-        $('#mud-command').setAttribute('disabled', true);
+    $('#mud-quit').onclick = mudcontrol.quit;
+    $('#mud-users-toggle').onclick = () => $('#mud-section').classList.toggle('show-users');
+    $('#direct-connect-string').onclick = evt => {
+        setTimeout(() => {
+            evt.target.select();
+            evt.target.focus();
+        }, 1);
+    };
+    $('#connect').onclick = evt => {
+        try {
+            mudproto.peer.joinSession($('#toHostID').value);
+        }
+        catch (err) {
+            alert('Problem joining: ' + err.message);
+        }
     };
     showMuds();
 }

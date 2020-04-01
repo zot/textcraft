@@ -23,8 +23,11 @@
 
 #logo {
     display: grid;
-    grid: auto / 50fr auto 50fr;
+    grid: auto / minmax(auto, 50fr) auto minmax(auto, 50fr);
     align-items: flex-end;
+}
+#logo > * {
+    overflow: hidden;
 }
 body {
 	background-color: #333333;
@@ -87,6 +90,7 @@ body:not(.disconnectedPeer) .when-peer-disconnected,
 body:not(.abortingrelayhostingPeer) .when-peer-abortingrelayhosting,
 body:not(.abortingrelayconnectionPeer) .when-peer-abortingrelayconnection,
 body:not(.stoppinghostingPeer) .when-peer-stoppinghosting,
+body:not(.startinghostingPeer) .when-peer-startinghosting,
 body:not(.disconnectingfromhostPeer) .when-peer-disconnectingfromhost,
 body:not(.disconnectingfromrelayforhostingPeer) .when-peer-disconnectingfromrelayforhosting,
 body:not(.disconnectingfromrelayforconnectionPeer) .when-peer-disconnectingfromrelayforconnection,
@@ -97,6 +101,7 @@ body:not(.connectingtorelayforcallbackPeer) .when-peer-connectingtorelayforcallb
 body:not(.awaitingtokenconnectionPeer) .when-peer-awaitingtokenconnection,
 body:not(.awaitingtokenPeer) .when-peer-awaitingtoken,
 body:not(.connectedtohostPeer) .when-peer-connectedtohost,
+body:not(.connectedtohostPeer):not(.hostingdirectlyPeer):not(.connectedtorelayforconnectionPeer):not(.connectedtorelayforhostingPeer) .when-peer-connected,
 body:not(.hostingdirectlyPeer) .when-peer-hostingdirectly,
 body:not(.connectedtorelayforhostingPeer) .when-peer-connectedtorelayforhosting,
 body:not(.connectedtorelayforconnectionPeer) .when-peer-connectedtorelayforconnection,
@@ -112,6 +117,7 @@ body:not(.connectionSection) .when-section-connection,
 body:not(.mudSection) .when-section-mud,
 body:not(.profileSection) .when-section-profile,
 body:not(.storageSection) .when-section-storage,
+body.mudSection .when-not-section-mud,
 /* mud editor */
 .dialog:not(.mud-deleted) .when-mud-deleted
 {
@@ -165,9 +171,10 @@ body:not(.emulation) #toggleStateButtons {
     top: 0;
     bottom: 0;
 }
-#mudView {
+#mud-view {
     display: flex;
     flex-direction: column;
+    flex-grow: 1;
 }
 #mud-output {
     flex-grow: 1;
@@ -293,4 +300,49 @@ body:not(.emulation) #toggleStateButtons {
     display: flex;
     flex-grow: 1;
     position: relative;
+}
+#mud-users-toggle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    background: salmon;
+    border-radius: 5px;
+}
+#mud-section {
+    flex-direction: row;
+}
+#mud-section:not(.show-users) #mud-users {
+    display: none;
+}
+#mud-users {
+    width: 32ex;
+    border: black solid 2px;
+    border-radius: 5px;
+    overflow-y: scroll;
+}
+[name=sectionSelection] {
+    display: none;
+}
+[name=sectionSelection]:checked,
+[name=sectionSelection]:checked + label
+{
+    color: orange;
+}
+.nowrap {
+    white-space: nowrap;
+}
+.tab.disabled {
+    color: #888888;
+    font-style: italic;
+}
+.tab {
+    font-weight: bold;
+    border-radius: 5px 5px 0 0;
+    background: slategray;
+    padding-left: 0.5ex;
+    padding-right: 0.5ex;
+    align-self: flex-end;
+}
+#upload-mud {
+    display: none;
 }

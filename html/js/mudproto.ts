@@ -7,15 +7,19 @@
 //
 
 import {
-    natTracker, roleTracker, peerTracker,
-    NatState, RoleState, PeerState,
+    natTracker, roleTracker, peerTracker, sectionTracker,
+    NatState, RoleState, PeerState, SectionState,
+    assertUnreachable,
 } from './base.js'
 import proto from './protocol-shim.js'
 import {
     promiseFor, MudStorage,
 } from './model.js'
 import * as gui from './gui.js'
-import * as mudcontrol from './mudcontrol.js'
+import {
+    activeWorld,
+    MudConnection,
+} from './mudcontrol.js'
 
 const peerDbName = 'peer'
 const textcraftProtocol = 'textcraft'
@@ -23,7 +27,7 @@ const callbackProtocol = 'textcraft-callback'
 const relayProtocol = 'textcraft-relay'
 
 var app: any
-var peer: Peer
+export var peer: Peer
 
 export function init(appObj) {
     app = appObj
@@ -31,16 +35,19 @@ export function init(appObj) {
 }
 
 const mudCommands = Object.freeze({
+    // to source
     command: true,     // text: command
-    output: true,      // text: output
-    // to host
-    user: true,        // pubkey: publicKey
     // to peer
-    welcome: true,     // users: [{user: pubkey, name: name}...]
-    updateUser: true,  // user: pubkey, name: name
-    addUser: true,     // user: pubkey, name: name
-    removeUser: true,  // user: pubkey
+    output: true,      // text: output
+    welcome: true,     // users: [{pubkey: pubKey, name: name}...]
+    setUser: true,     // peerID: peerID, name: name OR pubkey: pubkey, name: name
+    removeUser: true,  // user: peerID
 });
+
+export class UserInfo {
+    peerID: string
+    name: string
+}
 
 // Peer
 //
@@ -56,16 +63,16 @@ const mudCommands = Object.freeze({
 //
 // Public-natted guests serve as relays for private-natted hosts
 //
-class Peer extends proto.DelegatingHandler<MudCommands> {
+class Peer extends proto.DelegatingHandler<Strategy> {
     peerID: string
     peerAddrs: string[]
     storage: MudStorage
     trackingHandler: proto.TrackingHandler<Peer>
-    commandHandler: MudCommands
     strategy: Strategy
     peerDb: IDBObjectStore
     peerKey: string
     connections: any
+    userMap: Map<string, UserInfo>
 
     constructor(storage: MudStorage) {
         super(null)
@@ -75,13 +82,38 @@ class Peer extends proto.DelegatingHandler<MudCommands> {
             this.createPeerDb()
         }
         this.trackingHandler = new proto.TrackingHandler<Peer>(this, this.connections);
-        this.commandHandler = new MudCommands(null)
-        this.delegate = this.commandHandler
-        this.setStrategy(new EmptyStrategy())
+        this.setStrategy(new Strategy(this))
+    }
+    startHosting() {
+        roleTracker.setValue(RoleState.Host)
+        if (natTracker.value == NatState.Public) {
+            var strategy = new DirectHostStrategy(this)
+
+            this.setStrategy(strategy)
+            strategy.start()
+        }
+        sectionTracker.setValue(SectionState.Connection)
+    }
+    joinSession(sessionID: string) {
+        if (!sessionID) {
+            throw new Error('Enter a session ID to join')
+        }
+        console.log('JOIN', decodeObject(sessionID))
     }
     setStrategy(strat: Strategy) {
-        this.strategy = strat
-        this.commandHandler.delegate = strat
+        this.delegate = this.strategy = strat
+    }
+    setUser(peerID: string, user: UserInfo) {
+        this.userMap.set(peerID, user)
+    }
+    removeUser(peerID: string) {
+        this.userMap.delete(peerID)
+    }
+    showUsers() {
+        var users = [...this.userMap.values()]
+
+        users.sort((a, b)=> a.name == b.name ? 0 : a.name < b.name ? -1 : 1)
+        gui.showUsers(users)
     }
     start() {
         var url = "ws://"+document.location.host+"/";
@@ -141,11 +173,10 @@ class Peer extends proto.DelegatingHandler<MudCommands> {
         this.peerKey = info.peerKey
     }
     reset() {
-        //// TODO
-    }
-    abortStrategy() {
-        this.strategy.aborted()
-        this.setStrategy(new EmptyStrategy)
+        peerTracker.setValue(PeerState.disconnected)
+        this.strategy.close()
+        this.setStrategy(new Strategy(this))
+        gui.noConnection()
     }
     // P2P API
     hello(started) {
@@ -171,43 +202,60 @@ class Peer extends proto.DelegatingHandler<MudCommands> {
     }
 }
 
-abstract class Strategy extends proto.DelegatingHandler<any> {
+class Strategy extends proto.CommandHandler<any> {
     abort: boolean
 
-    abstract aborted()
-
-    constructor(delegate: proto.P2pHandler) {
-        super(delegate)
+    constructor(peer: Peer) {
+        super(null, peer.connections, mudCommands, null, [])
     }
     sendObject(conID: proto.ConID, obj: any) {
         proto.sendObject(conID, obj);
     }
+    close() {}
 }
 
-class EmptyStrategy extends Strategy {
-    constructor() {
-        super(null)
-    }
-    aborted() {}
-}
-
-abstract class HostStrategy extends Strategy {
+class HostStrategy extends Strategy {
     sessionID: any
-    hosting: Map<BigInt, any>                        // conID -> {conID, peerID, protocol}
+    hosting: Map<number, any>                              // conID -> {conID, peerID, protocol}
+    mudConnections: Map<string, MudConnection>  // peerID -> connection
 
-    constructor(delegate: proto.P2pHandler) {
-        super(delegate)
+    constructor(peer: Peer) {
+        super(peer)
         this.hosting = new Map()
+        this.mudConnections = new Map()
     }
+    close() {
+        for (let con of this.mudConnections.values()) {
+            con.close()
+        }
+        this.mudConnections = null
+        this.hosting = null
+        this.sessionID = null
+    }
+    // P2P API
+    listenerConnection(conID: number, peerID: string, protocol: string) {
+        super.listenerConnection(conID, peerID, protocol)
+        this.mudConnections.set(peerID, new MudConnection(activeWorld, text=> {
+            this.sendObject(conID, {text})
+        }))
+    }
+    // chat API message
+    command(info, msg) {}
 }
 
-abstract class GuestStrategy extends Strategy {
+class GuestStrategy extends Strategy {
     chatHost: proto.PeerID
     chatConnection: proto.ConID
 
-    constructor(delegate: proto.P2pHandler, chatHost: proto.PeerID) {
-        super(delegate)
+    constructor(peer: Peer, chatHost: string) {
+        super(peer)
         this.chatHost = chatHost
+    }
+    close() {
+        if (this.chatConnection != null) {
+            proto.close(this.chatConnection)
+            this.chatConnection = null
+        }
     }
     isConnectedToHost() {
         return peerTracker.value == PeerState.connectedToHost
@@ -217,22 +265,72 @@ abstract class GuestStrategy extends Strategy {
         gui.connectedToHost(peerID)
         this.sendObject(conID, {name: 'user', peer: peer.peerID});
     }
+    // P2P API
+    peerConnectionRefused(peerID, prot, msg) {
+        peer.reset()
+        gui.connectionRefused(peerID, prot, msg)
+    }
+    // P2P API
+    connectionClosed(conID: number, msg: string) {
+        if (this.chatConnection == conID) {
+            peer.reset();
+        }
+        super.connectionClosed(conID, msg);
+    }
+    // chat API message
+    output(info, msg) {
+    }
+    // chat API message
+    welcome(info, msg) {
+    }
+    // chat API message
+    setUser(info, msg) {
+    }
+    // chat API message
+    removeUser(info, msg) {
+    }
 }
 
 class DirectHostStrategy extends HostStrategy {
-    constructor(delegate: proto.P2pHandler) {
-        super(delegate)
+    protocol: string
+
+    constructor(peer: Peer) {
+        super(peer)
     }
-    aborted() {
-        ////
+    close() {
+        if (this.mudConnections) {
+            proto.stop(this.protocol, false)
+        }
+        super.close()
+    }
+    start() {
+        var protocol = textcraftProtocol + '-'
+        var a = 'a'.charCodeAt(0)
+        var A = 'A'.charCodeAt(0)
+
+        for (var i = 0; i < 16; i++) {
+            var n = Math.round(Math.random() * 51)
+
+            protocol += String.fromCharCode(n < 26 ? a + n : A + n - 26)
+        }
+        this.sessionID = {
+            type: 'peerAddr',
+            peerID: this.connections.peerID,
+            protocol: protocol,
+            addrs: peer.peerAddrs
+        };
+        this.protocol = protocol
+        this.protocols.add(protocol)
+        peerTracker.setValue(PeerState.startingHosting)
+        proto.listen(this.protocol, true)
     }
     // P2P API
     listening(protocol) {
-        if (protocol == textcraftProtocol) {
+        if (protocol == this.protocol) {
             this.sessionID = {
                 type: 'peerAddr',
                 peerID: peer.peerID,
-                protocol: textcraftProtocol,
+                protocol: this.protocol,
                 addrs: peer.peerAddrs
             };
 
@@ -243,42 +341,56 @@ class DirectHostStrategy extends HostStrategy {
         super.listening(protocol);
     }
     // P2P API
-    listenerConnection(conID, peerID, prot) {
-        if (prot == textcraftProtocol) {
+    listenerConnection(conID: number, peerID: string, protocol: string) {
+        if (protocol == this.protocol) {
             var users = []
 
-            console.log("Got connection "+conID+" for protocol "+prot+" from peer "+peerID)
-            this.hosting.set(conID, {conID: conID, peerID, protocol: prot})
+            console.log("Got connection "+conID+" for protocol "+protocol+" from peer "+peerID)
+            this.hosting.set(conID, {conID, peerID, protocol})
         }
-        super.listenerConnection(conID, peerID, prot)
+        super.listenerConnection(conID, peerID, protocol)
+    }
+    // P2P API
+    connectionClosed(conID, msg) {
+        var con = this.hosting.get(conID)
+
+        if (con) {
+            this.hosting.delete(conID)
+            peer.removeUser(con.peerID)
+            for (var [id, con] of this.hosting) {
+                if (id != conID) {
+                    this.sendObject(id, {name: 'removeUser', peerID: con.peerID})
+                }
+            }
+            peer.showUsers()
+        }
+        super.connectionClosed(conID, msg);
+    }
+    // P2P API
+    listenerClosed(protocol) {
+        if (protocol == this.protocol) {
+            peer.reset();
+        }
+        super.listenerClosed(protocol);
     }
 }
 
-class IndirectHostStrategy extends HostStrategy {
+class RelayedHostStrategy extends HostStrategy {
     callbackRelayConID: number
 
-    constructor(delegate: proto.P2pHandler) {
-        super(delegate)
-    }
-    aborted() {
-        ////
+    constructor(peer: Peer) {
+        super(peer)
     }
     abortCallback() {
         proto.stop(callbackProtocol, false)
         proto.close(this.callbackRelayConID)
-        this.reset()
-    }
-    reset() {
-        ////
+        peer.reset()
     }
 }
 
 class DirectGuestStrategy extends GuestStrategy {
-    constructor(delegate: proto.P2pHandler, chatHost: proto.PeerID) {
-        super(delegate, chatHost)
-    }
-    aborted() {
-        ////
+    constructor(peer: Peer, chatHost: string) {
+        super(peer, chatHost)
     }
     // P2P API
     peerConnection(conID, peerID, protocol) {
@@ -293,28 +405,23 @@ class DirectGuestStrategy extends GuestStrategy {
                 }
                 break;
             default:
+                throw new Error(`Illegal peer state: ${peerTracker.currentStateName()}`)
                 break;
         }
     }
 }
 
 class RelayGuestStrategy extends GuestStrategy {
-    constructor(delegate: proto.P2pHandler, chatHost: proto.PeerID) {
-        super(delegate, chatHost)
-    }
-    aborted() {
-        ////
+    constructor(peer: Peer, chatHost: string) {
+        super(peer, chatHost)
     }
 }
 
 class CallbackGuestStrategy extends GuestStrategy {
     callbackPeer: string
 
-    constructor(delegate: proto.P2pHandler, chatHost: proto.PeerID) {
-        super(delegate, chatHost)
-    }
-    aborted() {
-        ////
+    constructor(peer: Peer, chatHost: string) {
+        super(peer, chatHost)
     }
     // P2P API
     listenerConnection(conID, peerID, prot) {
@@ -323,162 +430,13 @@ class CallbackGuestStrategy extends GuestStrategy {
                 proto.connectionError(conID, proto.relayErrors.badCallback, 'Unexpected callback peer', true)
                 return
             } else if (this.abort) {
-                peer.abortStrategy()
+                peer.reset()
                 return
             }
             peerTracker.setValue(PeerState.awaitingToken)
         }
         super.listenerConnection(conID, peerID, prot)
     }
-}
-
-class MudCommands extends proto.CommandHandler<Strategy> {
-    peer: Peer
-    userMap: Map<string, mudcontrol.MudConnection>   // peerID -> user
-    sessionID: any
-    callbackRelay: string
-    abort: boolean
-    relayConID: number
-    token: string
-    mudHost: string
-
-    constructor(peer) {
-        super(null, peer.connections, mudCommands, null, [textcraftProtocol]);
-        this.userMap = new Map();             // peerID -> user
-        this.reset()
-    }
-    reset() {
-        peerTracker.setValue(PeerState.disconnected)
-        this.token = null
-        this.relayConID = null
-        this.userMap = new Map()
-        gui.noConnection()
-    }
-/*
-    // P2P API
-    peerConnection(conID, peerID, protocol) {
-        if (this.delegate instanceof RelayHost && this.delegate.callingBack(conID)) { // patch connection to look like it's incoming
-            var info = getConnectionInfo(this.connections, conID);
-
-            info.protocol = this.protocol;
-            super.peerConnection(conID, peerID, protocol);
-            this.listenerConnection(info.conID, info.peerID, this.protocol); // fake a listener connection
-            return;
-        }
-        super.peerConnection(conID, peerID, protocol);
-        switch (peerTracker.value) {
-        case PeerState.abortingRelayHosting:
-        case PeerState.abortingRelayConnection:
-            this.changeState(PeerState.disconnected);
-            this.connection = {disconnected: true};
-            close(conID);
-            break;
-        case PeerState.connectingToHost: // connected directly to host
-            if (peerID != this.mudHost) {
-                alert('Connected to unexpected host: '+peerID);
-            } else {
-                this.changeState(PeerState.connectedToHost);
-                this.connectedToHost(conID, protocol, peerID);
-            }
-            break;
-        case PeerState.connectingToRelayForHosting: // connected to relay
-            if (peerID != this.requestedRelayPeer) {
-                alert('Connected to unexpected host: ' + peerID + ', expecting relay peer: ' + this.requestedRelayPeer);
-            } else {
-                proto.sendObject(conID, {
-                    name: 'requestHosting',
-                    protocol: this.protocol,
-                });
-                this.sessionID = {
-                    peerID: this.connections.peerID,
-                    relayID: this.requestedRelayPeer,
-                    protocol: this.protocol,
-                    addrs: this.relayInfo.addrs,
-                };
-
-                this.relayConID = conID;
-                //this.relayService = new RelayHost(this, {
-                this.delegate = new RelayHost(this.connections, this, {
-                    //receiveRelay: this.receiveRelay.bind(this),
-                    receiveRelayConnectionFromPeer: this.receiveRelayConnectionFromPeer.bind(this),
-                    receiveRelayCallbackRequest: this.receiveRelayCallbackRequest.bind(this),
-                    relayConnectionClosed: this.relayConnectionClosed.bind(this),
-                }, relayProtocol, this.protocol);
-                this.commandConnections.add(conID);
-                //this.connections.infoByConID.get(conID).hosted = true;
-                this.connection.hosted = true;
-                this.hosting.set(conID, {conID: conID, peerID, protocol});
-                $('#connectString').value = encodeObject(this.sessionID);
-                this.changeState(PeerState.connectedToRelayForHosting);
-            }
-            break;
-        case PeerState.connectingToRelayForConnection: // connected to relay
-            if (peerID != this.requestedRelayPeer) {
-                alert('Connected to unexpected host: ' + peerID + ', expecting relay peer: ' + this.requestedRelayPeer);
-            } else {
-                this.delegate = new RelayPeer(this.connections, this, {
-                    //receiveRelay: this.receiveRelay.bind(this),
-                    //receiveRelayCallbackRequest: this.receiveRelayCallbackRequest.bind(this),
-                    receiveRelayConnectionToHost: this.receiveRelayConnectionToHost.bind(this),
-                    relayConnectionClosed: this.relayConnectionClosed.bind(this),
-                }, relayProtocol);
-                proto.sendObject(conID, {
-                    name: 'requestRelaying',
-                    peerID: this.mudHost,
-                    protocol: this.chatProtocol,
-                });
-                this.relayConID = conID;
-            }
-            break;
-        case PeerState.connectingToRelayForCallback: // connected to relay
-            if (peerID != this.callbackRelay) {
-                alert('Connected to unexpected host: ' + peerID + ', expecting relay peer: ' + this.callbackRelay);
-            } else if (this.abort) {
-                this.callbackRelayConID = conID;
-                this.abortCallback();
-            } else {
-                proto.sendObject(conID, {
-                    name: 'requestCallback',
-                    peerID: this.mudHost,
-                    callbackPeer: encodePeerId(this.connections.peerID, this.peerAddrs),
-                    protocol: this.chatProtocol,
-                    callbackProtocol: callbackProtocol,
-                    token: this.token,
-                });
-                this.callbackRelayConID = conID;
-                this.changeState(PeerState.awaitingTokenConnection);
-            }
-            break;
-        case PeerState.hostingDirectly: // got new direct chat connection -- nothing more needed
-        case PeerState.disconnected: // these next cases should never happen
-        case PeerState.stoppingHosting:
-        case PeerState.disconnectingFromHost:
-        case PeerState.disconnectingFromRelayForHosting:
-        case PeerState.disconnectingFromRelayForConnection:
-        case PeerState.connectedToHost:
-        case PeerState.connectedToRelayForHosting:
-        case PeerState.awaitingToken:
-        case PeerState.awaitingTokenConnection:
-            break;
-        }
-    }
-    // RELAY API
-    receiveRelayConnectionToHost(info, {peerID, protocol}) {
-        //// TODO
-    }
-    // RELAY API
-    receiveRelayConnectionFromPeer(info, {peerID, protocol}) {
-        //// TODO
-    }
-    // RELAY API
-    //receiveRelayCallbackRequest(info, {peerID, protocol, callbackProtocol, token}) {}
-    // RELAY API
-    //receiveRelay(info, {peerID, protocol, command}) {}
-    // RELAY API
-    relayConnectionClosed(info, {peerID, protocol}) {
-        //// TODO
-    }
-*/
 }
 
 function encodePeerId(peerID, addrs) {
@@ -501,4 +459,12 @@ export function start(storage: MudStorage) {
     peer = new Peer(storage)
     natTracker.setValue(NatState.Unknown)
     peer.start()
+}
+
+export function startHosting() {
+    peer?.startHosting()
+}
+
+export function directConnectString() {
+    return peer?.strategy instanceof DirectHostStrategy && encodeObject(peer.strategy.sessionID)
 }

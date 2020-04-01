@@ -1,6 +1,7 @@
-import { MudState, mudTracker, } from './base.js';
+import { MudState, RoleState, mudTracker, roleTracker, } from './base.js';
 var app;
 var connection;
+export var activeWorld;
 const reservedProperties = new Set([
     '_id',
     '_prototype',
@@ -109,6 +110,16 @@ export class MudConnection {
     async configure(user, thing) {
         this.user = user;
         this.thing = await this.world.getThing(thing);
+    }
+    close() {
+        this.world = null;
+        this.user = null;
+        this.admin = false;
+        this.thing = null;
+        this.outputHandler = null;
+        this.created = null;
+        mudTracker.setValue(MudState.NotPlaying);
+        roleTracker.setValue(RoleState.None);
     }
     error(text) {
         this.output('<div class="error">' + text + '</div>');
@@ -613,7 +624,12 @@ export function command(text) {
     }
 }
 export function runMud(world, handleOutput) {
+    activeWorld = world;
     connection = new MudConnection(world, handleOutput);
     connection.start();
+}
+export function quit() {
+    connection?.close();
+    connection = null;
 }
 //# sourceMappingURL=mudcontrol.js.map
