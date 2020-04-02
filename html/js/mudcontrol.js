@@ -1,5 +1,5 @@
 import { MudState, RoleState, PeerState, mudTracker, roleTracker, peerTracker, } from './base.js';
-import { findSimpleName, } from './model.js';
+import { findSimpleName, escape, } from './model.js';
 import * as mudproto from './mudproto.js';
 let app;
 let connection;
@@ -367,6 +367,12 @@ export class MudConnection {
         }
     }
     async command(line, suppressFind = false) {
+        if (line[0] === '"' || line[0] === "'") {
+            line = `say ${line.substring(1)}`;
+        }
+        else if (line[0] === ':') {
+            line = `act ${line.substring(1)}`;
+        }
         let words = line.split(/\s+/);
         let commandName = words[0].toLowerCase();
         this.output('<div class="input">&gt; <span class="input-text">' + line + '</span></div>');
@@ -495,8 +501,8 @@ export class MudConnection {
             this.error(err.message);
         }
     }
-    async commandDescripton(action, except = this.thing, startAt) {
-        const text = `${this.formatName(this.thing)} ${action}`;
+    async commandDescripton(action, except = this.thing, startAt, prefix = true) {
+        const text = prefix ? `${this.formatName(this.thing)} ${action}` : action;
         const desc = new Descripton(thing => {
             connectionMap.get(thing)?.output(text);
         });
@@ -612,21 +618,32 @@ export class MudConnection {
     }
     // COMMAND
     async say(cmdInfo, ...words) {
-        const textMatch = cmdInfo.line.match(/^\s*\b\w+\b +(.*)$/);
-        this.output(`You say, "${textMatch[1]}"`);
-        return this.commandDescripton(`says, "${textMatch[1]}"`);
+        const text = escape(dropArgs(1, cmdInfo));
+        this.output(`You say, "${text}"`);
+        return this.commandDescripton(`says, "${text}"`);
     }
     // COMMAND
     async whisper(cmdInfo, thingStr, ...words) {
-        const thing = this.find(thingStr);
+        const thing = await this.find(thingStr);
+        const text = escape(dropArgs(2, cmdInfo));
         if (!thing)
             return this.errorNoThing(thingStr);
+        connectionMap.get(thing)?.output(`whispers, "${text}", to you`);
+        this.output(`You whisper, "${text}", to ${this.formatName(thing)}`);
     }
     // COMMAND
     async act(cmdInfo, ...words) {
+        const text = escape(dropArgs(1, cmdInfo));
+        return this.commandDescripton(`<i>${this.formatName(this.thing)} ${text}</i>`, null, null, false);
     }
     // COMMAND
-    async gesture(cmdInfo, thing, ...words) {
+    async gesture(cmdInfo, thingStr, ...words) {
+        const thing = await this.find(thingStr);
+        const text = escape(dropArgs(2, cmdInfo));
+        if (!thing)
+            return this.errorNoThing(thingStr);
+        connectionMap.get(thing)?.output(`<i>${this.formatName(this.thing)} ${text} at you</i>`);
+        await this.commandDescripton(`<i>${this.formatName(this.thing)} ${text} at ${this.formatName(thing)}</i>`, thing, null, false);
     }
     // COMMAND
     async atCreate(cmdInfo, protoStr, name) {
@@ -968,9 +985,6 @@ function formatContexts(format) {
         return { me: tmp.forme, others: tmp.forothers };
     }
     return { others: contexts[0] };
-}
-export function escape(text) {
-    return typeof text === 'string' ? text.replace(/</g, '&lt;') : text;
 }
 ////
 //// CONTROL API

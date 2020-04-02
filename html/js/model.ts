@@ -105,9 +105,9 @@ export class Thing {
         if (article && n.substring(0, article.length) === article) {
             n = n.substring(article.length).trim()
         }
-        this._fullName = n
         if (article) this._article = article
-        this._name = name
+        this._name = escape(name)
+        this._fullName = escape(n)
     }
     get description() {return this._description}
     set description(d: string) {this.markDirty(this._description = d)}
@@ -936,6 +936,10 @@ export function findSimpleName(str: string) {
     // choose the last word
     name = words[words.length - 1].toLowerCase()
     return [article, name]
+}
+
+export function escape(text: string) {
+    return typeof text === 'string' ? text.replace(/</g, '&lt;') : text
 }
 
 export function init(app: any) {}
