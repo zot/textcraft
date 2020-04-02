@@ -90,6 +90,10 @@ const commands = new Map<string, Command>([
     ['i',           new Command({help: [''], alt: 'inventory'})],
     ['invent',      new Command({help: [''], alt: 'inventory'})],
     ['inventory',   new Command({help: ['', `list what you are carrying`]})],
+    ['say',         new Command({help: ['words...', `Say something`]})],
+    ['whisper',     new Command({help: ['thing words...', `Say something to thing`]})],
+    ['act',         new Command({help: ['words...', `Do something`]})],
+    ['gesture',     new Command({help: ['thing words...', `Do something towards thing`]})],
     ['get',         new Command({help: ['thing', `grab a thing`,
                                         'thing [from] location', `grab a thing from a location`]})],
     ['drop',        new Command({help: ['thing', `drop something you are carrying`]})],
@@ -99,7 +103,7 @@ const commands = new Map<string, Command>([
     ['@create',     new Command({help: ['proto name [description words...]', 'Create a thing']})],
     ['@find',       new Command({help: ['thing', 'Find a thing',
                                         'thing location', 'Find a thing from a location',]})],
-    ['@link',       new Command({help: ['loc1 link1 link2 exit2', 'create links between two things']})],
+    ['@link',       new Command({help: ['loc1 link1 link2 loc2', 'create links between two things']})],
     ['@info',       new Command({help: ['', 'List important information']})],
     ['@add',        new Command({help: ['thing property thing2', `Add thing2 to the list in property`], admin: true})],
     ['@remove',     new Command({help: ['thing property thing2', `Remove thing2 from the list in property`], admin: true})],
@@ -219,6 +223,9 @@ export class MudConnection {
     error(text: string) {
         this.output('<div class="error">'+text+'</div>')
         this.failed = true
+    }
+    errorNoThing(thing: string) {
+        this.error(`You don't see any ${thing} here`)
     }
     output(text: string) {
         this.outputHandler(text.match(/^</) ? text : `<div>${text}</div>`)
@@ -465,7 +472,7 @@ export class MudConnection {
                     : name.match(/^%proto:/) ? await (await this.world.getThing(this.world.hallOfPrototypes)).find(name.replace(/^%proto:/, ''))
                     : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
                     : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
-                    : await start.find(name)
+                    : await start.find(name, this.thing._location === this.world.limbo ? new Set() : new Set([await this.world.getThing(this.world.limbo)]))
             }
         }
         if (!result && errTag) {
@@ -575,14 +582,14 @@ export class MudConnection {
             const thing = await this.find(target, this.thing, 'object')
 
             if (!thing) {
-                this.output(`You don't see any ${target}`)
+                this.errorNoThing(target)
                 return this.commandDescripton(`looks for a ${target} but doesn't see any`)
             } else {
                 this.output(await this.description(thing))
                 if (thing === this.thing) {
                     return this.commandDescripton(`looks at themself`)
                 } else {
-                    return this.commandDescripton(`looks at ${await this.describe(thing)}`)
+                    return this.commandDescripton(`looks at ${await this.description(thing)}`)
                 }
             }
         } else {
@@ -632,10 +639,10 @@ export class MudConnection {
             const [_, name] = findSimpleName(args.join(' '))
 
             loc = await this.find(name, loc)
-            if (!loc) return this.error(`You don't see any ${name}`)
+            if (!loc) return this.errorNoThing(name)
         }
         const thing = await this.find(thingStr, loc)
-        if (!thing) return this.error(`You don't see any ${thingStr}`)
+        if (!thing) return this.errorNoThing(thingStr)
         if (thing === this.thing) return this.error(`You just don't get yourself. Some people are that way.`)
         if (thing === location) return this.error(`You just don't get this place. Some people are that way.`)
         await thing.setLocation(this.thing)
@@ -647,11 +654,30 @@ export class MudConnection {
         const thing = await this.find(thingStr, this.thing)
         const loc = await this.thing.getLocation()
 
-        if (!thing) return this.error(`You don't see any ${thingStr}`)
+        if (!thing) return this.errorNoThing(thingStr)
         if (thing._location !== this.thing._id) return this.error(`You aren't holding ${thingStr}`)
         await thing.setLocation(loc)
         this.output(`You drop ${this.formatName(thing)}`)
         return this.commandDescripton(`drops ${this.formatName(thing)}`)
+    }
+    // COMMAND
+    async say(cmdInfo, ...words: string[]) {
+        const textMatch = cmdInfo.line.match(/^\s*\b\w+\b +(.*)$/)
+
+        this.output(`You say, "${textMatch[1]}"`)
+        return this.commandDescripton(`says, "${textMatch[1]}"`)
+    }
+    // COMMAND
+    async whisper(cmdInfo, thingStr: string, ...words: string[]) {
+        const thing = this.find(thingStr)
+
+        if (!thing) return this.errorNoThing(thingStr)
+    }
+    // COMMAND
+    async act(cmdInfo, ...words: string[]) {
+    }
+    // COMMAND
+    async gesture(cmdInfo, thing: string, ...words: string[]) {
     }
     // COMMAND
     async atCreate(cmdInfo, protoStr, name) {
@@ -668,8 +694,8 @@ export class MudConnection {
 Prototypes:
   ${protos.join('\n  ')}`)
         } else {
-            const desc = dropArgs(3, cmdInfo)
-            const thing = await this.world.createThing(name, desc || undefined)
+            const fullname = dropArgs(2, cmdInfo)
+            const thing = await this.world.createThing(fullname)
 
             thing.setPrototype(proto)
             this.created.push(thing)

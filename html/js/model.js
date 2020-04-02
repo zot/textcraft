@@ -53,8 +53,7 @@ const thing2SpecProps = new Map([
 export class Thing {
     constructor(id, name, description) {
         this._id = id;
-        this._fullName = name;
-        this._name = name.split(/\s+/)[0];
+        this.fullName = name;
         if (typeof description !== 'undefined')
             this._description = description;
         this._location = null;
@@ -70,10 +69,15 @@ export class Thing {
     set name(n) { this.markDirty(this._name = n); }
     get fullName() { return this._fullName; }
     set fullName(n) {
+        n = n.trim();
         const [article, name] = findSimpleName(n);
         this.markDirty(null);
+        if (article && n.substring(0, article.length) === article) {
+            n = n.substring(article.length).trim();
+        }
         this._fullName = n;
-        this._article = article;
+        if (article)
+            this._article = article;
         this._name = name;
     }
     get description() { return this._description; }
@@ -107,9 +111,9 @@ export class Thing {
         return (this.article ? this.article + ' ' : '') + this.fullName;
     }
     markDirty(sideEffect) {
-        this.world.markDirty(this);
+        this.world?.markDirty(this);
     }
-    async find(name, exclude = new Set()) {
+    async find(name, exclude = new Set([])) {
         if (exclude.has(this)) {
             return null;
         }
@@ -811,19 +815,30 @@ async function copyAll(srcStore, dstStore) {
 }
 export function findSimpleName(str) {
     let words;
-    let article;
     let name;
-    const prepMatch = str.match(/^(.*?)\b(of|on|about|in|from)\b/);
-    if (prepMatch) {
-        // if it contains a preposition, discard from the first preposition on
-        // the king of sorrows
-        // the king in absentia
-        words = prepMatch[1].trim().split(/\s+/);
-    }
-    else {
+    let article;
+    let foundPrep = false;
+    let tmp = str;
+    for (;;) {
+        const prepMatch = tmp.match(/^(.*?)\b(of|on|about|in|from)\b/);
+        if (prepMatch) {
+            if (prepMatch[1].trim()) {
+                // if it contains a preposition, discard from the first preposition on
+                // the king of sorrows
+                // the king in absentia
+                words = str.substring(0, tmp.length - prepMatch[1].length).trim().split(/\s+/);
+                foundPrep = true;
+                break;
+            }
+            else {
+                tmp = tmp.substring(prepMatch[1].length);
+                continue;
+            }
+        }
         words = str.split(/\s+/);
+        break;
     }
-    if (words[0].match(/the|a|an/)) { // scrape articles
+    if (words.length > 1 && words[0].match(/\b(the|a|an)\b/)) { // scrape articles
         article = words[0];
         words = words.slice(1);
     }

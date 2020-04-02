@@ -2,6 +2,9 @@
 set -x
 target=$(pwd)
 godir=$(readlink -f ../ipfs-p2p-websocket/src)
+cd $target
+(tsc && tslint -p tsconfig.json) || exit 1
+cd $target
 tmpdir=$target/work
 mkdir -p $tmpdir
 output=$tmpdir/files.go
@@ -12,6 +15,3 @@ cd $tmpdir
 go build -ldflags "-X main.defaultPage=textcraft.html" -o $target/textcraft libp2p-websocket.go protocol.go files.go
 GOARCH=386 go build -ldflags "-X main.defaultPage=textcraft.html" -o $target/textcraft-32 libp2p-websocket.go protocol.go files.go
 GOOS=windows GOARCH=386 go build -ldflags "-X main.defaultPage=textcraft.html" -o $target/textcraft.exe libp2p-websocket.go protocol.go files.go
-cd $target
-tsc
-tslint -p tsconfig.json
