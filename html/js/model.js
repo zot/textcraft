@@ -3,6 +3,7 @@ const jsyaml = window.jsyaml;
 const centralDbName = 'textcraft';
 const infoKey = 'info';
 const locationIndex = 'locations';
+const userThingIndex = 'things';
 const linkOwnerIndex = 'linkOwners';
 const nameIndex = 'names';
 const usersSuffix = ' users';
@@ -30,7 +31,6 @@ const thing2SpecProps = new Map([
     ['_location', 'location'],
     ['_linkOwner', 'linkOwner'],
     ['_otherLink', 'otherLink'],
-    ['_open', 'open'],
 ]);
 /*
  * ## The Thing class
@@ -54,10 +54,9 @@ export class Thing {
     constructor(id, name, description) {
         this._id = id;
         this._fullName = name;
-        this._name = name.split(/ +/)[0];
+        this._name = name.split(/\s+/)[0];
         if (typeof description !== 'undefined')
             this._description = description;
-        this._open = true;
         this._location = null;
         this._linkOwner = null;
         this._otherLink = null;
@@ -71,8 +70,11 @@ export class Thing {
     set name(n) { this.markDirty(this._name = n); }
     get fullName() { return this._fullName; }
     set fullName(n) {
-        this.markDirty(this._fullName = n);
-        this._name = n.split(/ +/)[0].toLowerCase();
+        const [article, name] = findSimpleName(n);
+        this.markDirty(null);
+        this._fullName = n;
+        this._article = article;
+        this._name = name;
     }
     get description() { return this._description; }
     set description(d) { this.markDirty(this._description = d); }
@@ -82,8 +84,6 @@ export class Thing {
     set examineFormat(f) { this.markDirty(this._examineFormat = f); }
     get linkFormat() { return this._linkFormat; }
     set linkFormat(f) { this.markDirty(this._linkFormat = f); }
-    get open() { return this._open; }
-    set open(b) { this.markDirty(this._open = b); }
     getContents() { return this.world.getContents(this); }
     getPrototype() { return this.world.getThing(this._prototype); }
     setPrototype(t) {
@@ -194,11 +194,21 @@ export class World {
                     thingProto.contentsFormat = '$This $is here';
                     thingProto.examineFormat = 'Exits: $links<br>Contents: $contents';
                     thingProto.linkFormat = '$This leads to $link';
+                    thingProto._keys = [];
+                    thingProto._vendor = false;
+                    thingProto._locked = false;
                     const linkProto = await this.createThing('link', '$This to $link');
                     linkProto.markDirty(linkProto._location = this.hallOfPrototypes);
                     linkProto.article = '';
+                    linkProto._cmd = 'go $0';
+                    linkProto._linkEnterFormat = '$Arg1 enters $arg2';
+                    linkProto._linkMoveFormat = 'You went $name to $arg3';
+                    linkProto._linkExitFormat = '$Arg1 went $name to $arg2';
+                    linkProto._lockPassFormat = '$forme You open $this and go through to $arg2 $forothers $Arg open$s $this and go$s through to $arg2';
+                    linkProto._lockFailFormat = 'You cannot go $this because it is locked';
                     const roomProto = await this.createThing('room', 'You are in $this');
                     roomProto.markDirty(roomProto._location = this.hallOfPrototypes);
+                    roomProto._closed = true;
                     roomProto.setPrototype(thingProto);
                     limbo.setPrototype(roomProto);
                     lobby.setPrototype(roomProto);
@@ -217,7 +227,7 @@ export class World {
                 //let userStore = txn.db.createObjectStore(this.users, {autoIncrement: true})
                 const userStore = txn.db.createObjectStore(this.users, { keyPath: 'name' });
                 const thingStore = txn.db.createObjectStore(this.storeName, { keyPath: 'id' });
-                //userStore.createIndex(nameIndex, 'name', {unique: true}) // look up users by name
+                userStore.createIndex(userThingIndex, 'thing', { unique: true });
                 thingStore.createIndex(locationIndex, 'location', { unique: false });
                 thingStore.createIndex(linkOwnerIndex, 'linkOwner', { unique: false });
             };
@@ -294,10 +304,15 @@ export class World {
     getUser(name) {
         return this.doTransaction(async (store, users, txn) => await promiseFor(users.get(name)));
     }
+    getUserForThing(ti) {
+        return this.doTransaction(async (store, users, txn) => {
+            return promiseFor(users.index(userThingIndex).get(idFor(ti)));
+        });
+    }
     deleteUser(name) {
         return this.doTransaction(async (store, users, txn) => {
             return new Promise((succeed, fail) => {
-                const req = users.index(nameIndex).openCursor(name);
+                const req = users.openCursor(name);
                 req.onsuccess = evt => {
                     const cursor = evt.target.result;
                     if (cursor) {
@@ -793,6 +808,28 @@ async function copyAll(srcStore, dstStore) {
             }
         };
     });
+}
+export function findSimpleName(str) {
+    let words;
+    let article;
+    let name;
+    const prepMatch = str.match(/^(.*?)\b(of|on|about|in|from)\b/);
+    if (prepMatch) {
+        // if it contains a preposition, discard from the first preposition on
+        // the king of sorrows
+        // the king in absentia
+        words = prepMatch[1].trim().split(/\s+/);
+    }
+    else {
+        words = str.split(/\s+/);
+    }
+    if (words[0].match(/the|a|an/)) { // scrape articles
+        article = words[0];
+        words = words.slice(1);
+    }
+    // choose the last word
+    name = words[words.length - 1].toLowerCase();
+    return [article, name];
 }
 export function init(app) { }
 //# sourceMappingURL=model.js.map

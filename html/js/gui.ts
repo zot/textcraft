@@ -518,9 +518,9 @@ export function start() {
         sectionTracker.setValue(SectionState.Storage)
         return storagecontrol.addMud()
     }
-    $('#mud-command').onkeydown = evt=> {
+    $('#mud-command').onkeydown = async evt=> {
         if (evt.key === 'Enter') {
-            mudcontrol.executeCommand($('#mud-command').value)
+            await mudcontrol.executeCommand($('#mud-command').value)
             $('#mud-command').value = ''
         }
     }

@@ -81,6 +81,7 @@ class Peer extends proto.DelegatingHandler<Strategy> {
 
     constructor(storage: MudStorage) {
         super(null)
+        peer = this
         this.connections = {}
         this.userMap = new Map()
         this.storage = storage
@@ -276,8 +277,8 @@ class HostStrategy extends Strategy {
         peer.showUsers()
     }
     // mud API message
-    command(info, {text}) {
-        this.mudConnections.get(info.peerID).command(text)
+    async command(info, {text}) {
+        return this.mudConnections.get(info.peerID).command(text)
     }
 }
 

@@ -1,7 +1,9 @@
 import { MudState, RoleState, PeerState, mudTracker, roleTracker, peerTracker, } from './base.js';
+import { findSimpleName, } from './model.js';
 import * as mudproto from './mudproto.js';
 let app;
 let connection;
+// probably should move this into World
 const connectionMap = new Map();
 export let activeWorld;
 const reservedProperties = new Set([
@@ -13,6 +15,9 @@ const reservedProperties = new Set([
     '_linkOwner',
     '_otherLink',
     '__proto__',
+]);
+const addableProperties = new Set([
+    '_keys',
 ]);
 const properties = [
     'prototype',
@@ -49,6 +54,8 @@ const setHelp = [
 class Command {
     constructor({ help, admin, alt }) {
         this.help = help;
+        this.admin = admin;
+        this.alt = alt;
     }
 }
 const commands = new Map([
@@ -57,12 +64,22 @@ const commands = new Map([
     ['look', new Command({ help: ['', `See a description of your current location`,
                 'thing', 'See a description of a thing'] })],
     ['go', new Command({ help: ['location', `move to another location (may be a direction)`] })],
+    ['i', new Command({ help: [''], alt: 'inventory' })],
+    ['invent', new Command({ help: [''], alt: 'inventory' })],
+    ['inventory', new Command({ help: ['', `list what you are carrying`] })],
+    ['get', new Command({ help: ['thing', `grab a thing`,
+                'thing [from] location', `grab a thing from a location`] })],
+    ['drop', new Command({ help: ['thing', `drop something you are carrying`] })],
     ['@dump', new Command({ help: ['thing', 'See properties of a thing'] })],
-    ['@create', new Command({ help: ['proto', 'Create a thing'] })],
+    ['@move', new Command({ help: ['thing location', 'Move a thing'] })],
+    ['@admin', new Command({ help: ['thing boolean', 'Change a thing\'s admin privileges'] })],
+    ['@create', new Command({ help: ['proto name [description words...]', 'Create a thing'] })],
     ['@find', new Command({ help: ['thing', 'Find a thing',
                 'thing location', 'Find a thing from a location',] })],
     ['@link', new Command({ help: ['loc1 link1 link2 exit2', 'create links between two things'] })],
     ['@info', new Command({ help: ['', 'List important information'] })],
+    ['@add', new Command({ help: ['thing property thing2', `Add thing2 to the list in property`], admin: true })],
+    ['@remove', new Command({ help: ['thing property thing2', `Remove thing2 from the list in property`], admin: true })],
     ['@setNum', new Command({ help: ['thing property number'], admin: true, alt: '@set' })],
     ['@setBigint', new Command({ help: ['thing property bigint'], admin: true, alt: '@set' })],
     ['@setBool', new Command({ help: ['thing property boolean'], admin: true, alt: '@set' })],
@@ -83,6 +100,10 @@ export function init(appObj) {
         }
         if (cmdName[0] === '@') {
             command.admin = true;
+            command.method = 'at' + capitalize(cmdName.substring(1));
+        }
+        else {
+            command.method = command.name;
         }
         for (let i = 0; i < command.help.length; i += 2) {
             command.minArgs = Math.min(command.minArgs, command.help[i].split(/ +/).length);
@@ -93,12 +114,18 @@ export class Descripton {
     constructor(visitFunc, visitLinks = false) {
         this.visitFunc = visitFunc;
         this.visitLinks = visitLinks;
+        this.visited = new Set();
     }
+    /**
+     * Propagate to a thing and its contents
+     * If the thing is open, also propagate to its location
+     * If this.visitLinks is true, also propagate through links
+     */
     async propagate(thing) {
-        if (!thing || this.visited.has(thing))
+        if (this.done || !thing || this.visited.has(thing))
             return;
         this.visited.add(thing);
-        this.visitFunc(thing);
+        this.visitFunc(thing, this);
         for (const item of await thing.getContents()) {
             await this.propagate(item);
         }
@@ -110,6 +137,8 @@ export class Descripton {
                 await this.propagate(otherThing);
             }
         }
+        if (!thing._closed || this.ignoreClosed)
+            return this.propagate(await thing.getLocation());
     }
 }
 export class Mud {
@@ -129,11 +158,6 @@ export class MudConnection {
         this.outputHandler = outputHandler;
         this.created = [];
     }
-    async configure(user, thing) {
-        this.user = user;
-        this.thing = await this.world.getThing(thing);
-        connectionMap.set(this.thing, this);
-    }
     async close() {
         this.thing.setLocation(this.thing.world.limbo);
         connectionMap.delete(this.thing);
@@ -143,14 +167,18 @@ export class MudConnection {
         this.thing = null;
         this.outputHandler = null;
         this.created = null;
-        mudTracker.setValue(MudState.NotPlaying);
-        roleTracker.setValue(RoleState.None);
+        if (this === connection) {
+            mudTracker.setValue(MudState.NotPlaying);
+            roleTracker.setValue(RoleState.None);
+        }
     }
     error(text) {
         this.output('<div class="error">' + text + '</div>');
+        this.failed = true;
     }
     output(text) {
-        this.outputHandler(text);
+        this.outputHandler(text.match(/^</) ? text : `<div>${text}</div>`);
+        this.failed = false;
     }
     start() {
         mudTracker.setValue(MudState.Playing);
@@ -161,7 +189,21 @@ export class MudConnection {
 <p>
 <p>Click on old commands to reuse them`);
     }
-    async format(tip, str) {
+    formatMe(tip, str, ...args) {
+        const ctx = formatContexts(str);
+        return this.basicFormat(tip, ctx.me || ctx.others, args);
+    }
+    // same as formatOthers(...)
+    format(tip, str, ...args) {
+        return this.basicFormat(tip, formatContexts(str).others, args);
+    }
+    formatOthers(tip, str, ...args) {
+        return this.basicFormat(tip, formatContexts(str).others, args);
+    }
+    formatName(thing) {
+        return `${thing.formatName()}${this.admin ? '(%' + thing._id + ')' : ''}`;
+    }
+    async basicFormat(tip, str, args) {
         if (!str)
             return str;
         const thing = await this.world.getThing(tip);
@@ -171,7 +213,13 @@ export class MudConnection {
             const match = part.match(/^( *)\$(.*)$/);
             if (match) {
                 const [_, space, format] = match;
+                const argMatch = format.toLowerCase().match(/arg([0-9]*)/);
                 result += space;
+                if (argMatch) {
+                    const arg = args[argMatch[1] ? Number(argMatch[1]) - 1 : 0];
+                    result += capitalize(this.formatName(arg), format);
+                    continue;
+                }
                 switch (format.toLowerCase()) {
                     case 'this': {
                         let name;
@@ -179,9 +227,13 @@ export class MudConnection {
                             name = 'you';
                         }
                         else {
-                            name = thing.formatName();
+                            name = this.formatName(thing);
                         }
                         result += capitalize(name, format);
+                        continue;
+                    }
+                    case 'name': {
+                        result += thing.name;
                         continue;
                     }
                     case 'is': {
@@ -189,7 +241,9 @@ export class MudConnection {
                         continue;
                     }
                     case 's': {
-                        result += !thing || thing.count === 1 ? 's' : '';
+                        if (!thing || thing.count === 1) {
+                            result += (result.match(/\sgo$/) ? 'es' : 's');
+                        }
                         continue;
                     }
                     case 'location': {
@@ -204,7 +258,7 @@ export class MudConnection {
                         const other = await thing.getOtherLink();
                         const dest = await other?.getLinkOwner();
                         if (dest) {
-                            result += capitalize(dest.formatName(), format);
+                            result += capitalize(this.formatName(dest), format);
                         }
                         continue;
                     }
@@ -236,7 +290,7 @@ export class MudConnection {
     }
     async dumpName(tip) {
         const thing = await this.world.getThing(tip);
-        return escape(thing ? `%${thing._id} ${thing.formatName()}` : 'null');
+        return escape(thing ? `%${thing._id} ${this.formatName(thing)}` : 'null');
     }
     description(thing) {
         return this.format(thing, thing.description);
@@ -248,20 +302,85 @@ export class MudConnection {
     async describe(thing) {
         this.output(await this.description(thing));
     }
-    command(line) {
-        const words = line.split(/\s+/);
+    checkCommand(cmd, cmdProp, thing) {
+        return (cmd === thing.name && thing._cmd) || thing[cmdProp];
+    }
+    async findCommand(words) {
+        const cmd = words[0].toLowerCase();
+        const cmdProp = `_cmd_${cmd}`;
+        let template;
+        for (const item of (await this.thing.getContents())) {
+            template = this.checkCommand(cmd, cmdProp, item);
+            if (template) {
+                break;
+            }
+        }
+        if (!template) {
+            for (const item of (await this.thing.getLinks())) {
+                template = this.checkCommand(cmd, cmdProp, item);
+                if (template) {
+                    break;
+                }
+            }
+        }
+        if (!template) {
+            const loc = await this.thing.getLocation();
+            template = this.checkCommand(cmd, cmdProp, loc);
+            if (!template) {
+                for (const item of (await loc.getLinks())) {
+                    template = this.checkCommand(cmd, cmdProp, item);
+                    if (template) {
+                        break;
+                    }
+                }
+            }
+        }
+        if (template) {
+            const parts = template.split(/( *\$\w*)/);
+            let newCmd = '';
+            for (const part of parts) {
+                const match = part.match(/^( *)\$([0-9]+)$/);
+                if (match) {
+                    const [_, space, format] = match;
+                    newCmd += space;
+                    newCmd += words[Number(format)];
+                }
+                else {
+                    newCmd += part;
+                }
+            }
+            return newCmd.split(/\s+/);
+        }
+    }
+    async runCommands(lines) {
+        for (const line of lines) {
+            await this.command(line.join(' '), true);
+            if (this.failed)
+                break;
+        }
+    }
+    async command(line, suppressFind = false) {
+        let words = line.split(/\s+/);
+        let commandName = words[0].toLowerCase();
         this.output('<div class="input">&gt; <span class="input-text">' + line + '</span></div>');
-        words[0] = words[0].toLowerCase();
-        if (this.thing ? commands.has(words[0]) : words[0] === 'login' || words[0] === 'help') {
-            const command = commands.get(words[0]);
-            if (command.admin && !this.admin) {
+        if (!commands.has(commandName) && !suppressFind) {
+            const newWords = (await this.findCommand(words));
+            if (Array.isArray(newWords[0]))
+                return this.runCommands(newWords);
+            if (newWords && commands.has(newWords[0])) {
+                words = newWords;
+                commandName = words[0].toLowerCase();
+            }
+        }
+        if (this.thing ? commands.has(commandName) : commandName === 'login' || commandName === 'help') {
+            let command = commands.get(commandName);
+            if (command.alt)
+                command = commands.get(command.alt);
+            if (command?.admin && !this.admin) {
                 return this.error('Unknown command: ' + words[0]);
             }
-            if (words[0][0] === '@') {
-                words[0] = 'at' + capitalize(words[0].substring(1));
-            }
             // execute command inside a transaction so it will automatically store any dirty objects
-            this.world.doTransaction(() => this[words[0]]({ command, line }, ...words.slice(1)))
+            this.world.doTransaction(() => this[command.method]({ command, line }, ...words.slice(1)))
                 .catch(err => this.error(err.message));
         }
         else {
@@ -322,20 +441,20 @@ export class MudConnection {
             this.error('Cannot change __proto__!');
             return [];
         }
-        for (const key of Object.keys(thing)) {
+        for (const key in thing) {
             if (key !== '_id' && key[0] === '_') {
                 propMap.set(key.substring(1).toLowerCase(), key);
             }
         }
         if (propMap.has(lowerProp)) {
             realProp = propMap.get(lowerProp);
-            const curVal = thing[property];
+            const curVal = thing[realProp];
             switch (typeof curVal) {
                 case 'number':
                     value = Number(value);
                     break;
                 case 'boolean':
-                    value = Boolean(value);
+                    value = value.toLowerCase() in { t: true, true: true };
                     break;
                 case 'bigint':
                     value = BigInt(value);
@@ -354,10 +473,13 @@ export class MudConnection {
     async doLogin(user, password, noauthentication = false) {
         try {
             const [thing, admin] = await this.world.authenticate(user, password, noauthentication);
+            const lobby = await this.world.getThing(this.world.lobby);
             this.user = user;
             this.thing = thing;
             this.admin = admin;
+            connectionMap.set(this.thing, this);
             this.output('Connected.');
+            thing.setLocation(lobby);
             await this.commandDescripton('has arrived');
             // tslint:disable-next-line:no-floating-promises
             this.look(null, null);
@@ -366,18 +488,28 @@ export class MudConnection {
             this.error(err.message);
         }
     }
-    async commandDescripton(action, except) {
-        const text = `${this.thing.formatName()} ${action}`;
+    async commandDescripton(action, except = this.thing, startAt) {
+        const text = `${this.formatName(this.thing)} ${action}`;
         const desc = new Descripton(thing => {
             connectionMap.get(thing)?.output(text);
         });
+        if (!startAt)
+            startAt = await this.thing.getLocation();
         if (except)
             desc.visited.add(except);
-        return desc.propagate(this.thing);
+        return desc.propagate(startAt);
     }
-    ///
-    /// COMMANDS
-    ///
+    async hasKey(lock, start) {
+        if (start._keys.indexOf(lock._id) !== -1) {
+            return true;
+        }
+        for (const item of await start.getContents()) {
+            if (item._keys.indexOf(lock._id) !== -1) {
+                return true;
+            }
+        }
+        return false;
+    }
     // COMMAND
     login(cmdInfo, user, password) {
         return this.doLogin(user, password);
@@ -406,17 +538,70 @@ export class MudConnection {
         }
     }
     // COMMAND
-    async go(cmdInfo, locationStr) {
-        let location = await this.find(locationStr, this.thing, 'location');
-        const link = location._otherLink && await location.getOtherLink();
+    async go(cmdInfo, directionStr) {
+        const oldLoc = await this.thing.getLocation();
+        const direction = await this.find(directionStr, this.thing, 'direction');
+        const link = direction._otherLink && await direction.getOtherLink();
+        let location;
         if (link) {
             location = link && await link.getLinkOwner();
             if (!location) {
-                return this.error(`${locationStr} does not lead anywhere`);
+                return this.error(`${directionStr} does not lead anywhere`);
+            }
+        }
+        if (direction._locked) {
+            if (!await this.hasKey(direction, this.thing)) {
+                return this.error(await this.format(direction, direction._lockFailFormat, this.thing, location));
             }
         }
         await this.thing.setLocation(location);
-        this.output(`Moved ${link ? link.formatName() + ' to' : ''} ${location.formatName()}`);
+        if (direction._locked) {
+            this.output(await this.formatMe(direction, direction._lockPassFormat, this.thing, location));
+            await this.commandDescripton(await this.formatOthers(direction, direction._lockPassFormat, this.thing, oldLoc), this.thing, oldLoc);
+        }
+        else {
+            this.output(await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location));
+            await this.commandDescripton(await this.format(direction, direction._linkExitFormat, this.thing, oldLoc), this.thing, oldLoc);
+        }
+        await this.commandDescripton(await this.format(link, link._linkEnterFormat, this.thing, location), this.thing, location);
+        await this.look(cmdInfo);
+    }
+    // COMMAND
+    async inventory(cmdInfo) {
+        this.output(`<pre>You are carrying\n${indent(3, (await this.thing.getContents()).map(item => this.formatName(item)).join('\n'))}</pre>`);
+    }
+    // COMMAND
+    async get(cmdInfo, thingStr, ...args) {
+        const location = await this.thing.getLocation();
+        let loc = location;
+        if (args.length) {
+            const [_, name] = findSimpleName(args.join(' '));
+            loc = await this.find(name, loc);
+            if (!loc)
+                return this.error(`You don't see any ${name}`);
+        }
+        const thing = await this.find(thingStr, loc);
+        if (!thing)
+            return this.error(`You don't see any ${thingStr}`);
+        if (thing === this.thing)
+            return this.error(`You just don't get yourself. Some people are that way.`);
+        if (thing === location)
+            return this.error(`You just don't get this place. Some people are that way.`);
+        await thing.setLocation(this.thing);
+        this.output(`You pick up ${thing.formatName()}`);
+        return this.commandDescripton(`picks up ${this.formatName(thing)}`);
+    }
+    // COMMAND
+    async drop(cmdInfo, thingStr) {
+        const thing = await this.find(thingStr, this.thing);
+        const loc = await this.thing.getLocation();
+        if (!thing)
+            return this.error(`You don't see any ${thingStr}`);
+        if (thing._location !== this.thing._id)
+            return this.error(`You aren't holding ${thingStr}`);
+        await thing.setLocation(loc);
+        this.output(`You drop ${this.formatName(thing)}`);
+        return this.commandDescripton(`drops ${this.formatName(thing)}`);
     }
     // COMMAND
     async atCreate(cmdInfo, protoStr, name) {
@@ -432,7 +617,8 @@ Prototypes:
   ${protos.join('\n  ')}`);
         }
         else {
-            const thing = await this.world.createThing(name, dropArgs(3, cmdInfo));
+            const desc = dropArgs(3, cmdInfo);
+            const thing = await this.world.createThing(name, desc || undefined);
             thing.setPrototype(proto);
             this.created.push(thing);
             if (this.created.length > 100)
@@ -489,7 +675,7 @@ Prototypes:
             if (!myKeys.has(prop)) {
                 propName = `(${propName})`;
             }
-            result += `\n   ${propName}: ${escape(thing[prop])}`;
+            result += `\n   ${propName}: ${escape(JSON.stringify(thing[prop]))}`;
         }
         result += '</pre>';
         this.output(result);
@@ -503,7 +689,65 @@ Prototypes:
         if (!loc)
             return this.error(`Could not find ${locStr}`);
         thing.setLocation(loc);
-        this.output(`Moved ${thingStr} to ${locStr}`);
+        this.output(`You moved ${thingStr} to ${locStr}`);
+    }
+    // COMMAND
+    async atAdmin(cmdInfo, thingStr, toggle) {
+        checkArgs(cmdInfo, arguments);
+        const thing = await this.find(thingStr);
+        if (!thing)
+            return this.error(`Could not find ${thingStr}`);
+        const con = connectionMap.get(thing);
+        const boolVal = toggle.toLowerCase() in { t: true, true: true };
+        const user = await this.world.getUserForThing(thing);
+        if (user.admin !== toggle) {
+            user.admin = toggle;
+            await this.world.putUser(user);
+            if (con)
+                con.admin = toggle;
+            if (toggle)
+                con.output(`${this.formatName(this.thing)} just upgraded you`);
+        }
+        this.output(`You just ${toggle ? 'upgraded' : 'downgraded'} ${thingStr}`);
+    }
+    // COMMAND
+    async atAdd(cmdInfo, thingStr, property, thing2Str) {
+        checkArgs(cmdInfo, arguments);
+        const thing = await this.find(thingStr, this.thing, 'thing');
+        const thing2 = await this.find(thing2Str, this.thing, 'thing2');
+        const prop = '_' + property.toLowerCase();
+        if (!addableProperties.has(prop)) {
+            return this.error(`${property} is not a list`);
+        }
+        if (thing[prop].indexOf(thing2._id) === -1) {
+            if (!thing.hasOwnProperty(prop))
+                thing[prop] = thing[prop].slice();
+            thing.markDirty();
+            thing[prop].push(thing2._id);
+            this.output(`Added ${thing2Str} to ${property}`);
+        }
+        else {
+            this.error(`${thing2Str} is already in ${property}`);
+        }
+    }
+    // COMMAND
+    async atRemove(cmdInfo, thingStr, property, thing2Str) {
+        checkArgs(cmdInfo, arguments);
+        const thing = await this.find(thingStr, this.thing, 'thing');
+        const thing2 = await this.find(thing2Str, this.thing, 'thing2');
+        const prop = '_' + property.toLowerCase();
+        if (!addableProperties.has(prop)) {
+            this.error(`${property} is not a list`);
+        }
+        const index = thing[prop].indexOf(thing2._id);
+        if (index !== -1) {
+            thing.markDirty();
+            thing[prop].splice(index, 1);
+            this.output(`Removed ${thing2Str} from ${property}`);
+        }
+        else {
+            this.error(`${thing2Str} is not in ${property}`);
+        }
     }
     // COMMAND
     atSetBigInt(cmdInfo, thingStr, property, value) {
@@ -523,14 +767,20 @@ Prototypes:
     // COMMAND
     async atSet(cmdInfo, thingStr, property, value) {
         checkArgs(cmdInfo, arguments);
-        const [thing, lowerProp, realProp, val] = await this.thingProps(thingStr, property, value, cmdInfo);
+        const [thing, lowerProp, realProp, val, propMap] = await this.thingProps(thingStr, property, value, cmdInfo);
         value = val;
         if (!thing)
             return;
+        if (addableProperties.has(realProp))
+            return this.error(`Cannot set ${property}`);
         switch (lowerProp) {
             case 'count':
                 thing.count = Number(value);
                 break;
+            case 'fullname': {
+                thing.fullName = value;
+                break;
+            }
             case 'location': {
                 const location = await this.find(value);
                 if (!location) {
@@ -579,10 +829,10 @@ Prototypes:
         if (!propMap.has(lowerProp)) {
             return this.error('Bad property: ' + property);
         }
-        if (reservedProperties.has(propMap(lowerProp))) {
+        if (reservedProperties.has(realProp) || addableProperties.has(realProp)) {
             return this.error('Reserved property: ' + property);
         }
-        delete thing[propMap.get(lowerProp)];
+        delete thing[realProp];
         thing.markDirty();
         this.output(`deleted ${property} from ${thing.name}`);
     }
@@ -683,6 +933,17 @@ function check(test, msg) {
     if (!test)
         throw new Error(msg);
 }
+function formatContexts(format) {
+    const contexts = format.split(/(\s*\$forme\b\s*|\s*\$forothers\b\s*)/);
+    const tmp = {};
+    if (contexts.length > 1) {
+        for (let i = 1; i < contexts.length; i += 2) {
+            tmp[contexts[i].trim().substring(1).toLowerCase()] = contexts[i + 1];
+        }
+        return { me: tmp.forme, others: tmp.forothers };
+    }
+    return { others: contexts[0] };
+}
 export function escape(text) {
     return typeof text === 'string' ? text.replace(/</g, '&lt;') : text;
 }
@@ -696,9 +957,9 @@ export function escape(text) {
 /**
  * send a command to the controller
  */
-export function executeCommand(text) {
+export async function executeCommand(text) {
     if (roleTracker.value === RoleState.Solo || roleTracker.value === RoleState.Host) {
-        connection.command(text);
+        await connection.command(text);
     }
     else if (peerTracker.value !== PeerState.disconnected && mudTracker.value === MudState.Playing) {
         mudproto.command(text);
