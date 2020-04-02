@@ -1,5 +1,5 @@
 import { NatState, RoleState, RelayState, SectionState, PeerState, natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, } from "./base.js";
-var app;
+let app;
 export function init(appObj) {
     app = appObj;
 }

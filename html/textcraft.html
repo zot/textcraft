@@ -119,20 +119,34 @@
         </div>
 		<div id='logo'>
             <div class='fcolumn fspread'>
-                <div class='field'>
+                <div id='mud-info'>
                     <span class='mud-title'>Playing:&nbsp;</span>
                     <span class='when-mud-playing fgrow mud-title field fcenter'>
                         <span id='mud-name'></span>
-                        <span class='fgrow'></span>
+                    </span>
+                    <span class='fright when-not-role-host when-peer-disconnected'>
+                        <button id='mud-select-join'>Join</button>
+                        &nbsp;
+                        <span class='when-nat-public'><button id='mud-select-relay'>Relay</button></span>
+                        &nbsp;
+                    </span>
+                    <span class='when-mud-playing fgrow mud-title field fcenter mud-row'>
                         <span class='when-peer-connectedtohost fcenter'>
                             <button id='mud-download' class='when-peer-connectedtohost'>Download</button>
                             &nbsp;
                         </span>
-                        <button id='mud-stop-hosting' span class='when-role-host'>Stop Hosting</button>
-                        <button id='mud-host' class='when-role-solo'>Host</button>
-                        &nbsp;
-                        <button id='mud-quit' class='when-not-role-none'>Quit</button>
-                        &nbsp;
+                        <span class='when-role-host fcenter'>
+                            <button id='mud-stop-hosting'>Stop Hosting</button>
+                            &nbsp;
+                        </span>
+                        <span class='when-role-solo fcenter'>
+                            <button id='mud-host'>Host</button>
+                            &nbsp;
+                        </span>
+                        <span class='when-not-role-none fcenter'>
+                            <button id='mud-quit' class='when-not-role-none'>Quit</button>
+                            &nbsp;
+                        </span>
                     </span>
                 </div>
                 <div class='fcenter nowrap'>
@@ -155,28 +169,20 @@
             </div>
         </div>
         <div id='sections'>
-            <div class='when-section-connection section'>
-                <hr>
+            <div id='connection-section' class='when-section-connection section'>
                 <div id='login' class='when-not-connected-with-user hidden'>
                     <div id='userDiv' class='field'>Username:&nbsp;<input id='user' type='text'></div>
                     <div>NAT Status: <span id='natStatus'></span> </div>
                     <div>Peer ID: <span id='peerID' type='text'></span></div>
                 </div>
-                <div class='when-connected-with-userX when-nat-known'>
-                    <div id='panelSelector'>
-                        <input type="radio" id="guestRole" name="panelSelector"> <label for="guestRole">Join a session</label>
-                        <input type="radio" id="hostRole" name="panelSelector" class='when-role-host'> <label for="hostRole" class='when-role-host'>Host a session</label>
-                        <span class='when-nat-public'>
-                            <input type="radio" id="relayRole" name="panelSelector"> <label for="relayRole">Relay for a private host</label>
-                        </span>
-                    </div>
+                <div class='when-nat-known'>
                     <div id='connectDiv' class='when-role-guest'>
                         <hr>
                         <div class='field'>
                             <button id='connect'>Join</button>
                             &nbsp;
-                            <span id='connectStatus'></span>
-                            <input id='toHostID' type='text' placeholder='PASTE SESSION ID HERE'>
+                            <span id='connectStatus' class='when-peer-connected'></span>
+                            <input id='toHostID' class='when-not-peer-connected' type='text' placeholder='PASTE SESSION ID HERE'>
                         </div>
                     </div>
                     <div id='hostDiv' class='when-role-host'>
@@ -235,7 +241,6 @@
             </div>
             <div class='when-section-profile section'>
                 <div id='profileView' class='view'>
-                    PROFILE
                     <div class='field'><span>Name:&nbsp;</span><input id='profileName'></div>
                 </div>
             </div>
@@ -253,7 +258,7 @@
                     </div>
                     <div>Users <button name='mud-add-user'><i class="fas fa-plus"></i></button></div>
                     <div class='fcolumn fgrow' name='mud-user-list'>
-                            
+                        
                     </div>
                     <div><button name='save' class='left'>Save</button><button name='cancel' class='right'>Cancel</button></div>
                 </div>
@@ -267,6 +272,7 @@
                     &nbsp;
                     <button name='delete-user' class='naked-button'><i class="fas fa-window-close"></i></button>
                 </div>
+                <div id='mud-connected-user-item' class='field mud-view'></div>
             </div>
         </div>
         <div id='parsing'></div>

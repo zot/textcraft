@@ -90,6 +90,12 @@ const smsg = Object.freeze({
     listening: 10,
 });
 
+const errors = Object.freeze({
+    unknownCommand: 0,
+    badComand: 1,
+    error: 2,
+})
+
 var ws;
 var peerID;
 var utfDecoder = new TextDecoder("utf-8");
@@ -293,7 +299,7 @@ class CommandHandler extends DelegatingHandler {
                 if (this.delegateData) {
                     return super.data(conID, data);
                 }
-                return connectionError(conID, relayErrors.badCommand, 'Bad command, could not parse JSON', true);
+                return connectionError(conID, errors.badCommand, 'Bad command, could not parse JSON', true);
             }
         }
         if (this.shouldHandleCommand(info, data, obj)) {
@@ -304,10 +310,10 @@ class CommandHandler extends DelegatingHandler {
                 if (this.delegateData) {
                     super.data(conID, data, obj);
                 } else {
-                    connectionError(conID, relayErrors.unknownCommand, 'Unknown command: '+obj.name, true);
+                    connectionError(conID, errors.unknownCommand, 'Unknown command: '+obj.name, true);
                 }
             } catch (err) {
-                connectionError(conID, relayErrors.error, 'Error during command "'+obj.name+'":\n'+err.stack, true);
+                connectionError(conID, errors.error, 'Error during command "'+obj.name+'":\n'+err.stack, true);
             }
         } else {
             super.data(conID, data, obj);

@@ -1,4 +1,4 @@
-var enumNameMaps = new Map();
+const enumNameMaps = new Map();
 export var NatState;
 (function (NatState) {
     NatState[NatState["Notstarted"] = 0] = "Notstarted";
@@ -63,7 +63,7 @@ export class StateTracker {
     }
     setValue(value) {
         this.value = value;
-        for (let obs of this.observers) {
+        for (const obs of this.observers) {
             obs(this.value, this);
         }
     }
@@ -72,8 +72,8 @@ export class StateTracker {
     }
     findEnum(id) {
         id = id.toLowerCase();
-        for (var name of this.names) {
-            if (id == name.toLowerCase()) {
+        for (const name of this.names) {
+            if (id === name.toLowerCase()) {
                 return name;
             }
         }
@@ -95,7 +95,7 @@ export class StateTracker {
 }
 function enumNames(enumObj) {
     if (!enumNameMaps.has(enumObj)) {
-        var names = Object.keys(enumObj).filter(o => typeof enumObj[o] == 'string').map(o => enumObj[o]);
+        const names = Object.keys(enumObj).filter(o => typeof enumObj[o] === 'string').map(o => enumObj[o]);
         enumNameMaps.set(enumObj, names);
         return names;
     }
@@ -104,10 +104,10 @@ function enumNames(enumObj) {
 export function assertUnreachable(s) {
     throw new Error("Shouldn't ever get here");
 }
-export var natTracker = new StateTracker(NatState);
-export var peerTracker = new StateTracker(PeerState);
-export var roleTracker = new StateTracker(RoleState);
-export var relayTracker = new StateTracker(RelayState);
-export var sectionTracker = new StateTracker(SectionState);
-export var mudTracker = new StateTracker(MudState);
+export let natTracker = new StateTracker(NatState);
+export let peerTracker = new StateTracker(PeerState);
+export let roleTracker = new StateTracker(RoleState);
+export let relayTracker = new StateTracker(RelayState);
+export let sectionTracker = new StateTracker(SectionState);
+export let mudTracker = new StateTracker(MudState);
 //# sourceMappingURL=base.js.map

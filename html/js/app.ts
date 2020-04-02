@@ -4,7 +4,7 @@ import {
     natTracker, peerTracker, roleTracker, relayTracker, sectionTracker,
 } from "./base.js"
 
-var app: any
+let app: any
 
 export function init(appObj) {
     app = appObj

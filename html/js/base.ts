@@ -1,4 +1,4 @@
-var enumNameMaps = new Map<any, string[]>()
+const enumNameMaps = new Map<any, string[]>()
 
 export enum NatState {
     Notstarted,
@@ -70,7 +70,7 @@ export class StateTracker<E> {
     }
     setValue(value: E) {
         this.value = value
-        for (let obs of this.observers) {
+        for (const obs of this.observers) {
             obs(this.value, this)
         }
     }
@@ -79,8 +79,8 @@ export class StateTracker<E> {
     }
     findEnum(id: string): string {
         id = id.toLowerCase()
-        for (var name of this.names) {
-            if (id == name.toLowerCase()) {
+        for (const name of this.names) {
+            if (id === name.toLowerCase()) {
                 return name
             }
         }
@@ -103,7 +103,7 @@ export class StateTracker<E> {
 
 function enumNames(enumObj) {
     if (!enumNameMaps.has(enumObj)) {
-        var names = Object.keys(enumObj).filter(o=> typeof enumObj[o] == 'string').map(o=> enumObj[o])
+        const names = Object.keys(enumObj).filter(o=> typeof enumObj[o] === 'string').map(o=> enumObj[o])
 
         enumNameMaps.set(enumObj, names as string[])
         return names
@@ -115,9 +115,9 @@ export function assertUnreachable(s: never): never {
     throw new Error("Shouldn't ever get here")
 }
 
-export var natTracker = new StateTracker<NatState>(NatState)
-export var peerTracker = new StateTracker<PeerState>(PeerState)
-export var roleTracker = new StateTracker<RoleState>(RoleState)
-export var relayTracker = new StateTracker<RelayState>(RelayState)
-export var sectionTracker = new StateTracker<SectionState>(SectionState)
-export var mudTracker = new StateTracker<MudState>(MudState)
+export let natTracker = new StateTracker<NatState>(NatState)
+export let peerTracker = new StateTracker<PeerState>(PeerState)
+export let roleTracker = new StateTracker<RoleState>(RoleState)
+export let relayTracker = new StateTracker<RelayState>(RelayState)
+export let sectionTracker = new StateTracker<SectionState>(SectionState)
+export let mudTracker = new StateTracker<MudState>(MudState)

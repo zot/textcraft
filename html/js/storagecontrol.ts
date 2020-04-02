@@ -1,7 +1,7 @@
 import * as model from './model.js'
 
-var app: any
-var gui: any
+let app: any
+let gui: any
 
 export function init(appObj) {
     app = appObj
@@ -9,7 +9,7 @@ export function init(appObj) {
 }
 
 export async function addMud() {
-    var world = await model.storage.openWorld()
+    const world = await model.storage.openWorld()
 
     gui.showMuds()
     gui.editWorld(world)

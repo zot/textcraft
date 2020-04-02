@@ -1,0 +1,12 @@
+{
+    "extends": "tslint:recommended",
+    "rules": {
+        "no-floating-promises": true,
+        "no-unused-expression": [true, "allow-fast-null-checks", "allow-new"],
+        "no-console": false,
+        "comment-format": false,
+        "no-namespace": false,
+        "max-classes-per-file": false,
+        "no-empty": false
+    }
+}

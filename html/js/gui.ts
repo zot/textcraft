@@ -11,8 +11,7 @@ import * as mudproto from './mudproto.js'
 
 const jsyaml: any = (window as any).jsyaml
 
-var relaying = false
-var nextId = 0
+let nextId = 0
 
 export function init(appObj) {}
 
@@ -20,27 +19,27 @@ export function init(appObj) {}
 type nodespec = string | Node | NodeListOf<Node> | Node[]
 
 function $(sel) {
-    return typeof sel == 'string' ? document.querySelector(sel) : sel
+    return typeof sel === 'string' ? document.querySelector(sel) : sel
 }
 function $all(sel) {
     return [...document.querySelectorAll(sel)]
 }
 function $find(el: nodespec, sel) {
-    var res: Node[]
+    let res: Node[]
 
-    if (typeof el == 'string') {
+    if (typeof el === 'string') {
         res = [...$all(el)]
     } else if (el instanceof NodeList) {
         res = [...el]
     } else if (el instanceof Node) {
         res = [el]
     }
-    if (res.length == 0) {
+    if (res.length === 0) {
         return null;
     } else if (res.length > 1) {
-        for (var node of res) {
+        for (const node of res) {
             if (node instanceof Element) {
-                var result = node.querySelector(sel);
+                const result = node.querySelector(sel);
 
                 if (result) return result;
             }
@@ -50,23 +49,25 @@ function $find(el: nodespec, sel) {
     }
 }
 function $findAll(el: nodespec, sel) {
-    var res: Node[]
+    let res: Node[]
 
-    if (typeof el == 'string') {
+    if (typeof el === 'string') {
         res = $all(el);
     }
     if (el instanceof NodeList) {
         el = [...el];
     }
     if (Array.isArray(el)) {
-        var results = [];
+        const results = [];
 
-        for (var node of el) {
-            results.push(...(node as Element).querySelectorAll(sel));
+        for (const node of el) {
+            results.push(...(node as Element).querySelectorAll(sel))
         }
         return results;
+    } else if (el instanceof HTMLElement) {
+        return [...$(el).querySelectorAll(sel)]
     } else {
-        return $(el).querySelectorAll(sel);
+        return []
     }
 }
 
@@ -77,7 +78,7 @@ class CssClassTracker {
         this.tracker = tracker
         this.idSuffix = idSuffix
         tracker.observe(state=>{
-            for (let node of $all('#'+this.tracker.currentStateName().toLowerCase()+this.idSuffix)) {
+            for (const node of $all('#'+this.tracker.currentStateName().toLowerCase()+this.idSuffix)) {
                 node.checked = true
             }
             this.show()
@@ -89,7 +90,7 @@ class CssClassTracker {
     }
     show() {
         console.log('showing emulation state:', this.tracker.currentStateName())
-        for (var st of this.tracker.names) {
+        for (const st of this.tracker.names) {
             document.body.classList.remove(this.classForEnumName(st))
         }
         document.body.classList.add(this.classForEnumName(this.tracker.currentStateName()))
@@ -99,14 +100,14 @@ class CssClassTracker {
 class RadioTracker extends CssClassTracker {
     constructor(tracker: StateTracker<any>, idSuffix: string) {
         super(tracker, idSuffix)
-        for (let name of this.tracker.names) {
-            for (let node of $all('#'+name.toLowerCase()+this.idSuffix)) {
+        for (const name of this.tracker.names) {
+            for (const node of $all('#'+name.toLowerCase()+this.idSuffix)) {
                 node.onclick = evt=> this.clicked(evt.target)
                 if (!node.name) node.name = idSuffix + '-radio'
             }
         }
         tracker.observe(state=>{
-            for (let node of $all('#'+this.tracker.currentStateName().toLowerCase()+this.idSuffix)) {
+            for (const node of $all('#'+this.tracker.currentStateName().toLowerCase()+this.idSuffix)) {
                 node.checked = true
             }
         })
@@ -129,22 +130,22 @@ function setUser(name) {
 }
 
 function cloneTemplate(name) {
-    var t = $(name)
+    const t = $(name)
 
     if (t) {
-        var node = t.cloneNode(true)
+        const node = t.cloneNode(true)
 
         node.id = null
-        for (let n of $findAll(node, '*')) {
+        for (const n of $findAll(node, '*')) {
             if (!n.id) {
                 n.id = `id-${nextId++}`
             }
         }
-        for (let n of $findAll(node, 'label')) {
-            var name = n.getAttribute('for')
+        for (const n of $findAll(node, 'label')) {
+            const radioName = n.getAttribute('for')
 
-            if (name) {
-                var target = $find(node, `[name=${name}]`)
+            if (radioName) {
+                const target = $find(node, `[name=${radioName}]`)
 
                 if (target) {
                     n.setAttribute('for', target.id)
@@ -156,32 +157,30 @@ function cloneTemplate(name) {
 }
 
 export function showMuds() {
-    var worldList = [...model.storage.worlds]
+    const worldList = [...model.storage.worlds]
 
     worldList.sort()
     $('#storage-list').innerHTML = ''
-    for (let world of worldList) {
-        let div = cloneTemplate('#mud-item-template')
+    for (const world of worldList) {
+        const div = cloneTemplate('#mud-item-template')
 
         $('#storage-list').append(div)
         $find(div, '[name=name]').textContent = world
         div.onclick = async ()=> editWorld(await model.storage.openWorld(world))
         $find(div, '[name=copy-mud]').onclick = async evt=> {
             evt.stopPropagation()
-            var w = await model.storage.openWorld(world)
-            var newName = worldCopyName(world)
+            const w = await model.storage.openWorld(world)
+            const newName = worldCopyName(world)
             await w.copyWorld(newName)
             showMuds()
-            editWorld(await model.storage.openWorld(newName))
+            return editWorld(await model.storage.openWorld(newName))
         }
         $find(div, '[name=activate-mud]').onclick = async evt=> {
             evt.stopPropagation()
-            if (mudTracker.value == MudState.NotPlaying) {
+            if (mudTracker.value === MudState.NotPlaying) {
                 $('#mud-output').innerHTML = ''
                 sectionTracker.setValue(SectionState.Mud)
                 roleTracker.setValue(RoleState.Solo)
-                $('#mud-command').removeAttribute('disabled')
-                $('#mud-command').focus()
                 mudcontrol.runMud(await model.storage.openWorld(world), text=> {
                     addMudOutput('<div>'+text+'</div>')
                 })
@@ -195,14 +194,14 @@ export function showMuds() {
 }
 
 function worldCopyName(oldName: string) {
-    var nameTemplate = 'Copy of '+oldName
+    const nameTemplate = 'Copy of '+oldName
 
-    if (model.storage.worlds.indexOf(nameTemplate) == -1) {
+    if (model.storage.worlds.indexOf(nameTemplate) === -1) {
         return nameTemplate
     }
-    var counter = 1
-    
-    while (model.storage.worlds.indexOf(nameTemplate + ' ' + counter) != -1) {
+    let counter = 1
+
+    while (model.storage.worlds.indexOf(nameTemplate + ' ' + counter) !== -1) {
         counter++
     }
     return nameTemplate + ' ' + counter
@@ -210,7 +209,7 @@ function worldCopyName(oldName: string) {
 
 export function onEnter(input, action, shouldClear = false) {
     input.onkeydown = evt=> {
-        if (evt.key == 'Enter') {
+        if (evt.key === 'Enter') {
             action(input.value)
             if (shouldClear) {
                 input.value = ''
@@ -222,12 +221,12 @@ export function onEnter(input, action, shouldClear = false) {
 export async function editWorld(world: model.World) {
     let processUsers = false
     let deleted = false
-    let div = cloneTemplate('#mud-editor-template')
-    let nameField = $find(div, '[name="mud-name"]')
-    let userList = $find(div, '[name=mud-user-list]')
+    const div = cloneTemplate('#mud-editor-template')
+    const nameField = $find(div, '[name="mud-name"]')
+    const userList = $find(div, '[name=mud-user-list]')
     let blobToRevoke = null
-    let success = async ()=> {
-        var name = nameField.value
+    const success = async ()=> {
+        const name = nameField.value
 
         if (blobToRevoke) {
             URL.revokeObjectURL(blobToRevoke)
@@ -238,51 +237,51 @@ export async function editWorld(world: model.World) {
             showMuds()
             return
         }
-        if (name != world.name) {
+        if (name !== world.name) {
             await model.storage.renameWorld(world.name, name)
             showMuds()
         }
         if (!processUsers) {
-            for (let div of userList.children) {
-                let nameField = $find(div, '[name=mud-user-name]')
-                let passwordField = $find(div, '[name=mud-user-password]')
-                let adminCheckbox = $find(div, '[name=mud-user-admin]')
+            for (const childDiv of userList.children) {
+                const childNameField = $find(childDiv, '[name=mud-user-name]')
+                const passwordField = $find(childDiv, '[name=mud-user-password]')
+                const adminCheckbox = $find(childDiv, '[name=mud-user-admin]')
 
-                if (div.originalUser.name != nameField.value
-                    || div.originalUser.password != passwordField.value
-                    || div.originalUser.admin != adminCheckbox.checked) {
+                if (childDiv.originalUser.name !== childNameField.value
+                    || childDiv.originalUser.password !== passwordField.value
+                    || childDiv.originalUser.admin !== adminCheckbox.checked) {
                     processUsers = true
                     break
                 }
             }
         }
         if (processUsers) {
-            let newUsers = []
+            const newUsers = []
 
-            for (let div of userList.children) {
-                var user = div.originalUser
+            for (const childDiv of userList.children) {
+                const user = childDiv.originalUser
 
-                user.name = $find(div, '[name=mud-user-name]').value
-                user.password = $find(div, '[name=mud-user-password]').value
-                user.admin = $find(div, '[name=mud-user-admin]').checked
+                user.name = $find(childDiv, '[name=mud-user-name]').value
+                user.password = $find(childDiv, '[name=mud-user-password]').value
+                user.admin = $find(childDiv, '[name=mud-user-admin]').checked
                 newUsers.push(user)
             }
             await world.replaceUsers(newUsers)
         }
     }
 
-    for (let user of await world.getAllUsers()) {
-        let div = userItem(user, ()=> processUsers = true)
+    for (const user of await world.getAllUsers()) {
+        const itemDiv = userItem(user, ()=> processUsers = true)
 
-        userList.appendChild(div)
+        userList.appendChild(itemDiv)
     }
     $find(div, '[name=mud-add-user]').onclick = async evt=> {
         console.log('burp')
         evt.stopPropagation()
-        let randomName = await world.randomUserName()
-        let password = model.randomName('password')
-        let user = {name: randomName, password}
-        let userDiv = userItem(user, ()=> processUsers = true)
+        const randomName = await world.randomUserName()
+        const password = model.randomName('password')
+        const user = {name: randomName, password}
+        const userDiv = userItem(user, ()=> processUsers = true)
         userList.appendChild(userDiv, user)
         $find(userDiv, '[name=mud-user-name]').select()
         $find(userDiv, '[name=mud-user-name]').focus()
@@ -291,13 +290,13 @@ export async function editWorld(world: model.World) {
     nameField.value = world.name
     onEnter(nameField, newName=> {
         div.remove()
-        success()
+        return success()
     })
     $find(div, '[name=download-mud]').onclick = async evt=> {
         evt.stopPropagation()
-        var link = $find(div, '[name=download-mud-link]')
+        const link = $find(div, '[name=download-mud-link]')
         link.textContent = "Preparing download..."
-        var blob = await model.storage.fullBlobForWorld(world.name)
+        const blob = await model.storage.fullBlobForWorld(world.name)
         blobToRevoke = link.href = URL.createObjectURL(blob)
         link.setAttribute('download', world.name+'.yaml')
         link.textContent = 'Click to download '+world.name+'.yaml'
@@ -309,7 +308,7 @@ export async function editWorld(world: model.World) {
     }
     try {
         await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]')
-       success()
+        await success()
     } catch(err) { // revoke URL on cancel
         if (blobToRevoke) {
             URL.revokeObjectURL(blobToRevoke)
@@ -318,11 +317,11 @@ export async function editWorld(world: model.World) {
 }
 
 function userItem(user: any, processUsersFunc) {
-    let {name, password, admin} = user
-    let div = cloneTemplate('#mud-user-item')
-    let nameField = $find(div, '[name=mud-user-name]')
-    let passwordField = $find(div, '[name=mud-user-password]')
-    let adminCheckbox = $find(div, '[name=mud-user-admin]')
+    const {name, password, admin} = user
+    const div = cloneTemplate('#mud-user-item')
+    const nameField = $find(div, '[name=mud-user-name]')
+    const passwordField = $find(div, '[name=mud-user-password]')
+    const adminCheckbox = $find(div, '[name=mud-user-admin]')
 
     div.originalUser = user
     nameField.value = name
@@ -361,7 +360,7 @@ export function setMudOutput(html) {
 
 export function addMudOutput(html) {
     parseHtml(html, $('#mud-output'), (el)=> {
-        for (let node of $findAll(el, '.input')) {
+        for (const node of $findAll(el, '.input')) {
             node.onclick = ()=> {
                 $('#mud-command').value = $find(node, '.input-text').textContent
                 $('#mud-command').select()
@@ -377,10 +376,10 @@ export function focusMudInput() {
 }
 
 export function parseHtml(html, receivingNode = null, formatter:(el: HTMLElement)=>void = null) {
-    var parser = $('#parsing')
+    const parser = $('#parsing')
 
     parser.innerHTML = html
-    if (parser.children.length == 1) {
+    if (parser.children.length === 1) {
         if (formatter) formatter(parser.firstChild)
         if (receivingNode) {
             receivingNode.appendChild(parser.firstChild)
@@ -401,10 +400,10 @@ export function parseHtml(html, receivingNode = null, formatter:(el: HTMLElement
 }
 
 async function uploadMud(evt) {
-    var files = evt.target.files
+    const files = evt.target.files
 
     if (files.length) {
-        for (let file of files) {
+        for (const file of files) {
             await model.storage.uploadWorld(jsyaml.load(await file.text()))
         }
         $('#upload-mud').value = null
@@ -444,10 +443,21 @@ export function hosting(protocol: string) {
     $('#host-protocol').value = 'WAITING TO ESTABLISH LISTENER ON '+protocol
 }
 
-export function showUsers(users: mudproto.UserInfo[]) {
+export function showUsers(userMap: Map<string, mudproto.UserInfo>) {
+    const users = [...userMap.values()]
+
+    users.sort((a, b)=> a.name === b.name ? 0 : a.name < b.name ? -1 : 1)
+    for (const user of users) {
+        const div = cloneTemplate('#mud-connected-user-item')
+
+        div.textContent = user.name
+        div.title = user.peerID
+        $('#mud-users').appendChild(div)
+    }
 }
 
 function showPeerState() {
+    $('#direct-connect-string').value = ''
     switch (peerTracker.value) {
         case PeerState.hostingDirectly:
             $('#direct-connect-string').value = mudproto.directConnectString()
@@ -456,18 +466,23 @@ function showPeerState() {
 }
 
 function showMudState() {
-    var playing = mudTracker.value == MudState.Playing
-    var mudTabButton = $('#mudSection')
-    var mudTab = mudTabButton.closest('.tab')
+    const playing = mudTracker.value === MudState.Playing
+    const mudTabButton = $('#mudSection')
+    const mudTab = mudTabButton.closest('.tab')
 
-    if (mudTab.classList.contains('disabled') == playing) {
+    if (mudTab.classList.contains('disabled') === playing) {
         mudTab.classList.toggle('disabled')
     }
     mudTabButton.disabled = !playing
     if (playing) {
-        $(`button[mud=${mudcontrol.activeWorld.name}]`).textContent = 'Quit'
+        sectionTracker.setValue(SectionState.Mud)
+        $('#mud-command').removeAttribute('disabled')
+        $('#mud-command').focus()
+        if (roleTracker.value === RoleState.Host || roleTracker.value === RoleState.Solo) {
+            $(`button[mud=${mudcontrol.activeWorld.name}]`).textContent = 'Quit'
+        }
     } else {
-        for (let button of $all(`button[mud]`)) {
+        for (const button of $all(`button[mud]`)) {
             button.textContent = 'Activate'
         }
         $('#mud-output').innerHTML = ''
@@ -485,7 +500,7 @@ export function start() {
     radioTracker(sectionTracker, 'Section')
     radioTracker(mudTracker, 'Mud')
     sectionTracker.observe(state=> {
-        if (state == SectionState.Mud) {
+        if (state === SectionState.Mud) {
             $('#mud-command').focus()
         }
     })
@@ -494,18 +509,18 @@ export function start() {
     mudTracker.observe(showMudState)
     $('#user').onblur = ()=> setUser($('#user').value)
     $('#user').onkeydown = evt=> {
-        if (evt.key == 'Enter') {
+        if (evt.key === 'Enter') {
             setUser($('#user').value)
         }
     }
     $('#toggleStatebuttons').onclick = ()=> document.body.classList.toggle('emulation')
     $('#add-mud-button').onclick = ()=> {
         sectionTracker.setValue(SectionState.Storage)
-        storagecontrol.addMud()
+        return storagecontrol.addMud()
     }
     $('#mud-command').onkeydown = evt=> {
-        if (evt.key == 'Enter') {
-            mudcontrol.command($('#mud-command').value)
+        if (evt.key === 'Enter') {
+            mudcontrol.executeCommand($('#mud-command').value)
             $('#mud-command').value = ''
         }
     }
@@ -524,10 +539,19 @@ export function start() {
     }
     $('#connect').onclick = evt=> {
         try {
-            mudproto.peer.joinSession($('#toHostID').value)
+            mudproto.joinSession($('#toHostID').value)
         } catch (err) {
             alert('Problem joining: ' + err.message)
         }
+    }
+    $('#mud-stop-hosting').onclick = mudproto.reset
+    $('#mud-select-relay').onclick = ()=> {
+        roleTracker.setValue(RoleState.Relay)
+        sectionTracker.setValue(SectionState.Connection)
+    }
+    $('#mud-select-join').onclick = ()=> {
+        roleTracker.setValue(RoleState.Guest)
+        sectionTracker.setValue(SectionState.Connection)
     }
     showMuds()
 }

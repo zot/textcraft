@@ -5,7 +5,9 @@ namespace proto {
     export type ConID = number
 
     export declare var relayErrors: any
+    export declare var errors: any
 
+    export declare function connect(peerID: string, protocol: string, frames: boolean)
     export declare function listen(protocol: string, frames: boolean)
     export declare function close(conID: number, callback?: ()=>void)
     export declare function stop(protocol: string, retainConnections: boolean)
@@ -19,7 +21,7 @@ namespace proto {
     export interface P2pHandler {
         hello(running: boolean)
         ident(status, peerID, addresses: string[], peerKey)
-        listenerConnection(conID, peerID, prot)
+        listenerConnection(conID: ConID, peerID: PeerID, protocol: string)
         connectionClosed(conID, msg)
         data(conID, data, obj)        // obj is optionally a JSON obj
         listenRefused(protocol)
@@ -38,7 +40,7 @@ namespace proto {
         constructor(delegate: H)
         hello(running: boolean)
         ident(status, peerID, addresses, peerKey)
-        listenerConnection(conID, peerID, prot)
+        listenerConnection(conID: ConID, peerID: PeerID, protocol: string)
         connectionClosed(conID, msg)
         data(conID, data, obj)        // obj is optionally a JSON obj
         listenRefused(protocol)

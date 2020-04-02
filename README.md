@@ -46,14 +46,19 @@ npm install -g typescript
 Run this in one terminal to compile as you edit -- note that we are using `--target esnext`
 
 ```shell
-cd html/js
-tsc --sourceMap --target esnext -w *.ts
+tsc -w
+```
+
+# USE TSLINT!!!
+in another terminal, run this every now and then and *certainly* before pushing to a shared branch
+```shell
+tslint -p tsconfig.json
 ```
 
 Run this in another terminal to serve up the web page -- we use modules so file:/// won't work :(. This will run the server on port 8888. You can change it with the -port option.
 
 ```shell
-libp2p-websocket -files html -browse textcraft.html
+textcraft
 ```
 
 # Things to look out for with async functions with database operations

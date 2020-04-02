@@ -4,7 +4,7 @@ import * as Mudproto from "./mudproto.js";
 import * as App from "./app.js";
 import * as StorageControl from "./storagecontrol.js";
 import * as MudControl from "./mudcontrol.js";
-var app = {
+const app = {
     Model,
     Gui,
     Mudproto,
@@ -12,8 +12,7 @@ var app = {
     StorageControl,
     MudControl,
 };
-//for (let mod of [Gui, Mudproto, App, Model, StorageControl]) {
-for (let mod of Object.values(app)) {
+for (const mod of Object.values(app)) {
     mod.init(app);
 }
 async function start() {

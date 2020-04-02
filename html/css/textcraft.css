@@ -113,6 +113,10 @@ body:not(.hostingdirectlyPeer) .when-peer-hostingdirectly,
 body:not(.connectedtorelayforhostingPeer) .when-peer-connectedtorelayforhosting,
 body:not(.connectedtorelayforconnectionPeer) .when-peer-connectedtorelayforconnection,
 body.disconnectedPeer .when-not-peer-disconnected,
+body.connectedtohostPeer .when-not-peer-connected,
+body.hostingdirectlyPeer .when-not-peer-connected,
+body.connectedtorelayforconnectionPeer .when-not-peer-connected,
+body.connectedtorelayforhostingPeer .when-not-peer-connected,
 /* relay */
 body:not(.idleRelay) .when-relay-idle,
 body:not(.pendinghostingRelay) .when-relay-pendinghosting,
@@ -250,6 +254,11 @@ body:not(.emulation) #toggleStateButtons {
     display: flex;
     align-items: center;
 }
+.fright {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+}
 .fzero {
     flex-basis: 0;
 }
@@ -359,4 +368,21 @@ body:not(.emulation) #toggleStateButtons {
 }
 .fspread {
     justify-content: space-between;
+}
+.mud-row {
+    display: grid;
+    grid: auto / minmax(0, 1fr);
+    grid-auto-columns: auto;
+    grid-auto-flow: column;
+}
+
+#mud-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#mud-info {
+    display: grid;
+    grid: auto / auto minmax(0, 1fr);
+    grid-auto-columns: auto;
+    grid-auto-flow: column;
 }
