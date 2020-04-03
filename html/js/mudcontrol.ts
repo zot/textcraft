@@ -691,7 +691,7 @@ export class MudConnection {
         const text = escape(dropArgs(2, cmdInfo))
 
         if (!thing) return this.errorNoThing(thingStr)
-        connectionMap.get(thing)?.output(`${this.formantName(this.thing)} whispers, "${text}", to you`)
+        connectionMap.get(thing)?.output(`${this.formatName(this.thing)} whispers, "${text}", to you`)
         this.output(`You whisper, "${text}", to ${this.formatName(thing)}`)
     }
     // COMMAND
