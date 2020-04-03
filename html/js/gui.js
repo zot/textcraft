@@ -1,4 +1,4 @@
-import { RoleState, SectionState, PeerState, MudState, natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, mudTracker, } from "./base.js";
+import { RoleState, RelayState, SectionState, PeerState, MudState, natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, mudTracker, } from "./base.js";
 import * as model from './model.js';
 import * as mudcontrol from './mudcontrol.js';
 import * as storagecontrol from './storagecontrol.js';
@@ -443,6 +443,14 @@ function showMudState() {
         $('#mud-command').setAttribute('disabled', true);
     }
 }
+function showRelayState(state) {
+    if (state === RelayState.PendingHosting || state === RelayState.Hosting) {
+        $('#relayConnectString').value = mudproto.peer.relaySessionID();
+    }
+}
+export function error(msg) {
+    alert(`ERROR: ${msg}`);
+}
 export function start() {
     radioTracker(natTracker, 'Nat');
     radioTracker(peerTracker, 'Peer');
@@ -458,6 +466,7 @@ export function start() {
     sectionTracker.setValue(SectionState.Storage);
     peerTracker.observe(showPeerState);
     mudTracker.observe(showMudState);
+    relayTracker.observe(showRelayState);
     $('#user').onblur = () => setUser($('#user').value);
     $('#user').onkeydown = evt => {
         if (evt.key === 'Enter') {

@@ -11,33 +11,6 @@ const usersSuffix = ' users'
 
 export type thingId = number
 
-const spec2ThingProps = new Map([
-    ['id', '_id'],
-    ['prototype', '_prototype'],
-    ['article', '_article'],
-    ['name', '_name'],
-    ['fullName', '_fullName'],
-    ['description', '_description'],
-    ['count', '_count'],
-    ['location', '_location'],
-    ['linkOwner', '_linkOwner'],
-    ['otherLink', '_otherLink'],
-    ['open', '_open'],
-])
-
-const thing2SpecProps = new Map([
-    ['_id', 'id'],
-    ['_prototype', 'prototype'],
-    ['_article', 'article'],
-    ['_name', 'name'],
-    ['_fullName', 'fullName'],
-    ['_description', 'description'],
-    ['_count', 'count'],
-    ['_location', 'location'],
-    ['_linkOwner', 'linkOwner'],
-    ['_otherLink', 'otherLink'],
-])
-
 /*
  * ## The Thing class
  *
@@ -69,7 +42,6 @@ export class Thing {
     _linkMoveFormat: string     // shown to someone when they move through a link
     _linkEnterFormat: string    // shown to occupants when someone enters through the link
     _linkExitFormat: string     // shown to occupants when someone leaves through the link
-    _count: number
     _location: thingId          // if this thing has a location, it is in its location's contents
     _linkOwner: thingId         // the owner of this link (if this is a link)
     _otherLink: thingId         // the other link (if this is a link)
@@ -78,7 +50,7 @@ export class Thing {
     _lockPassFormat: string
     _lockFailFormat: string
     _closed: boolean            // closed objects do not propagate descriptons to their locations
-    _vendor: boolean            // produces a copy of things in its contents
+    _template: boolean          // move commands produce a deep copy of this
     world: World
 
     constructor(id: number, name: string, description?) {
@@ -92,8 +64,6 @@ export class Thing {
     get id() {return this._id}
     get article() {return this._article}
     set article(a: string) {this._article = a}
-    get count() {return this._count}
-    set count(n: number) {this._count = n}
     get name() {return this._name}
     set name(n: string) {this.markDirty(this._name = n)}
     get fullName() {return this._fullName}
@@ -246,7 +216,7 @@ export class World {
                     thingProto.examineFormat = 'Exits: $links<br>Contents: $contents'
                     thingProto.linkFormat = '$This leads to $link'
                     thingProto._keys = []
-                    thingProto._vendor = false
+                    thingProto._template = false
                     thingProto._locked = false
                     const linkProto = await this.createThing('link', '$This to $link')
                     linkProto.markDirty(linkProto._location = this.hallOfPrototypes)
@@ -508,7 +478,6 @@ export class World {
         t.world = this
         t._location = this.limbo
         if (this.thingProto) t.setPrototype(this.thingProto)
-        t._count = 1
         this.thingCache.set(t.id, t)
         await this.doTransaction(async ()=> {
             return await this.putThing(t)

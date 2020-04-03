@@ -7,31 +7,6 @@ const userThingIndex = 'things';
 const linkOwnerIndex = 'linkOwners';
 const nameIndex = 'names';
 const usersSuffix = ' users';
-const spec2ThingProps = new Map([
-    ['id', '_id'],
-    ['prototype', '_prototype'],
-    ['article', '_article'],
-    ['name', '_name'],
-    ['fullName', '_fullName'],
-    ['description', '_description'],
-    ['count', '_count'],
-    ['location', '_location'],
-    ['linkOwner', '_linkOwner'],
-    ['otherLink', '_otherLink'],
-    ['open', '_open'],
-]);
-const thing2SpecProps = new Map([
-    ['_id', 'id'],
-    ['_prototype', 'prototype'],
-    ['_article', 'article'],
-    ['_name', 'name'],
-    ['_fullName', 'fullName'],
-    ['_description', 'description'],
-    ['_count', 'count'],
-    ['_location', 'location'],
-    ['_linkOwner', 'linkOwner'],
-    ['_otherLink', 'otherLink'],
-]);
 /*
  * ## The Thing class
  *
@@ -63,8 +38,6 @@ export class Thing {
     get id() { return this._id; }
     get article() { return this._article; }
     set article(a) { this._article = a; }
-    get count() { return this._count; }
-    set count(n) { this._count = n; }
     get name() { return this._name; }
     set name(n) { this.markDirty(this._name = n); }
     get fullName() { return this._fullName; }
@@ -199,7 +172,7 @@ export class World {
                     thingProto.examineFormat = 'Exits: $links<br>Contents: $contents';
                     thingProto.linkFormat = '$This leads to $link';
                     thingProto._keys = [];
-                    thingProto._vendor = false;
+                    thingProto._template = false;
                     thingProto._locked = false;
                     const linkProto = await this.createThing('link', '$This to $link');
                     linkProto.markDirty(linkProto._location = this.hallOfPrototypes);
@@ -452,7 +425,6 @@ export class World {
         t._location = this.limbo;
         if (this.thingProto)
             t.setPrototype(this.thingProto);
-        t._count = 1;
         this.thingCache.set(t.id, t);
         await this.doTransaction(async () => {
             return await this.putThing(t);

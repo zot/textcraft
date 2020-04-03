@@ -2,22 +2,27 @@ import protoLib from './protocol.js'
 
 namespace proto {
     export type PeerID = string
-    export type ConID = number
+    export type ConID = BigInt
 
     export declare var relayErrors: any
     export declare var errors: any
 
     export declare function connect(peerID: string, protocol: string, frames: boolean)
     export declare function listen(protocol: string, frames: boolean)
-    export declare function close(conID: number, callback?: ()=>void)
+    export declare function close(conID: ConID, callback?: ()=>void)
     export declare function stop(protocol: string, retainConnections: boolean)
     export declare function start(peerKey: string)
     export declare function startProtocol(url: string, handler: P2pHandler)
     export declare function encode_ascii85(str: string): string
     export declare function decode_ascii85(str: string): string
-    export declare function connectionError(conID: number, code: string, msg: string, isCatastrophic: boolean, extra?: any)
-    export declare function sendObject(conID: number, object: any, callback?: ()=>void)
+    export declare function connectionError(conID: ConID, code: string, msg: string, isCatastrophic: boolean, extra?: any)
+    export declare function sendObject(conID: ConID, object: any, callback?: ()=>void)
 
+    export declare class ConnectionInfo {
+        conID: ConID
+
+        constructor(conID: ConID, peerID: PeerID, protocol: string)
+    }
     export interface P2pHandler {
         hello(running: boolean)
         ident(status, peerID, addresses: string[], peerKey)
@@ -62,13 +67,20 @@ namespace proto {
     }
     export declare class CommandHandler <H extends P2pHandler> extends DelegatingHandler<H> {
         connections: any
+        commandConnections: Set<ConID>
         protocols: Set<string>
 
         constructor(delegate: H, connections: any, commands: any, delegateData: boolean, protocols: string[])
     }
-    export declare class RelayHost {
-        constructor(connections: any, handler: any, delegate: DelegatingHandler<any>, protocol: string, mainProtocol: string)
+    export declare class RelayService<H extends P2pHandler> extends CommandHandler<H> {
+        constructor(connections: any, delegate: H, relayReceiver: any, relayProtocol: string)
+        enableRelay(peerID: PeerID, protocol: string)
+        startRelay()
     }
+    export declare class RelayHost {
+        constructor(connections: any, handler: any, delegate: any, protocol: string, mainProtocol: string)
+    }
+    export declare function getInfoForPeerAndProtocol(connections, peerID: PeerID, protocol: string)
 }
 
 Object.assign(proto, protoLib) // patch library into typescript namespace, proto

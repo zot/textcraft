@@ -5,15 +5,12 @@
 //   Message sequencing: NONCE.counter
 //   Signed JSON: {json: text, signature: sig} -- text is NONCE,JSON
 //
-import { natTracker, roleTracker, peerTracker, sectionTracker, mudTracker, NatState, RoleState, PeerState, SectionState, MudState, } from './base.js';
+import { natTracker, roleTracker, peerTracker, sectionTracker, mudTracker, relayTracker, NatState, RoleState, PeerState, SectionState, MudState, RelayState, } from './base.js';
 import proto from './protocol-shim.js';
 import { promiseFor, } from './model.js';
 import * as gui from './gui.js';
 import { activeWorld, MudConnection, } from './mudcontrol.js';
 const peerDbName = 'peer';
-const textcraftProtocol = 'textcraft';
-const callbackProtocol = 'textcraft-callback';
-const relayProtocol = 'textcraft-relay';
 let app;
 export let peer;
 export function init(appObj) {
@@ -71,6 +68,13 @@ class Peer extends proto.DelegatingHandler {
             strategy.start();
         }
         sectionTracker.setValue(SectionState.Connection);
+    }
+    startRelay() {
+    }
+    relaySessionID() {
+        if (this.delegate instanceof RelayServiceStrategy) {
+            return this.delegate.relaySessionID;
+        }
     }
     joinSession(sessionID) {
         if (!sessionID) {
@@ -201,6 +205,14 @@ class HostStrategy extends Strategy {
         super();
         this.hosting = new Map();
         this.mudConnections = new Map();
+        this.mudProtocol = 'textcraft-' + randomChars();
+        this.protocols.add(this.mudProtocol);
+        this.sessionID = {
+            type: 'peerAddr',
+            peerID: peer.peerID,
+            protocol: this.mudProtocol,
+            addrs: peer.peerAddrs,
+        };
     }
     close() {
         for (const con of this.mudConnections.values()) {
@@ -237,6 +249,143 @@ class HostStrategy extends Strategy {
     // mud API message
     async command(info, { text }) {
         return this.mudConnections.get(info.peerID).command(text);
+    }
+}
+class DirectHostStrategy extends HostStrategy {
+    close() {
+        if (this.mudConnections) {
+            proto.stop(this.mudProtocol, false);
+        }
+        super.close();
+    }
+    start() {
+        peerTracker.setValue(PeerState.startingHosting);
+        proto.listen(this.mudProtocol, true);
+    }
+    // P2P API
+    listening(protocol) {
+        if (protocol === this.mudProtocol) {
+            gui.setConnectString(encodeObject(this.sessionID));
+            console.log('SessionID', decodeObject(encodeObject(this.sessionID)));
+            roleTracker.setValue(RoleState.Host);
+            peerTracker.setValue(PeerState.hostingDirectly);
+        }
+        super.listening(protocol);
+    }
+    // P2P API
+    listenerConnection(conID, peerID, protocol) {
+        if (protocol === this.mudProtocol) {
+            this.newPlayer(conID, peerID, protocol);
+        }
+        super.listenerConnection(conID, peerID, protocol);
+    }
+    // P2P API
+    connectionClosed(conID, msg) {
+        const con = this.hosting.get(conID);
+        if (con) {
+            this.hosting.delete(conID);
+            peer.removeUser(con.peerID);
+            for (const [id, hcon] of this.hosting) {
+                if (id !== conID) {
+                    this.sendObject(id, {
+                        name: 'removeUser',
+                        peerID: con.peerID,
+                    });
+                }
+            }
+            peer.showUsers();
+        }
+        super.connectionClosed(conID, msg);
+    }
+    // P2P API
+    listenerClosed(protocol) {
+        if (protocol === this.mudProtocol) {
+            peer.reset();
+        }
+        super.listenerClosed(protocol);
+    }
+}
+// This is for a private host
+class RelayedHostStrategy extends HostStrategy {
+    //    callbackRelays = new Set<number>()
+    //    callbackRelayConID: ConID
+    constructor() {
+        super();
+        this.relayAddrs = [];
+        this.nextRelayConnectionId = BigInt(-1);
+        peerTracker.setValue(PeerState.connectedToRelayForHosting);
+    }
+    useRelay(relaySessionID) {
+        const { relayID, relayAddrs, relayProtocol } = relaySessionID;
+        this.relayID = relayID;
+        this.relayAddrs = relayAddrs;
+        this.relayProtocol = relayProtocol;
+        this.sessionID.relayID = relayID;
+        this.sessionID.addrs = relayAddrs;
+        proto.connect(encodePeerId(relayID, relayAddrs), relayProtocol, true);
+    }
+    //    abortCallback() {
+    //        proto.stop(callbackProtocol, false)
+    //        proto.close(this.callbackRelayConID)
+    //        peer.reset()
+    //    }
+    // P2P API
+    peerConnection(conID, peerID, protocol) {
+        if (peerID !== this.relayID) {
+            gui.error(`Connected to unexpected host: ${peerID}, expecting relay peer: ${this.relayID}`);
+            return;
+        }
+        else if (peerTracker.value !== PeerState.connectingToRelayForHosting) {
+            gui.error(`Unexpected connction to relay service`);
+            return;
+        }
+        // connected to relay
+        proto.sendObject(conID, {
+            name: 'requestHosting',
+            protocol: this.mudProtocol,
+            sessionID: encodeObject(this.sessionID),
+        });
+        this.relayConID = conID;
+        this.delegate = new proto.RelayHost(peer.connections, this, {
+            //receiveRelay: this.receiveRelay.bind(this),
+            receiveRelayConnectionFromPeer: this.receiveRelayConnectionFromPeer.bind(this),
+            receiveRelayCallbackRequest: this.receiveRelayCallbackRequest.bind(this),
+            relayConnectionClosed: this.relayConnectionClosed.bind(this),
+        }, this.relayProtocol, this.mudProtocol);
+        this.commandConnections.add(conID);
+        this.hosting.set(conID, { conID, peerID, protocol });
+        gui.setConnectString(encodeObject(this.sessionID));
+        peerTracker.setValue(PeerState.connectedToRelayForHosting);
+        super.peerConnection(conID, peerID, protocol);
+    }
+    // P2P API
+    connectionClosed(conID, msg) {
+        if (peerTracker.value === PeerState.connectedToRelayForHosting && conID === this.relayConID) {
+            this.relayConID = null;
+            peer.reset();
+        }
+        super.connectionClosed(conID, msg);
+    }
+    // RELAY API
+    receiveRelayConnectionFromPeer(info, { peerID, protocol }) {
+        const newInfo = new proto.ConnectionInfo(--this.nextRelayConnectionId, peerID, protocol);
+        let ids = peer.connections.conIDsByPeerID.get(peerID);
+        if (!ids) {
+            ids = new Map();
+            peer.connections.conIDsByPeerID.set(peerID, ids);
+        }
+        ids.set(newInfo.conID, protocol);
+        ids.set(protocol, newInfo.conID);
+        this.listenerConnection(newInfo.conID, peerID, protocol);
+    }
+    // RELAY API
+    receiveRelayCallbackRequest(info, { peerID, protocol, callbackProtocol, token }) {
+        //connect(peerID, protocol, true);
+    }
+    // RELAY API
+    relayConnectionClosed(info, { peerID, protocol }) {
+        const newInfo = proto.getInfoForPeerAndProtocol(peer.connections, peerID, protocol);
+        newInfo && this.connectionClosed(newInfo.conID);
     }
 }
 class GuestStrategy extends Strategy {
@@ -300,88 +449,6 @@ class GuestStrategy extends Strategy {
     removeUser(info, msg) {
     }
 }
-class DirectHostStrategy extends HostStrategy {
-    close() {
-        if (this.mudConnections) {
-            proto.stop(this.protocol, false);
-        }
-        super.close();
-    }
-    start() {
-        let protocol = textcraftProtocol + '-';
-        const a = 'a'.charCodeAt(0);
-        const A = 'A'.charCodeAt(0);
-        for (let i = 0; i < 16; i++) {
-            const n = Math.round(Math.random() * 51);
-            protocol += String.fromCharCode(n < 26 ? a + n : A + n - 26);
-        }
-        this.sessionID = {
-            type: 'peerAddr',
-            peerID: this.connections.peerID,
-            protocol,
-            addrs: peer.peerAddrs
-        };
-        this.protocol = protocol;
-        this.protocols.add(protocol);
-        peerTracker.setValue(PeerState.startingHosting);
-        proto.listen(this.protocol, true);
-    }
-    // P2P API
-    listening(protocol) {
-        if (protocol === this.protocol) {
-            this.sessionID = {
-                type: 'peerAddr',
-                peerID: peer.peerID,
-                protocol: this.protocol,
-                addrs: peer.peerAddrs
-            };
-            gui.setConnectString(encodeObject(this.sessionID));
-            console.log('SessionID', decodeObject(encodeObject(this.sessionID)));
-            roleTracker.setValue(RoleState.Host);
-            peerTracker.setValue(PeerState.hostingDirectly);
-        }
-        super.listening(protocol);
-    }
-    // P2P API
-    listenerConnection(conID, peerID, protocol) {
-        if (protocol === this.protocol) {
-            this.newPlayer(conID, peerID, protocol);
-        }
-        super.listenerConnection(conID, peerID, protocol);
-    }
-    // P2P API
-    connectionClosed(conID, msg) {
-        const con = this.hosting.get(conID);
-        if (con) {
-            this.hosting.delete(conID);
-            peer.removeUser(con.peerID);
-            for (const [id, hcon] of this.hosting) {
-                if (id !== conID) {
-                    this.sendObject(id, {
-                        name: 'removeUser',
-                        peerID: con.peerID,
-                    });
-                }
-            }
-            peer.showUsers();
-        }
-        super.connectionClosed(conID, msg);
-    }
-    // P2P API
-    listenerClosed(protocol) {
-        if (protocol === this.protocol) {
-            peer.reset();
-        }
-        super.listenerClosed(protocol);
-    }
-}
-class RelayedHostStrategy extends HostStrategy {
-    abortCallback() {
-        proto.stop(callbackProtocol, false);
-        proto.close(this.callbackRelayConID);
-        peer.reset();
-    }
-}
 class DirectGuestStrategy extends GuestStrategy {
     constructor({ peerID, addrs, protocol }) {
         super(peerID, addrs, protocol);
@@ -412,31 +479,68 @@ class DirectGuestStrategy extends GuestStrategy {
         }
     }
 }
-class RelayGuestStrategy extends GuestStrategy {
+// This is for a public peer relying for a private host
+class RelayServiceStrategy extends GuestStrategy {
+    constructor() {
+        super(null, null, null);
+        this.relayProtocol = `textcraft-relay-${randomChars()}`;
+        this.delegate = new proto.RelayService(peer.connections, null, {
+            requestHosting: this.requestHosting.bind(this),
+        }, this.relayProtocol);
+        this.relaySessionID = encodeObject({
+            type: 'relayAddr',
+            relayID: peer.peerID,
+            relayProtocol: this.relayProtocol,
+            relayAddrs: peer.peerAddrs
+        });
+    }
+    relayService() { return this.delegate; }
+    start(mudHost, mudProtocol) {
+        this.mudHost = mudHost;
+        this.mudProtocol = mudProtocol;
+        this.relayService().startRelay();
+        //allow any peer to request hosting for now
+        //this.relayService().enableRelay(this.mudHost, this.mudProtocol);
+        roleTracker.setValue(RoleState.Relay);
+        relayTracker.setValue(RelayState.PendingHosting);
+    }
+    // RELAY API
+    requestHosting(info, { protocol }) {
+        // in the future, only allow hosting request from the host peer
+        this.mudHost = info.peerID;
+        this.mudProtocol = protocol;
+        this.protocols.add(protocol);
+        relayTracker.setValue(RelayState.Hosting);
+    }
+}
+// This is for a private peer connecting to a private host
+class RelayedGuestStrategy extends GuestStrategy {
     constructor(mudHost) {
         super(mudHost, null, null);
     }
 }
-class CallbackGuestStrategy extends GuestStrategy {
-    constructor(mudHost) {
-        super(mudHost, null, null);
-    }
-    // P2P API
-    listenerConnection(conID, peerID, protocol) {
-        if (protocol === callbackProtocol) { // got a callback, verify token later
-            if (peerTracker.value !== PeerState.awaitingTokenConnection || peerID !== this.callbackPeer) {
-                proto.connectionError(conID, proto.errors.badCallback, 'Unexpected callback peer', true);
-                return;
-            }
-            else if (this.abort) {
-                peer.reset();
-                return;
-            }
-            peerTracker.setValue(PeerState.awaitingToken);
-        }
-        super.listenerConnection(conID, peerID, protocol);
-    }
-}
+// This is for a public peer connecting to a private host
+//class CallbackGuestStrategy extends GuestStrategy {
+//    callbackPeer: string
+//
+//    constructor(mudHost: string, mudProtocol: string) {
+//        super()
+//    }
+//    // P2P API
+//    listenerConnection(conID: proto.ConID, peerID: proto.PeerID, protocol: string) {
+//        if (protocol === callbackProtocol) { // got a callback, verify token later
+//            if (peerTracker.value !== PeerState.awaitingTokenConnection || peerID !== this.callbackPeer) {
+//                proto.connectionError(conID, proto.errors.badCallback, 'Unexpected callback peer', true)
+//                return
+//            } else if (this.abort) {
+//                peer.reset()
+//                return
+//            }
+//            peerTracker.setValue(PeerState.awaitingToken)
+//        }
+//        super.listenerConnection(conID, peerID, protocol)
+//    }
+//}
 function encodePeerId(peerID, addrs) {
     return '/addrs/' + proto.encode_ascii85(JSON.stringify({ peerID, addrs }));
 }
@@ -450,6 +554,16 @@ function decodeObject(str) {
     catch (err) {
         return null;
     }
+}
+function randomChars(count = 16) {
+    const a = 'a'.charCodeAt(0);
+    const A = 'A'.charCodeAt(0);
+    let chars = '';
+    while (--count) {
+        const n = Math.round(Math.random() * 51);
+        chars += String.fromCharCode(n < 26 ? a + n : A + n - 26);
+    }
+    return chars;
 }
 export function start(storage) {
     peer = new Peer(storage);

@@ -30,8 +30,7 @@ const properties = [
     'otherLink',
 ];
 const lowercaseProperties = properties.map(p => p.toLowerCase());
-const setHelp = [
-    'thing property value', `Set one of these properties on a thing:
+const setHelp = ['thing property value', `Set one of these properties on a thing:
   prototype   -- see the @info command
   article     -- the article for a thing's name
   name        -- the thing's fullName (the name will be set to the first word)
@@ -39,16 +38,29 @@ const setHelp = [
   location    -- move the thing to another location
   linkowner   -- set the thing's linkOwner
   otherlink   -- set the thing's otherLink
-  description -- the thing's description, you can use the following format words in a description
-                 (if you capitalize a format word, the substitution will be capitalized):
-     \$is       -- is or are, depending on the thing's count (does not capitalize)
-     \$s        -- optional s, if count is 1 (like run$s, does not capitalize)
-     \$this     -- the thing
-     \$links    -- the thing's links
-     \$contents -- the thing's contents
-     \$location -- the thing's location
-     \$owner    -- the link's owner when the thing acts as a link
-     \$link     -- the link's destination when the thing acts as a link
+  description -- the thing's description, you can use format words in a description (see format words).
+                 If you capitalize a format word, the substitution will be capitalized.
+
+  Here are the fields you can set:
+    name            -- simple one-word name for this object, for commands to find it
+    fullName        -- the formatted name
+    article         -- precedes the formatted name when this is displayed
+    description     -- shown for look/examine commands
+    examineFormat   -- describes an item's contents and links
+    contentsFormat  -- describes an item in contents
+    linkFormat      -- decribes how this item links to its other link
+    linkMoveFormat  -- shown to someone when they move through a link
+    linkEnterFormat -- shown to occupants when someone enters through the link
+    linkExitFormat  -- shown to occupants when someone leaves through the link
+    location        -- if this thing has a location, it is in its location's contents
+    linkOwner       -- the owner of this link (if this is a link)
+    otherLink       -- the other link (if this is a link)
+    keys[]          -- locks that this thing allows opening
+    locked          -- whether this link is locked
+    lockPassFormat  -- message to show when someone passes through a locked link
+    lockFailFormat  -- message to show when someone fails to pass through a locked link
+    closed          -- whether this object propagates descriptons to its location
+    template        -- whether to copy this object during a move command
 `
 ];
 class Command {
@@ -163,7 +175,7 @@ export class MudConnection {
         this.created = [];
     }
     async close() {
-        this.thing.setLocation(this.thing.world.limbo);
+        this.thing?.setLocation(this.thing.world.limbo);
         connectionMap.delete(this.thing);
         this.world = null;
         this.user = null;
@@ -244,11 +256,11 @@ export class MudConnection {
                         continue;
                     }
                     case 'is': {
-                        result += thing && (thing.count !== 1 || thing === this.thing) ? 'are' : 'is';
+                        result += thing && thing === this.thing ? 'are' : 'is';
                         continue;
                     }
                     case 's': {
-                        if (!thing || thing.count === 1) {
+                        if (!thing || thing !== this.thing) {
                             result += (result.match(/\sgo$/) ? 'es' : 's');
                         }
                         continue;
@@ -628,7 +640,7 @@ export class MudConnection {
         const text = escape(dropArgs(2, cmdInfo));
         if (!thing)
             return this.errorNoThing(thingStr);
-        connectionMap.get(thing)?.output(`whispers, "${text}", to you`);
+        connectionMap.get(thing)?.output(`${this.formantName(this.thing)} whispers, "${text}", to you`);
         this.output(`You whisper, "${text}", to ${this.formatName(thing)}`);
     }
     // COMMAND
@@ -916,6 +928,9 @@ Prototypes:
         if (!this.thing) {
             cmds = ['help', 'login'];
         }
+        if (cmd && cmds.indexOf(cmd) === -1) {
+            return this.error(`Command not found: ${cmd}`);
+        }
         for (const name of cmds) {
             const help = commands.get(name).help;
             for (let i = 0; i < help.length; i += 2) {
@@ -927,31 +942,56 @@ Prototypes:
             const command = commands.get(name);
             if (command.alt)
                 continue;
-            if (command.alts) {
-                for (const alt of command.alts) {
-                    if (result)
-                        result += '\n';
-                    result += `<b>${alt.name} ${alt.help[0]}</b>`;
-                }
-            }
-            for (let i = 0; i < command.help.length; i += 2) {
-                const args = name + ' ' + command.help[i];
-                if (result)
-                    result += '\n';
-                result += `<b>${args}</b>`;
-                if (command.help[i + 1]) {
-                    result += indent(argLen - args.length, '') + '  --  ' + command.help[i + 1];
-                }
-            }
+            if (result)
+                result += '\n';
+            result += helpText(argLen, command);
         }
         this.output('<pre>' + result + `
 
 You can use <b>me</b> for yourself, <b>here</b> for your location, and <b>out</b> for your location's location (if you're in a container)${this.admin ? `
-You can use %lobby, %limbo, and %protos for the standard rooms
-You can use %proto:name for a prototype
-You can use %NUMBER for an object by its ID (try <b>@dump me</b> for an example)
-You can use %-N for an item you created recently (%-1 is the last item, %-2 is the next to last, etc.)` : ''}</pre>`);
+You can use <b>%lobby</b>, <b>%limbo</b>, and <b>%protos</b> for the standard rooms
+You can use <b>%proto:name</b> for a prototype
+You can use <b>%NUMBER</b> for an object by its ID (try <b>@dump me</b> for an example)
+You can use <b>%-NUMBER</b> for an item you created recently (<b>%-1</b> is the last item, <b>%-2</b> is the next to last, etc.)
+
+To make something into a prototype, move it to <b>%protos</b>
+
+Format words:
+  <b>\$this</b>      -- formatted string for this object or "you" if the user is the thing
+  <b>\$name</b>      -- this object\'s name
+  <b>\$is</b>        -- is or are, depending on the plurality of the thing
+  <b>\$s</b>         -- optional "s" depending on the plurality of the thing (or "es" if it\'s after go)
+  <b>\$location</b>  -- the thing\'s location
+  <b>\$owner</b>     -- the link\'s owner (if this is a link)
+  <b>\$link</b>      -- the link\'s destination (if this is a link)
+  <b>\$contents</b>  -- the things\'s contents
+  <b>\$links</b>     -- the things\'s links
+  <b>\$forme</b>     -- following content is for messages shown to a command\'s actor
+  <b>\$forothers</b> -- following content is for messages shown to observers of a command\'s actor
+  <b>\$arg</b>       -- first argument (if there is one)
+  <b>\$argN</b>      -- Nth argument (if there is one)
+` : ''}</pre>`);
     }
+}
+function helpText(argLen, command) {
+    let result = '';
+    if (command.alts) {
+        for (const alt of command.alts) {
+            if (result)
+                result += '\n';
+            result += `<b>${alt.name} ${alt.help[0]}</b>`;
+        }
+    }
+    for (let i = 0; i < command.help.length; i += 2) {
+        const args = command.name + ' ' + command.help[i];
+        if (result)
+            result += '\n';
+        result += `<b>${args}</b>`;
+        if (command.help[i + 1]) {
+            result += indent(argLen - args.length, '') + '  --  ' + command.help[i + 1];
+        }
+    }
+    return result;
 }
 function indent(spaceCount, str) {
     let spaces = '';

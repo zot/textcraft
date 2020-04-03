@@ -492,6 +492,16 @@ function showMudState() {
     }
 }
 
+function showRelayState(state) {
+    if (state === RelayState.PendingHosting || state === RelayState.Hosting) {
+        $('#relayConnectString').value = mudproto.peer.relaySessionID()
+    }
+}
+
+export function error(msg: string) {
+    alert(`ERROR: ${msg}`)
+}
+
 export function start() {
     radioTracker(natTracker, 'Nat')
     radioTracker(peerTracker, 'Peer')
@@ -507,6 +517,7 @@ export function start() {
     sectionTracker.setValue(SectionState.Storage)
     peerTracker.observe(showPeerState)
     mudTracker.observe(showMudState)
+    relayTracker.observe(showRelayState)
     $('#user').onblur = ()=> setUser($('#user').value)
     $('#user').onkeydown = evt=> {
         if (evt.key === 'Enter') {
