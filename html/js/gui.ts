@@ -447,6 +447,7 @@ export function showUsers(userMap: Map<string, mudproto.UserInfo>) {
     const users = [...userMap.values()]
 
     users.sort((a, b)=> a.name === b.name ? 0 : a.name < b.name ? -1 : 1)
+    $('#mud-users').innerHTML = ''
     for (const user of users) {
         const div = cloneTemplate('#mud-connected-user-item')
 
@@ -456,17 +457,28 @@ export function showUsers(userMap: Map<string, mudproto.UserInfo>) {
     }
 }
 
-function showPeerState() {
+function showPeerState(state) {
     $('#direct-connect-string').value = ''
     switch (peerTracker.value) {
         case PeerState.hostingDirectly:
-            $('#direct-connect-string').value = mudproto.directConnectString()
+        case PeerState.connectedToRelayForHosting:
+            $('#direct-connect-string').value = mudproto.connectString()
+            $('#direct-connect-string').select()
             break
     }
 }
 
-function showMudState() {
-    const playing = mudTracker.value === MudState.Playing
+function showRoleState(state: RoleState) {
+    if (state === RoleState.Guest || state === RoleState.Host) {
+        $('#mud-section').classList.add('show-users')
+        sectionTracker.setValue(SectionState.Mud)
+    } else {
+        $('#mud-section').classList.remove('show-users')
+    }
+}
+
+function showMudState(state: MudState) {
+    const playing = state === MudState.Playing
     const mudTabButton = $('#mudSection')
     const mudTab = mudTabButton.closest('.tab')
 
@@ -493,8 +505,18 @@ function showMudState() {
 }
 
 function showRelayState(state) {
+    if (state === RelayState.PendingHosting) {
+        sectionTracker.setValue(SectionState.Connection)
+    }
     if (state === RelayState.PendingHosting || state === RelayState.Hosting) {
-        $('#relayConnectString').value = mudproto.peer.relaySessionID()
+        $('#relayConnectString').value = mudproto.relayConnectString()
+        $('#relayConnectString').select()
+        $('#relayConnectString').onclick = evt=> {
+            setTimeout(()=> {
+                evt.target.select()
+                evt.target.focus()
+            }, 1)
+        }
     }
 }
 
@@ -518,6 +540,7 @@ export function start() {
     peerTracker.observe(showPeerState)
     mudTracker.observe(showMudState)
     relayTracker.observe(showRelayState)
+    roleTracker.observe(showRoleState)
     $('#user').onblur = ()=> setUser($('#user').value)
     $('#user').onkeydown = evt=> {
         if (evt.key === 'Enter') {
@@ -540,7 +563,10 @@ export function start() {
     $('#mud-host').onclick = ()=> {
         mudproto.startHosting()
     }
-    $('#mud-quit').onclick = mudcontrol.quit
+    $('#mud-quit').onclick = ()=> {
+        mudproto.reset()
+        mudcontrol.quit()
+    }
     $('#mud-users-toggle').onclick = ()=> $('#mud-section').classList.toggle('show-users')
     $('#direct-connect-string').onclick = evt=> {
         setTimeout(()=> {
@@ -556,13 +582,22 @@ export function start() {
         }
     }
     $('#mud-stop-hosting').onclick = mudproto.reset
+    $('#mud-stop-relay').onclick = mudproto.reset
     $('#mud-select-relay').onclick = ()=> {
         roleTracker.setValue(RoleState.Relay)
         sectionTracker.setValue(SectionState.Connection)
+        mudproto.startRelay()
     }
     $('#mud-select-join').onclick = ()=> {
         roleTracker.setValue(RoleState.Guest)
         sectionTracker.setValue(SectionState.Connection)
+    }
+    $('#mud-request-relay').onclick = ()=> {
+        roleTracker.setValue(RoleState.Host)
+        sectionTracker.setValue(SectionState.Connection)
+    }
+    $('#host-with-relay').onclick = ()=> {
+        mudproto.hostViaRelay($('#hosting-relay-connect-string').value)
     }
     showMuds()
 }

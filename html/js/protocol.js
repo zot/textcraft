@@ -481,23 +481,6 @@ class TrackingHandler extends DelegatingHandler {
         this.connections.listeningTo.add(protocol);
         super.listening(protocol);
     }
-/*
-    discoveryHostConnect(conID, peerID, prot) {
-        this.connections.incomingConnections.set(conID, new ConnectionInfo(conID, peerID, prot, true));
-        super.discoveryHostConnect(conID, peerID, prot);
-    }
-    discoveryPeerConnect(conID, peerID, prot) {
-        this.connections.outgoingConnections.set(conID, prot);
-        this.connections.awaitingCallbacks.delete(prot);
-        super.discoveryPeerConnect(conID, peerID, prot);
-    }
-*/
-/*
-    discoveryAwaitingCallback(protocol) {
-        this.connections.awaitingCallbacks.add(protocol);
-        super.discoveryAwaitingCallback(protocol);
-    }
-*/
 }
 
 /* Commands the relay can receive
@@ -562,6 +545,9 @@ class RelayService extends CommandHandler {
     startRelay() {
         listen(this.relayProtocol, true);
     }
+    stopRelay() {
+        stop(this.relayProtocol)
+    }
     // P2P API
     connectionClosed(conID, msg) {
         var info = getConnectionInfo(this.connections, conID);
@@ -584,7 +570,7 @@ class RelayService extends CommandHandler {
     // RELAY CMD API
     requestHosting(info, {protocol}) {
         this.getRelayInfo(info);
-        if (this.allowedPeers != null && !this.allowedPeers.has(info.peerID)) {
+        if (this.allowedPeers && !this.allowedPeers.has(info.peerID)) {
             connectionError(info.conID, relayErrors.hostingNotAllowed, 'Not allowed to use relay', true);
         } else if (this.allowedHosts && (!this.allowedHosts.has(info.peerID) || this.allowedHosts.get(info.peerID).has(protocol))) {
             connectionError(info.conID, relayErrors.hostingNotAllowed, 'Not allowed to be a relay host for '+protocol, true);
@@ -610,7 +596,7 @@ class RelayService extends CommandHandler {
     }
     // RELAY CMD API
     requestRelaying(info, {peerID, protocol}) {
-        if (this.allowedPeers != null && !this.allowedPeers.has(info.peerID)) {
+        if (this.allowedPeers && !this.allowedPeers.has(info.peerID)) {
             return connectionError(info.conID, relayErrors.hostingNotAllowed, 'Not allowed to use relay', true);
         }
         var relayPeerInfo = this.relayPeers.get(peerID);
@@ -700,7 +686,7 @@ class RelayService extends CommandHandler {
         return info;
     }
     // Allow host peerID to request relaying for protocol
-    enableRelay(peerID, protocol) {
+    enableHost(peerID, protocol) {
         if (peerID && protocol) {
             if (this.allowedHosts == null) {
                 this.allowedHosts = new Map();
@@ -713,7 +699,7 @@ class RelayService extends CommandHandler {
             prots.add(protocol);
         }
     }
-    disableRelay(peerID, protocol) {
+    disableHost(peerID, protocol) {
         if (peerID && this.allowedHosts) {
             var prots = this.allowedHosts.get(peerID);
 
@@ -726,12 +712,17 @@ class RelayService extends CommandHandler {
             }
         }
     }
-    allowPeer(peerID) {
+    enablePeer(peerID) {
         if (this.allowedPeers == null) {
             this.allowedPeers = new Set();
         }
         if (peerID) {
             this.allowedPeers.add(peerID);
+        }
+    }
+    disablePeer(peerID) {
+        if (this.allowedPeers) {
+            this.allowedPeers.delete(peerID)
         }
     }
 }

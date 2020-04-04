@@ -54,11 +54,13 @@
                     <span class='when-peer-connectedtorelayforhosting'>connectedToRelayForHosting</span>
                     <span class='when-peer-connectedtorelayforconnection'>connectedToRelayForConnection</span>
                 </span>
+                <!--
                 <span class='when-nat-public mode-label'>
                     <span class='when-relay-idle'>idleRelay</span>
                     <span class='when-relay-pendinghosting'>pendingRelay</span>
                     <span class='when-relay-hosting'>hostingRelay</span>
                 </span>
+                -->
                 <span id='modeIndicator'></span>
                 &nbsp;
                 <b>
@@ -121,14 +123,17 @@
             <div class='fcolumn fspread'>
                 <div id='mud-info'>
                     <span class='mud-title'>Playing:&nbsp;</span>
-                    <span class='when-mud-playing fgrow mud-title field fcenter'>
-                        <span id='mud-name'></span>
-                    </span>
-                    <span class='fright when-not-role-host when-peer-disconnected'>
-                        <button id='mud-select-join'>Join</button>
-                        &nbsp;
-                        <span class='when-nat-public'><button id='mud-select-relay'>Relay</button></span>
-                        &nbsp;
+                    <span id='mud-name' class='when-mud-playing fgrow mud-title'></span>
+                    <span class='fright when-not-role-host when-peer-disconnected when-not-mud-playing'>
+                        <span class='when-not-relay-active fcenter'>
+                            <button id='mud-select-join' >Join</button>
+                            &nbsp;
+                        </span>
+                        <span class='when-nat-public fcenter'>
+                            <button id='mud-select-relay' class='when-not-relay-active'>Relay</button>
+                            <button id='mud-stop-relay' class='when-relay-active'>Stop Relay</button>
+                            &nbsp;
+                        </span>
                     </span>
                     <span class='when-mud-playing fgrow mud-title field fcenter mud-row'>
                         <span class='when-peer-connectedtohost fcenter'>
@@ -140,7 +145,8 @@
                             &nbsp;
                         </span>
                         <span class='when-role-solo fcenter'>
-                            <button id='mud-host'>Host</button>
+                            <button id='mud-request-relay' class='when-nat-private'>Host</button>
+                            <button id='mud-host' class='when-nat-public'>Host</button>
                             &nbsp;
                         </span>
                         <span class='when-not-role-none fcenter'>
@@ -189,20 +195,23 @@
                         <hr>
                         <h1 class='when-peer-connectedtorelayforhosting'>Give your connect string to people you want to invite</h1>
                         <div class='field'>
-                            <span class='when-nat-private when-peer-disconnected'>Relay connect string:&nbsp;</span>
-                            <input class='when-nat-private when-peer-disconnected' id='hostingRelay' type='text' placeholder='You must use a relay because your connection is private'>
+                            <span class='when-nat-private when-peer-disconnected field fgrow'>
+                                <button id='host-with-relay'>Connect to relay</button>
+                                &nbsp;
+                                <input id='hosting-relay-connect-string' type='text' placeholder='PASTE RELAY CONNECT STRING HERE'>
+                            </span>
                             <span class='when-nat-private when-not-peer-disconnected'>Your Connect string:&nbsp;</span>
                             <input class='when-nat-private when-not-peer-disconnected' id='connectString' type='text' readonly='true'>
                             <span class='when-peer-startinghosting'>Waiting for protocol listener&nbsp;</span>
                             <span class='when-peer-hostingdirectly'>Your Connect string:&nbsp;</span>
                             <input class='when-peer-hostingdirectly' id='direct-connect-string' type='text' readonly='true'>
                         </div>
-                        <h1 class='when-nat-private'>
+                        <h1 class='when-nat-private' style='margin: 0 0.5ex'>
                             Your peer does not have public access so you must use a relay
                             <ol>
-                                <li>Copy your peer ID and send it to someone who will relay for you</li>
-                                <li>Once they relay, they will send you the relay connect string</li>
-                                <li>Paste the relay connect string above and click Host</li>
+                                <li>Ask someone to start relaying</li>
+                                <li>They will send you the relay connect string</li>
+                                <li>Paste the relay connect string above and click "Connect to relay"</li>
                             </ol>
                         </h1>
                     </div>
@@ -218,7 +227,7 @@
                                 <input class='when-not-relay-idle' id='relayConnectString' type='text' readonly='true'>
                             </div>
                         </div>
-                        <h1 class='when-relay-hosting'>
+                        <h1 class='when-relay-hosting' style='margin: 0 0.5ex'>
                             <ol>
                                 <li>Paste the private peer's id above</li>
                                 <li>Click Relay</li>

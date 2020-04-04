@@ -36,21 +36,22 @@ export class Thing {
     _fullName: string
     _article: string
     _description: string
-    _examineFormat: string      // describes an item's contents and links
-    _contentsFormat: string     // describes an item in contents
-    _linkFormat: string         // decribes how this item links to its other link
-    _linkMoveFormat: string     // shown to someone when they move through a link
-    _linkEnterFormat: string    // shown to occupants when someone enters through the link
-    _linkExitFormat: string     // shown to occupants when someone leaves through the link
-    _location: thingId          // if this thing has a location, it is in its location's contents
-    _linkOwner: thingId         // the owner of this link (if this is a link)
-    _otherLink: thingId         // the other link (if this is a link)
+    _examineFormat: string       // describes an item's contents and links
+    _contentsFormat: string      // shown when someone goes into this thing
+    _contentsEnterFormat: string // describes an item in contents
+    _linkFormat: string          // decribes how this item links to its other link
+    _linkMoveFormat: string      // shown to someone when they move through a link
+    _linkEnterFormat: string     // shown to occupants when someone enters through the link
+    _linkExitFormat: string      // shown to occupants when someone leaves through the link
+    _location: thingId           // if this thing has a location, it is in its location's contents
+    _linkOwner: thingId          // the owner of this link (if this is a link)
+    _otherLink: thingId          // the other link (if this is a link)
     _keys: thingId[]
     _locked: boolean
     _lockPassFormat: string
     _lockFailFormat: string
-    _closed: boolean            // closed objects do not propagate descriptons to their locations
-    _template: boolean          // move commands produce a deep copy of this
+    _closed: boolean             // closed objects do not propagate descriptons to their locations
+    _template: boolean           // move commands produce a deep copy of this
     world: World
 
     constructor(id: number, name: string, description?) {
@@ -175,6 +176,8 @@ export class World {
     hallOfPrototypes: thingId
     thingProto: Thing   // used by createThing()
     personProto: Thing  // used by authenticate()
+    linkProto: Thing
+    roomProto: Thing
     users: string
     nextId: number
     storage: Storage
@@ -202,43 +205,17 @@ export class World {
                 return this.doTransaction(async (store, users, txn)=> {
                     const limbo = await this.createThing('Limbo', 'You are floating in $this<br>$links<br><br>$contents')
                     this.limbo = limbo.id
-                    limbo.markDirty(limbo._location = this.limbo)
-                    limbo.article = ''
                     const lobby = await this.createThing('Lobby', 'You are in $this')
-                    lobby.markDirty(this.lobby = lobby.id)
+                    this.lobby = lobby.id
                     const protos = await this.createThing('Hall of Prototypes')
-                    protos.markDirty(this.hallOfPrototypes = protos.id)
-                    const thingProto = await this.createThing('thing', 'This is $this')
-                    this.thingProto = thingProto
-                    thingProto.markDirty(thingProto._location = this.hallOfPrototypes)
-                    thingProto.article = 'the'
-                    thingProto.contentsFormat = '$This $is here'
-                    thingProto.examineFormat = 'Exits: $links<br>Contents: $contents'
-                    thingProto.linkFormat = '$This leads to $link'
-                    thingProto._keys = []
-                    thingProto._template = false
-                    thingProto._locked = false
-                    const linkProto = await this.createThing('link', '$This to $link')
-                    linkProto.markDirty(linkProto._location = this.hallOfPrototypes)
-                    linkProto.article = '';
-                    (linkProto as any)._cmd = 'go $0'
-                    linkProto._linkEnterFormat = '$Arg1 enters $arg2'
-                    linkProto._linkMoveFormat = 'You went $name to $arg3'
-                    linkProto._linkExitFormat = '$Arg1 went $name to $arg2'
-                    linkProto._lockPassFormat = '$forme You open $this and go through to $arg2 $forothers $Arg open$s $this and go$s through to $arg2'
-                    linkProto._lockFailFormat = 'You cannot go $this because it is locked'
-                    const roomProto = await this.createThing('room', 'You are in $this')
-                    roomProto.markDirty(roomProto._location = this.hallOfPrototypes)
-                    roomProto._closed = true
-                    roomProto.setPrototype(thingProto)
-                    limbo.setPrototype(roomProto)
-                    lobby.setPrototype(roomProto)
-                    protos.setPrototype(roomProto)
-                    const personProto = await this.createThing('person', '$This $is only a dude')
-                    this.personProto = personProto
-                    personProto.markDirty(personProto._location = this.hallOfPrototypes)
-                    personProto.setPrototype(thingProto)
-                    personProto._article = ''
+                    this.hallOfPrototypes = protos.id
+                    this.thingProto = await this.createThing('thing', 'This is $this')
+                    this.linkProto = await this.createThing('link', '$This to $link')
+                    this.roomProto = await this.createThing('room', 'You are in $this')
+                    this.personProto = await this.createThing('person', '$This $is only a dude')
+                    limbo.setPrototype(this.roomProto)
+                    lobby.setPrototype(this.roomProto)
+                    protos.setPrototype(this.roomProto)
                     await this.store()
                     succeed()
                 })
@@ -261,7 +238,7 @@ export class World {
         return this.doTransaction(async (store, users, txn)=> {
             this.thingStore = store
             this.userStore = users
-            return this.useInfo(await promiseFor(store.get('info')))
+            await this.useInfo(await promiseFor(store.get('info')))
         }, true)
     }
     async useInfo(info) {
@@ -272,6 +249,45 @@ export class World {
         this.hallOfPrototypes = info.hallOfPrototypes
         this.thingProto = await this.getThing(info.thingProto)
         this.personProto = await this.getThing(info.personProto)
+        this.roomProto = (await this.getThing(info.personProto)) || await this.findPrototype('room')
+        this.linkProto = (await this.getThing(info.personProto)) || await this.findPrototype('link')
+    }
+    async findPrototype(name: string) {
+        for (const aproto of await (await this.getThing(this.hallOfPrototypes)).getContents()) {
+            if (name === aproto.name) return aproto
+        }
+    }
+    async initStdPrototypes() {
+        return this.doTransaction(async ()=> {
+            const thingProto = this.thingProto
+            const personProto = this.personProto
+            const roomProto = this.roomProto
+            const linkProto = this.linkProto
+
+            thingProto.markDirty(thingProto._location = this.hallOfPrototypes)
+            thingProto.article = 'the'
+            thingProto.contentsFormat = '$This $is here'
+            thingProto._contentsEnterFormat = '$forme You go into $this $forothers $Arg goes into $this'
+            thingProto.examineFormat = 'Exits: $links<br>Contents: $contents'
+            thingProto.linkFormat = '$This leads to $link'
+            thingProto._keys = []
+            thingProto._template = false
+            thingProto._locked = false
+            linkProto.markDirty(linkProto._location = this.hallOfPrototypes)
+            linkProto.article = '';
+            (linkProto as any)._cmd = 'go $0'
+            linkProto._linkEnterFormat = '$Arg1 enters $arg2'
+            linkProto._linkMoveFormat = 'You went $name to $arg3'
+            linkProto._linkExitFormat = '$Arg1 went $name to $arg2'
+            linkProto._lockPassFormat = '$forme You open $this and go through to $arg2 $forothers $Arg open$s $this and go$s through to $arg2'
+            linkProto._lockFailFormat = 'You cannot go $this because it is locked'
+            roomProto.markDirty(roomProto._location = this.hallOfPrototypes)
+            roomProto._closed = true
+            roomProto.setPrototype(thingProto)
+            personProto.markDirty(personProto._location = this.hallOfPrototypes)
+            personProto.setPrototype(thingProto)
+            personProto._article = ''
+        })
     }
     spec() {
         return {
@@ -569,6 +585,7 @@ export class MudStorage {
         } else {
             await world.loadInfo()
         }
+        await world.initStdPrototypes()
         this.openWorlds.set(name, world)
         return world
     }

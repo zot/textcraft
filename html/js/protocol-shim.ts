@@ -76,8 +76,13 @@ namespace proto {
         constructor(connections: any, delegate: H, relayReceiver: any, relayProtocol: string)
         enableRelay(peerID: PeerID, protocol: string)
         startRelay()
+        stopRelay()
+        enableHost(peerID: PeerID, protocol: string)
     }
-    export declare class RelayHost {
+    export declare class RelayClient {
+        addConnection(peerID: PeerID, protocol: string, incoming: boolean)
+    }
+    export declare class RelayHost extends RelayClient {
         constructor(connections: any, handler: any, delegate: any, protocol: string, mainProtocol: string)
     }
     export declare function getInfoForPeerAndProtocol(connections, peerID: PeerID, protocol: string)

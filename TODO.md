@@ -18,3 +18,11 @@
 
 # GUI Tweaks
 * convert camelCase css classes to dash-names
+
+# Approval for connections from unknown peers
+
+# Contact list -- peers and human-readable names
+
+# Back up of your peer DB
+
+# Encryption for private key -- request passwd to decrypt

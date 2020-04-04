@@ -190,21 +190,6 @@ export class Descripton {
     }
 }
 
-export class Mud {
-    world: World
-    connections: MudConnection[]
-
-    move(thing: Thing, location: Thing) {
-        thing.setLocation(location)
-    }
-    link(thing: Thing, link: Thing, otherLink: Thing) {
-        link.setLinkOwner(thing)
-        if (otherLink) {
-            link.setOtherLink(otherLink)
-        }
-    }
-}
-
 export class MudConnection {
     world: World
     user: string
@@ -213,11 +198,14 @@ export class MudConnection {
     outputHandler: (output: string)=> void
     created: Thing[]
     failed: boolean
+    remote: boolean
+    myName: string
 
-    constructor(world, outputHandler) {
+    constructor(world, outputHandler, remote = false) {
         this.world = world
         this.outputHandler = outputHandler
         this.created = []
+        this.remote = remote
     }
     async close() {
         this.thing?.setLocation(this.thing.world.limbo)
@@ -462,10 +450,14 @@ export class MudConnection {
                 return this.error('Unknown command: '+words[0])
             }
             // execute command inside a transaction so it will automatically store any dirty objects
-            this.world.doTransaction(()=> this[command.method]({command, line}, ...words.slice(1)))
+            await this.world.doTransaction(()=> this[command.method]({command, line}, ...words.slice(1)))
                 .catch(err=> this.error(err.message))
         } else {
             this.output('Unknown command: '+words[0])
+        }
+        if (this.thing?.name !== this.myName) {
+            this.myName = this.thing.name
+            mudproto.userThingChanged(this.thing)
         }
     }
     async find(name: string, start: Thing = this.thing, errTag: string = ''): Promise<Thing> {
@@ -533,13 +525,13 @@ export class MudConnection {
 
             switch (typeof curVal) {
                 case 'number':
-                    value = Number(value)
+                    if (value.match(/^[0-9]+$/)) value = Number(value)
                     break
                 case 'boolean':
                     value = value.toLowerCase() in {t: true, true: true}
                     break
                 case 'bigint':
-                    value = BigInt(value)
+                    if (value.match(/^[0-9]+$/)) value = BigInt(value)
                     break
                 default:
                     value = dropArgs(3, cmd)
@@ -558,13 +550,16 @@ export class MudConnection {
 
             this.user = user
             this.thing = thing
+            this.myName = thing.name
+            //this.myName = thing.name
             this.admin = admin
             connectionMap.set(this.thing, this)
             this.output('Connected.')
+            mudproto.userThingChanged(this.thing)
             thing.setLocation(lobby)
             await this.commandDescripton('has arrived')
             // tslint:disable-next-line:no-floating-promises
-            this.look(null, null)
+            await this.look(null, null)
         } catch (err) {
             this.error(err.message)
         }
@@ -619,29 +614,35 @@ export class MudConnection {
     async go(cmdInfo, directionStr) {
         const oldLoc = await this.thing.getLocation()
         const direction = await this.find(directionStr, this.thing, 'direction')
-        const link = direction._otherLink && await direction.getOtherLink()
         let location: Thing
 
-        if (link) {
-            location = link && await link.getLinkOwner()
-            if (!location) {
-                return this.error(`${directionStr} does not lead anywhere`)
-            }
-        }
-        if (direction._locked) {
-            if (!await this.hasKey(direction, this.thing)) {
-                return this.error(await this.format(direction, direction._lockFailFormat, this.thing, location))
-            }
-        }
-        await this.thing.setLocation(location)
-        if (direction._locked) {
-            this.output(await this.formatMe(direction, direction._lockPassFormat, this.thing, location))
-            await this.commandDescripton(await this.formatOthers(direction, direction._lockPassFormat, this.thing, oldLoc), this.thing, oldLoc)
+        if (!direction._linkOwner) {
+            await this.thing.setLocation(direction)
+            this.output(await this.formatMe(direction, direction._contentsEnterFormat, this.thing))
+            await this.commandDescripton(await this.formatOthers(direction, direction._contentsEnterFormat, this.thing), this.thing, oldLoc)
         } else {
-            this.output(await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location))
-            await this.commandDescripton(await this.format(direction, direction._linkExitFormat, this.thing, oldLoc), this.thing, oldLoc)
+            const link = direction._otherLink && await direction.getOtherLink()
+            if (link) {
+                location = link && await link.getLinkOwner()
+                if (!location) {
+                    return this.error(`${directionStr} does not lead anywhere`)
+                }
+            }
+            if (direction._locked) {
+                if (!await this.hasKey(direction, this.thing)) {
+                    return this.error(await this.format(direction, direction._lockFailFormat, this.thing, location))
+                }
+            }
+            await this.thing.setLocation(location)
+            if (direction._locked) {
+                this.output(await this.formatMe(direction, direction._lockPassFormat, this.thing, location))
+                await this.commandDescripton(await this.formatOthers(direction, direction._lockPassFormat, this.thing, oldLoc), this.thing, oldLoc)
+            } else {
+                this.output(await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location))
+                await this.commandDescripton(await this.format(direction, direction._linkExitFormat, this.thing, oldLoc), this.thing, oldLoc)
+            }
+            await this.commandDescripton(await this.format(link, link._linkEnterFormat, this.thing, location), this.thing, location)
         }
-        await this.commandDescripton(await this.format(link, link._linkEnterFormat, this.thing, location), this.thing, location)
         await this.look(cmdInfo)
     }
     // COMMAND
@@ -1088,9 +1089,9 @@ function formatContexts(format: string): any {
         for (let i = 1; i < contexts.length; i += 2) {
             tmp[contexts[i].trim().substring(1).toLowerCase()] = contexts[i + 1]
         }
-        return {me: tmp.forme, others: tmp.forothers}
+        return {me: tmp.forme || tmp.forothers, others: tmp.forothers || tmp.forme}
     }
-    return {others: contexts[0]}
+    return {others: contexts[0], me: contexts[0]}
 }
 
 ////
@@ -1122,4 +1123,16 @@ export function quit() {
     // tslint:disable-next-line:no-floating-promises
     connection?.close()
     connection = null
+}
+
+export function removeRemotes() {
+    for (const [thing, con] of connectionMap) {
+        if (con.remote) {
+            connectionMap.delete(thing)
+        }
+    }
+}
+
+export function myThing() {
+    return connection?.thing
 }
