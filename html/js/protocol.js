@@ -1110,4 +1110,6 @@ export default {
     natStatus,
     getInfoForPeerAndProtocol,
     relayErrors,
+    utfDecoder,
+    utfEncoder,
 }

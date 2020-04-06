@@ -6,20 +6,26 @@ namespace proto {
 
     export declare var relayErrors: any
     export declare var errors: any
+    export declare var utfDecoder: TextDecoder
+    export declare var utfEncoder: TextEncoder
 
     export declare function connect(peerID: string, protocol: string, frames: boolean)
     export declare function listen(protocol: string, frames: boolean)
-    export declare function close(conID: ConID, callback?: ()=>void)
+    export declare function close(conID: ConID, callback?: () => void)
     export declare function stop(protocol: string, retainConnections: boolean)
     export declare function start(peerKey: string)
     export declare function startProtocol(url: string, handler: P2pHandler)
     export declare function encode_ascii85(str: string): string
     export declare function decode_ascii85(str: string): string
     export declare function connectionError(conID: ConID, code: string, msg: string, isCatastrophic: boolean, extra?: any)
-    export declare function sendObject(conID: ConID, object: any, callback?: ()=>void)
+    export declare function sendObject(conID: ConID, object: any, callback?: () => void)
 
     export declare class ConnectionInfo {
         conID: ConID
+        peerID: PeerID
+        protocol: string
+        incoming: boolean
+        outgoing: boolean
 
         constructor(conID: ConID, peerID: PeerID, protocol: string)
     }
@@ -65,7 +71,7 @@ namespace proto {
     export declare class LoggingHandler<H extends P2pHandler> extends DelegatingHandler<H> {
         constructor(delegate: H)
     }
-    export declare class CommandHandler <H extends P2pHandler> extends DelegatingHandler<H> {
+    export declare class CommandHandler<H extends P2pHandler> extends DelegatingHandler<H> {
         connections: any
         commandConnections: Set<ConID>
         protocols: Set<string>
@@ -85,7 +91,7 @@ namespace proto {
     export declare class RelayHost extends RelayClient {
         constructor(connections: any, handler: any, delegate: any, protocol: string, mainProtocol: string)
     }
-    export declare function getInfoForPeerAndProtocol(connections, peerID: PeerID, protocol: string)
+    export declare function getInfoForPeerAndProtocol(connections, peerID: PeerID, protocol: string): ConnectionInfo
 }
 
 Object.assign(proto, protoLib) // patch library into typescript namespace, proto

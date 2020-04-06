@@ -40,13 +40,6 @@ function $find(el, sel) {
     }
 }
 function $findAll(el, sel) {
-    let res;
-    if (typeof el === 'string') {
-        res = $all(el);
-    }
-    if (el instanceof NodeList) {
-        el = [...el];
-    }
     if (Array.isArray(el)) {
         const results = [];
         for (const node of el) {
@@ -65,7 +58,7 @@ class CssClassTracker {
     constructor(tracker, idSuffix) {
         this.tracker = tracker;
         this.idSuffix = idSuffix;
-        tracker.observe(state => {
+        tracker.observe(() => {
             for (const node of $all('#' + this.tracker.currentStateName().toLowerCase() + this.idSuffix)) {
                 node.checked = true;
             }
@@ -94,7 +87,7 @@ class RadioTracker extends CssClassTracker {
                     node.name = idSuffix + '-radio';
             }
         }
-        tracker.observe(state => {
+        tracker.observe(() => {
             for (const node of $all('#' + this.tracker.currentStateName().toLowerCase() + this.idSuffix)) {
                 node.checked = true;
             }
@@ -192,16 +185,82 @@ export function onEnter(input, action, shouldClear = false) {
         }
     };
 }
+async function uploadMudExtension(world, editor, evt, changes, ext, item) {
+    const files = evt.target.files;
+    try {
+        if (files.length) {
+            for (const file of files) {
+                const fileExt = new model.Extension({});
+                await fileExt.populate(file);
+                if (ext) {
+                    if ((await ext.getHash()) === (await fileExt.getHash()) && ext.name === fileExt.name) {
+                        return;
+                    }
+                    const oldName = ext.name;
+                    Object.assign(ext, fileExt);
+                    ext.name = oldName;
+                }
+                else {
+                    ext = fileExt;
+                }
+                changes.extensions.add(ext);
+                if (item) {
+                    populateExtensionItem(world, editor, ext, changes, item);
+                }
+                else {
+                    $find(editor, '[name=mud-extension-list]').appendChild(populateExtensionItem(world, editor, ext, changes));
+                }
+                break;
+            }
+        }
+    }
+    finally {
+        evt.target.value = null;
+    }
+}
+function populateExtensionItem(world, editor, ext, changes, item) {
+    if (!item) {
+        item = cloneTemplate('#mud-extension-item');
+    }
+    $find(item, '[name=mud-extension-name]').value = ext.name;
+    $find(item, '[name=mud-extension-name]').onchange = evt => {
+        ext.name = evt.target.value;
+        changes.extensions.add(ext);
+    };
+    $find(item, '[name=mud-extension-hash]').value = ext.hash;
+    $find(item, '[name=upload-mud-extension-version]').onchange = async (evt) => {
+        await uploadMudExtension(world, editor, evt, changes, ext, item);
+    };
+    const extBlob = URL.createObjectURL(new Blob([ext.text], { type: 'text/javascript' }));
+    changes.blobsToRevoke.add(extBlob);
+    $find(item, '[name=save-mud-extension]').href = extBlob;
+    $find(item, '[name=delete-mud-extension]').onclick = () => {
+        ext.deleted = true;
+        changes.extensions.add(ext);
+        item.remove();
+    };
+    return item;
+}
+async function populateExtensions(world, editor, changes) {
+    const extensionDiv = $find(editor, '[name=mud-extension-list]');
+    extensionDiv.innerHTML = '';
+    for (const ext of await world.getExtensions()) {
+        extensionDiv.appendChild(populateExtensionItem(world, editor, ext, changes));
+    }
+}
 export async function editWorld(world) {
     let processUsers = false;
     let deleted = false;
     const div = cloneTemplate('#mud-editor-template');
     const nameField = $find(div, '[name="mud-name"]');
     const userList = $find(div, '[name=mud-user-list]');
-    let blobToRevoke = null;
+    const changes = {
+        blobsToRevoke: new Set(),
+        extensions: new Set(),
+    };
     const success = async () => {
         const name = nameField.value;
-        if (blobToRevoke) {
+        for (const blobToRevoke of changes.blobsToRevoke) {
             URL.revokeObjectURL(blobToRevoke);
         }
         if (deleted) {
@@ -238,11 +297,27 @@ export async function editWorld(world) {
             }
             await world.replaceUsers(newUsers);
         }
+        for (const ext of changes.extensions) {
+            if (ext.deleted) {
+                await world.removeExtension(ext.id);
+            }
+            else {
+                ext.id = await world.addExtension(ext);
+            }
+        }
+        if (changes.extensions.size) {
+            world.close();
+        }
+        changes.extensions.clear();
     };
     for (const user of await world.getAllUsers()) {
         const itemDiv = userItem(user, () => processUsers = true);
         userList.appendChild(itemDiv);
     }
+    await populateExtensions(world, div, changes);
+    $find(div, '[name=upload-mud-extension]').onchange = async (evt) => {
+        await uploadMudExtension(world, div, evt, changes);
+    };
     $find(div, '[name=mud-add-user]').onclick = async (evt) => {
         console.log('burp');
         evt.stopPropagation();
@@ -265,7 +340,7 @@ export async function editWorld(world) {
         const link = $find(div, '[name=download-mud-link]');
         link.textContent = "Preparing download...";
         const blob = await model.storage.fullBlobForWorld(world.name);
-        blobToRevoke = link.href = URL.createObjectURL(blob);
+        changes.blobsToRevoke.add(link.href = URL.createObjectURL(blob));
         link.setAttribute('download', world.name + '.yaml');
         link.textContent = 'Click to download ' + world.name + '.yaml';
     };
@@ -279,7 +354,7 @@ export async function editWorld(world) {
         await success();
     }
     catch (err) { // revoke URL on cancel
-        if (blobToRevoke) {
+        for (const blobToRevoke of changes.blobsToRevoke) {
             URL.revokeObjectURL(blobToRevoke);
         }
     }
@@ -309,6 +384,12 @@ export function okCancel(div, okSel, cancelSel, focusSel) {
         $find(div, focusSel)?.focus();
     }, 1);
     return new Promise((succeed, fail) => {
+        div.onclick = evt => {
+            if (evt.target === div) {
+                div.remove();
+                fail();
+            }
+        };
         $find(div, okSel).onclick = () => {
             div.remove();
             succeed();
@@ -509,6 +590,7 @@ export function start() {
     };
     $('#upload-mud').onchange = uploadMud;
     $('#upload-mud').onclick = () => sectionTracker.setValue(SectionState.Storage);
+    //$('#upload-mud-extension').onchange = uploadMudExtension
     $('#mud-host').onclick = () => {
         mudproto.startHosting();
     };

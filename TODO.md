@@ -1,14 +1,18 @@
-# extensions -- allow people to hack Textcraft without needing a new exe
-* peer extensions run automatically but can be disabled with a URL parameter (added via -safe arg)
-* mud extensions (stored in each mud and not activated until mud is run)
+# copying objects (thing + contents + links + linked things)
+* _template flag to autocopy during move
+* @copy command
+
+# auto-login user for activating muds
+
+# after nat acquired, check textcraft.org for updates
+* send current and latest version numbers in ident() message
+* provide peerID when checking for updates
 
 # use JSON for commands (or encode it) so we can put exits in the GUI
 
 # object editor
 
 # users panel should show download requests, allow admin up/downgrades
-
-# _template flag and @copy command
 
 # Sign messages so relaying is safe
 * (peer docs)[https://godoc.org/github.com/libp2p/go-libp2p-core/peer]

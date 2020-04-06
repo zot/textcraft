@@ -165,7 +165,7 @@ class Peer extends proto.DelegatingHandler<Strategy> {
         gui.showUsers(map)
     }
     start() {
-        const url = "ws://"+document.location.host+"/";
+        const url = "ws://" + document.location.host + "/";
 
         console.log("STARTING MUDPROTO");
         proto.startProtocol(url + "libp2p", new proto.LoggingHandler<any>(this.trackingHandler));
@@ -173,23 +173,23 @@ class Peer extends proto.DelegatingHandler<Strategy> {
     db() {
         return this.storage.db
     }
-    doTransaction(func: (db: IDBObjectStore)=>void) {
+    doTransaction(func: (db: IDBObjectStore) => void) {
         if (this.peerDb) {
             return Promise.resolve(func(this.peerDb))
         } else {
-            return new Promise((succeed, fail)=> {
+            return new Promise((succeed, fail) => {
                 const txn = this.db().transaction([peerDbName], 'readwrite')
 
                 this.peerDb = txn.objectStore(peerDbName)
-                txn.oncomplete = ()=> {
+                txn.oncomplete = () => {
                     this.peerDb = null
                     succeed()
                 }
-                txn.onabort = ()=> {
+                txn.onabort = () => {
                     this.peerDb = null
                     fail()
                 }
-                txn.onerror = ()=> {
+                txn.onerror = () => {
                     this.peerDb = null
                     fail()
                 }
@@ -197,15 +197,15 @@ class Peer extends proto.DelegatingHandler<Strategy> {
         }
     }
     createPeerDb() {
-        return new Promise((succeed, fail)=> {
-            const req = this.storage.upgrade(()=> {
-                return this.doTransaction((peerDb)=> {
+        return new Promise((succeed, fail) => {
+            const req = this.storage.upgrade(() => {
+                return this.doTransaction((peerDb) => {
                     this.store()
                 })
             })
 
-            req.onupgradeneeded = ()=> {
-                req.transaction.db.createObjectStore(peerDbName, {keyPath: 'id'})
+            req.onupgradeneeded = () => {
+                req.transaction.db.createObjectStore(peerDbName, { keyPath: 'id' })
             }
             req.onerror = fail
         })
@@ -266,7 +266,7 @@ class Peer extends proto.DelegatingHandler<Strategy> {
         console.log('IDENT: ', peerID, ' ', status)
         this.peerAddrs = addresses;
         this.reset();
-        await this.doTransaction(()=> this.store())
+        await this.doTransaction(() => this.store())
         super.ident(status, peerID, addresses, peerKey)
     }
 }
@@ -280,7 +280,7 @@ class Strategy extends proto.CommandHandler<any> {
     sendObject(conID: proto.ConID, obj: any) {
         proto.sendObject(conID, obj);
     }
-    close() {}
+    close() { }
     sendCommand(text: string) {
         throw new Error(`This connection cannot send commands`)
     }
@@ -333,10 +333,10 @@ class HostStrategy extends Strategy {
         }
 
         for (const [pid, con] of this.mudConnections) {
-            const conID = proto.getInfoForPeerAndProtocol(peer.connections, pid, this.mudProtocol)
+            const info = proto.getInfoForPeerAndProtocol(peer.connections, pid, this.mudProtocol)
 
-            if (conID !== undefined) {
-                this.sendObject(conID, cmd)
+            if (info !== undefined) {
+                this.sendObject(info.conID, cmd)
             }
         }
         return cmd
@@ -348,19 +348,19 @@ class HostStrategy extends Strategy {
     }
     async newPlayer(conID: proto.ConID, peerID: proto.PeerID, protocol: string) {
         const users = []
-        const mudcon = new MudConnection(activeWorld, text=> this.sendObject(conID, {
+        const mudcon = new MudConnection(activeWorld, text => this.sendObject(conID, {
             name: 'output',
             hostID: peer.peerID,
             text,
         }), true)
 
-        console.log("Got connection "+conID+" for protocol "+protocol+" from peer "+peerID)
-        this.hosting.set(conID, {conID, peerID, protocol})
+        console.log("Got connection " + conID + " for protocol " + protocol + " from peer " + peerID)
+        this.hosting.set(conID, { conID, peerID, protocol })
         for (const [pid, con] of this.mudConnections) {
-            users.push({peerID: pid, user: con.thing.name})
+            users.push({ peerID: pid, user: con.thing.name })
         }
-        if (myThing()) users.push({peerID: peer.peerID, user: myThing().name})
-        this.sendObject(conID, {name: 'welcome', users})
+        if (myThing()) users.push({ peerID: peer.peerID, user: myThing().name })
+        this.sendObject(conID, { name: 'welcome', users })
         this.mudConnections.set(peerID, mudcon)
         // tslint:disable-next-line:no-floating-promises
         await mudcon.doLogin(peerID, null, true)
@@ -368,7 +368,7 @@ class HostStrategy extends Strategy {
         this.userChanged(peerID)
     }
     // mud API message
-    async command(info, {text}) {
+    async command(info, { text }) {
         return this.mudConnections.get(info.peerID).command(text)
     }
 }
@@ -438,15 +438,15 @@ class RelayedHostStrategy extends HostStrategy {
     relayAddrs: string[] = []
     nextRelayConnectionId = BigInt(-1)
     relayConID: proto.ConID
-//    callbackRelays = new Set<number>()
-//    callbackRelayConID: ConID
+    //    callbackRelays = new Set<number>()
+    //    callbackRelayConID: ConID
 
     constructor() {
         super()
         peerTracker.setValue(PeerState.connectedToRelayForHosting)
     }
     useRelay(relaySessionID: any) {
-        const {relayID, relayAddrs, relayProtocol} = relaySessionID
+        const { relayID, relayAddrs, relayProtocol } = relaySessionID
 
         this.relayID = relayID
         this.relayAddrs = relayAddrs
@@ -456,7 +456,7 @@ class RelayedHostStrategy extends HostStrategy {
         peerTracker.setValue(PeerState.connectingToRelayForHosting)
         proto.connect(encodePeerId(relayID, relayAddrs), relayProtocol, true)
     }
-    relay() {return this.delegate as proto.RelayHost}
+    relay() { return this.delegate as proto.RelayHost }
     userChanged(peerID: proto.PeerID) {
         const cmd = super.userChanged(peerID)
 
@@ -488,7 +488,7 @@ class RelayedHostStrategy extends HostStrategy {
         }, this.relayProtocol, this.mudProtocol)
         this.commandConnections.add(conID)
         this.relay().addConnection(peerID, protocol, true)
-        this.hosting.set(conID, {conID, peerID, protocol})
+        this.hosting.set(conID, { conID, peerID, protocol })
         gui.setConnectString(encodeObject(this.sessionID))
         peerTracker.setValue(PeerState.connectedToRelayForHosting)
         roleTracker.setValue(RoleState.Host)
@@ -505,24 +505,24 @@ class RelayedHostStrategy extends HostStrategy {
         super.connectionClosed(conID, msg);
     }
     // RELAY API
-    receiveRelayConnectionFromPeer(info, {peerID, protocol}) {
-//        const newInfo = new proto.ConnectionInfo(--this.nextRelayConnectionId, peerID, protocol)
-//        let ids = peer.connections.conIDsByPeerID.get(peerID)
-//
-//        if (!ids) {
-//            ids = new Map();
-//            peer.connections.conIDsByPeerID.set(peerID, ids);
-//        }
-//        ids.set(newInfo.conID, protocol);
-//        ids.set(protocol, newInfo.conID);
-//        this.listenerConnection(newInfo.conID, peerID, protocol);
+    receiveRelayConnectionFromPeer(info, { peerID, protocol }) {
+        //        const newInfo = new proto.ConnectionInfo(--this.nextRelayConnectionId, peerID, protocol)
+        //        let ids = peer.connections.conIDsByPeerID.get(peerID)
+        //
+        //        if (!ids) {
+        //            ids = new Map();
+        //            peer.connections.conIDsByPeerID.set(peerID, ids);
+        //        }
+        //        ids.set(newInfo.conID, protocol);
+        //        ids.set(protocol, newInfo.conID);
+        //        this.listenerConnection(newInfo.conID, peerID, protocol);
     }
     // RELAY API
-    receiveRelayCallbackRequest(info, {peerID, protocol, callbackProtocol, token}) {
+    receiveRelayCallbackRequest(info, { peerID, protocol, callbackProtocol, token }) {
         //connect(peerID, protocol, true);
     }
     // RELAY API
-    relayConnectionClosed(info, {peerID, protocol}) {
+    relayConnectionClosed(info, { peerID, protocol }) {
         const newInfo = proto.getInfoForPeerAndProtocol(peer.connections, peerID, protocol)
 
         newInfo && this.connectionClosed(newInfo.conID);
@@ -542,7 +542,7 @@ class GuestStrategy extends Strategy {
         this.hostAddrs = hostAddrs
     }
     sendCommand(text: string) {
-        this.sendObject(this.mudConnection, {name: 'command', text})
+        this.sendObject(this.mudConnection, { name: 'command', text })
     }
     close() {
         if (this.mudConnection) {
@@ -577,31 +577,31 @@ class GuestStrategy extends Strategy {
         super.connectionClosed(conID, msg);
     }
     // mud API message
-    output(info, {text}) {
+    output(info, { text }) {
         gui.addMudOutput(text)
     }
     // mud API message
-    welcome(info, {users}) {
+    welcome(info, { users }) {
         peer.userMap = new Map()
-        for (const {peerID, user} of users) {
+        for (const { peerID, user } of users) {
             peer.userMap.set(peerID, new UserInfo(peerID, user))
         }
         peer.showUsers()
     }
     // mud API message
-    setUser(info, {peerID, user}) {
+    setUser(info, { peerID, user }) {
         peer.setUser(peerID, new UserInfo(peerID, user))
         peer.showUsers()
     }
     // mud API message
-    removeUser(info, {peerID}) {
+    removeUser(info, { peerID }) {
         peer.removeUser(peerID)
         peer.showUsers()
     }
 }
 
 class DirectGuestStrategy extends GuestStrategy {
-    constructor({peerID, addrs, protocol}: any) {
+    constructor({ peerID, addrs, protocol }: any) {
         super(peerID, addrs, protocol)
         this.protocols.add(protocol)
     }
@@ -615,7 +615,7 @@ class DirectGuestStrategy extends GuestStrategy {
         switch (peerTracker.value) {
             case PeerState.connectingToHost: // connected directly to host
                 if (peerID !== this.mudHost) {
-                    alert('Connected to unexpected host: '+peerID);
+                    alert('Connected to unexpected host: ' + peerID);
                 } else {
                     peerTracker.setValue(PeerState.connectedToHost);
                     roleTracker.setValue(RoleState.Guest)
@@ -650,7 +650,7 @@ class RelayServiceStrategy extends GuestStrategy {
             relayAddrs: peer.peerAddrs
         });
     }
-    relayService() {return this.delegate as proto.RelayService<any>}
+    relayService() { return this.delegate as proto.RelayService<any> }
     start() {
         this.relayService().startRelay()
         //allow any peer to request hosting for now but only enable for the first connection
@@ -663,7 +663,7 @@ class RelayServiceStrategy extends GuestStrategy {
         super.close()
     }
     // RELAY API
-    requestHosting(info, {protocol}) {
+    requestHosting(info, { protocol }) {
         if (this.mudHost && info.peerID !== this.mudHost) {
             proto.close(info.conID)
             return
@@ -691,11 +691,11 @@ class RelayedGuestStrategy extends GuestStrategy {
 }
 
 function encodePeerId(peerID, addrs) {
-    return '/addrs/'+proto.encode_ascii85(JSON.stringify({peerID, addrs}));
+    return '/addrs/' + proto.encode_ascii85(JSON.stringify({ peerID, addrs }));
 }
 
 function encodeObject(obj: any) {
-        return proto.encode_ascii85(JSON.stringify(obj));
+    return proto.encode_ascii85(JSON.stringify(obj));
 }
 
 function decodeObject(str) {
@@ -706,7 +706,7 @@ function decodeObject(str) {
     }
 }
 
-function randomChars(count = 16) {
+export function randomChars(count = 16) {
     const a = 'a'.charCodeAt(0)
     const A = 'A'.charCodeAt(0)
     let chars = ''

@@ -1,3 +1,4 @@
+import proto from './protocol-shim.js';
 export let storage;
 const jsyaml = window.jsyaml;
 const centralDbName = 'textcraft';
@@ -7,6 +8,23 @@ const userThingIndex = 'things';
 const linkOwnerIndex = 'linkOwners';
 const nameIndex = 'names';
 const usersSuffix = ' users';
+const extensionsSuffix = ' extensions';
+const extensionNameIndex = 'names';
+const extensionHashIndex = 'hashes';
+let app;
+export class Extension {
+    constructor(obj) {
+        Object.assign(this, obj);
+    }
+    async getHash() {
+        return this.hash || (this.hash = toHex(new Int8Array(await crypto.subtle.digest('sha-256', proto.utfEncoder.encode(this.text)))));
+    }
+    async populate(file) {
+        this.name = file.name;
+        this.text = await file.text();
+        return this.getHash();
+    }
+}
 /*
  * ## The Thing class
  *
@@ -100,6 +118,12 @@ export class Thing {
                 return result;
             }
         }
+        for (const item of await this.getLinks()) {
+            const result = await item.find(name, exclude);
+            if (result) {
+                return result;
+            }
+        }
         const loc = await this.getLocation();
         if (loc) {
             const result = await loc.find(name, exclude);
@@ -131,11 +155,11 @@ export class Thing {
             this['_' + prop] = spec[prop];
         }
         if (spec.prototype) {
-            const proto = await this.world.getThing(spec.prototype);
-            if (!proto) {
+            const prototype = await this.world.getThing(spec.prototype);
+            if (!prototype) {
                 throw new Error('Could not find prototype ' + spec.prototype);
             }
-            this.__proto__ = proto;
+            this.__proto__ = prototype;
         }
     }
 }
@@ -147,10 +171,14 @@ export class World {
         this.thingCache = new Map();
         this.nextId = 0;
     }
+    close() {
+        this.storage.closeWorld(this.name);
+    }
     setName(name) {
         this.name = name;
         this.storeName = mudDbName(name);
         this.users = userDbName(name);
+        this.extensionsName = extensionDbName(name);
     }
     initDb() {
         return new Promise((succeed, fail) => {
@@ -226,7 +254,7 @@ export class World {
             thingProto._locked = false;
             linkProto.markDirty(linkProto._location = this.hallOfPrototypes);
             linkProto.article = '';
-            linkProto._cmd = 'go $0';
+            linkProto._cmd = 'go $1';
             linkProto._linkEnterFormat = '$Arg1 enters $arg2';
             linkProto._linkMoveFormat = 'You went $name to $arg3';
             linkProto._linkExitFormat = '$Arg1 went $name to $arg2';
@@ -253,10 +281,10 @@ export class World {
         };
     }
     rename(newName) {
-        this.storage.renameWorld(this.name, newName);
+        return this.storage.renameWorld(this.name, newName);
     }
     delete() {
-        this.storage.deleteWorld(this.name);
+        return this.storage.deleteWorld(this.name);
     }
     db() {
         return this.storage.db;
@@ -282,6 +310,78 @@ export class World {
                 this.txn = null;
                 this.thingStore = this.userStore = null;
             });
+        }
+    }
+    async addExtension(ext) {
+        if (!this.db().objectStoreNames.contains(this.extensionsName)) {
+            await new Promise((succeed, fail) => {
+                const req = storage.upgrade(succeed);
+                req.onerror = fail;
+                req.onupgradeneeded = () => {
+                    const store = req.transaction.db.createObjectStore(this.extensionsName, { autoIncrement: true });
+                    store.createIndex(extensionNameIndex, 'name', { unique: false });
+                    store.createIndex(extensionHashIndex, 'hash', { unique: true });
+                };
+            });
+        }
+        const txn = this.db().transaction([this.extensionsName], 'readwrite');
+        const key = await txn.objectStore(this.extensionsName).put(ext, ext.id);
+        return promiseFor(txn).then(() => key);
+    }
+    async removeExtension(id) {
+        if (!this.db().objectStoreNames.contains(this.extensionsName))
+            return [];
+        const txn = this.db().transaction([this.extensionsName], 'readwrite');
+        txn.objectStore(this.extensionsName).delete(id);
+        return promiseFor(txn);
+    }
+    async getExtensions() {
+        if (!this.db().objectStoreNames.contains(this.extensionsName))
+            return [];
+        const txn = this.db().transaction([this.extensionsName], 'readwrite');
+        const extensionStore = txn.objectStore(this.extensionsName);
+        return new Promise((succeed, fail) => {
+            const result = [];
+            const req = extensionStore.openCursor();
+            req.onerror = fail;
+            req.onsuccess = evt => {
+                const cursor = evt.target.result;
+                if (cursor) {
+                    const ext = new Extension(cursor.value);
+                    ext.id = cursor.key;
+                    result.push(ext);
+                    cursor.continue();
+                }
+                else {
+                    succeed(result);
+                }
+            };
+        });
+    }
+    async evalExtension(ext) {
+        try {
+            // tslint:disable-next-line:no-eval
+            const func = eval(ext.text);
+            if (func instanceof Function) {
+                func(this, app);
+            }
+            else if (func instanceof Promise) {
+                return func.then(f => {
+                    if (f instanceof Function) {
+                        f(this, app);
+                    }
+                    else {
+                        throw new Error('Extension should be a function or Promise<Function> but it is not');
+                    }
+                });
+            }
+            else {
+                throw new Error('Extension should be a function or Promise<Function> but it is not');
+            }
+        }
+        catch (err) {
+            alert(`Error running extension ${ext.name} (see console for details): ${err.message}`);
+            console.error(err);
         }
     }
     store() {
@@ -373,6 +473,26 @@ export class World {
     async replaceUsers(newUsers) {
         await this.doTransaction(async (store, users, txn) => deleteAll(users));
         return this.doTransaction(async (store, users, txn) => Promise.all(newUsers.map(u => this.putUser(u))));
+    }
+    async replaceExtensions(newExtensions) {
+        if (!this.db().objectStoreNames.contains(this.extensionsName)) {
+            await new Promise((succeed, fail) => {
+                const req = storage.upgrade(succeed);
+                req.onerror = fail;
+                req.onupgradeneeded = () => {
+                    const store = req.transaction.db.createObjectStore(this.extensionsName, { autoIncrement: true });
+                    store.createIndex(extensionNameIndex, 'name', { unique: false });
+                    store.createIndex(extensionHashIndex, 'hash', { unique: true });
+                };
+            });
+        }
+        const txn = this.db().transaction([this.extensionsName], 'readwrite');
+        const extensions = txn.objectStore(this.extensionsName);
+        await deleteAll(extensions);
+        for (const ext of newExtensions) {
+            extensions.put(ext, ext.id);
+        }
+        return promiseFor(txn);
     }
     async replaceThings(newThings) {
         let info;
@@ -472,8 +592,8 @@ export class World {
     async getAncestors(thing, ancestors = []) {
         if (thing._prototype) {
             return this.doTransaction(async () => {
-                const proto = await thing.getPrototype();
-                await this.getAncestors(proto, ancestors);
+                const prototype = await thing.getPrototype();
+                await this.getAncestors(prototype, ancestors);
                 return ancestors;
             });
         }
@@ -507,6 +627,9 @@ export class MudStorage {
     hasWorld(name) {
         return contains([...this.worlds], name);
     }
+    closeWorld(name) {
+        this.openWorlds.delete(name);
+    }
     async openWorld(name = '') {
         if (this.openWorlds.has(name)) {
             return this.openWorlds.get(name);
@@ -525,12 +648,14 @@ export class MudStorage {
         }
         await world.initStdPrototypes();
         this.openWorlds.set(name, world);
+        for (const extension of await world.getExtensions()) {
+            await world.evalExtension(extension);
+        }
         return world;
     }
     randomWorldName() {
-        let name;
         for (;;) {
-            name = randomName('mud');
+            const name = randomName('mud');
             if (!this.hasWorld(name)) {
                 return name;
             }
@@ -617,8 +742,18 @@ export class MudStorage {
             return Promise.reject(new Error('No world found named ' + name));
         }
         return new Promise(async (succeed, fail) => {
-            const txn = this.db.transaction([mudDbName(name)]);
-            return blobForDb(await txn.objectStore(mudDbName(name)));
+            const dbs = [mudDbName(name)];
+            if (this.db.objectStoreNames.contains(extensionDbName(name))) {
+                dbs.push(extensionDbName(name));
+            }
+            const txn = this.db.transaction(dbs);
+            const result = {
+                objects: await jsonObjectsForDb(txn.objectStore(mudDbName(name))),
+            };
+            if (dbs.length === 2) {
+                result.extensions = await jsonObjectsForDb(txn.objectStore(extensionDbName(name)));
+            }
+            succeed(blobForYamlObject(result));
         });
     }
     fullBlobForWorld(name) {
@@ -627,11 +762,18 @@ export class MudStorage {
             return Promise.reject(new Error('No world found named ' + name));
         }
         return new Promise(async (succeed, fail) => {
-            const txn = this.db.transaction([mudDbName(name), userDbName(name)]);
+            const dbs = [mudDbName(name), userDbName(name)];
+            if (this.db.objectStoreNames.contains(extensionDbName(name))) {
+                dbs.push(extensionDbName(name));
+            }
+            const txn = this.db.transaction(dbs);
             const result = {
+                users: await jsonObjectsForDb(txn.objectStore(userDbName(name))),
                 objects: await jsonObjectsForDb(txn.objectStore(mudDbName(name))),
-                users: await jsonObjectsForDb(txn.objectStore(userDbName(name)))
             };
+            if (dbs.length === 3) {
+                result.extensions = await jsonObjectsForDb(txn.objectStore(extensionDbName(name)));
+            }
             succeed(blobForYamlObject(result));
         });
     }
@@ -649,14 +791,16 @@ export class MudStorage {
             await world.replaceUsers(users);
         });
     }
-    async uploadStrippedWorld(objects, world = null) {
+    async uploadStrippedWorld(data, world = null) {
         if (world) {
-            return world.replaceThings(objects);
+            return world.replaceThings(data.objects);
         }
         else {
-            const info = objects.find(i => i.id === 'info');
+            const info = data.objects.find(i => i.id === 'info');
             world = await this.openWorld(info.name);
-            await world.replaceThings(objects);
+            await world.replaceThings(data.objects);
+            if (data.extensions)
+                return world.replaceExtensions(data.extensions);
         }
     }
 }
@@ -763,6 +907,9 @@ function mudDbName(name) {
 function userDbName(name) {
     return 'world ' + name + usersSuffix;
 }
+function extensionDbName(name) {
+    return 'world ' + name + extensionsSuffix;
+}
 export function randomName(prefix) {
     return prefix + Math.round(Math.random() * 10000000);
 }
@@ -835,5 +982,25 @@ export function findSimpleName(str) {
 export function escape(text) {
     return typeof text === 'string' ? text.replace(/</g, '&lt;') : text;
 }
-export function init(app) { }
+export function init(appObj) {
+    app = appObj;
+}
+export function toHex(arraylike) {
+    let result = '';
+    for (const i of arraylike) {
+        // tslint:disable-next-line:no-bitwise
+        const val = (i & 0xFF).toString(16);
+        if (val.length === 1)
+            result += '0';
+        result += val;
+    }
+    return result;
+}
+export function fromHex(hex) {
+    const output = new Int8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) {
+        output[i / 2] = Number.parseInt(hex.substring(i, i + 2), 16);
+    }
+    return output;
+}
 //# sourceMappingURL=model.js.map

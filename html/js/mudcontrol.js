@@ -61,6 +61,10 @@ const setHelp = ['thing property value', `Set one of these properties on a thing
     lockFailFormat  -- message to show when someone fails to pass through a locked link
     closed          -- whether this object propagates descriptons to its location
     template        -- whether to copy this object during a move command
+    cmd             -- command template for when the object's name is used as a command
+    cmd_WORD        -- command template for when the WORD is used as a command
+    get             -- command template for when someone tries to get the object
+    get_WORD        -- command template for when someone tries to get WORD
 `
 ];
 class Command {
@@ -73,8 +77,10 @@ class Command {
 const commands = new Map([
     ['help', new Command({ help: ['', 'Show this message'] })],
     ['login', new Command({ help: ['user password', 'Login to the mud'] })],
-    ['look', new Command({ help: ['', `See a description of your current location`,
-                'thing', 'See a description of a thing'] })],
+    ['look', new Command({
+            help: ['', `See a description of your current location`,
+                'thing', 'See a description of a thing']
+        })],
     ['go', new Command({ help: ['location', `move to another location (may be a direction)`] })],
     ['i', new Command({ help: [''], alt: 'inventory' })],
     ['invent', new Command({ help: [''], alt: 'inventory' })],
@@ -83,15 +89,25 @@ const commands = new Map([
     ['whisper', new Command({ help: ['thing words...', `Say something to thing`] })],
     ['act', new Command({ help: ['words...', `Do something`] })],
     ['gesture', new Command({ help: ['thing words...', `Do something towards thing`] })],
-    ['get', new Command({ help: ['thing', `grab a thing`,
-                'thing [from] location', `grab a thing from a location`] })],
+    ['get', new Command({
+            help: ['thing', `grab a thing`,
+                'thing [from] location', `grab a thing from a location`]
+        })],
     ['drop', new Command({ help: ['thing', `drop something you are carrying`] })],
     ['@dump', new Command({ help: ['thing', 'See properties of a thing'] })],
     ['@move', new Command({ help: ['thing location', 'Move a thing'] })],
+    ['@output', new Command({
+            help: [
+                'contextThing words...', '',
+                'contextThing arg..., words...', `Output text to the user and/or others using a format string on contextThing`
+            ]
+        })],
     ['@admin', new Command({ help: ['thing boolean', 'Change a thing\'s admin privileges'] })],
     ['@create', new Command({ help: ['proto name [description words...]', 'Create a thing'] })],
-    ['@find', new Command({ help: ['thing', 'Find a thing',
-                'thing location', 'Find a thing from a location',] })],
+    ['@find', new Command({
+            help: ['thing', 'Find a thing',
+                'thing location', 'Find a thing from a location',]
+        })],
     ['@link', new Command({ help: ['loc1 link1 link2 loc2', 'create links between two things'] })],
     ['@info', new Command({ help: ['', 'List important information'] })],
     ['@add', new Command({ help: ['thing property thing2', `Add thing2 to the list in property`], admin: true })],
@@ -200,14 +216,15 @@ export class MudConnection {
     }
     formatMe(tip, str, ...args) {
         const ctx = formatContexts(str);
-        return this.basicFormat(tip, ctx.me || ctx.others, args);
+        return ctx.me ? this.basicFormat(tip, ctx.me, args) : '';
     }
     // same as formatOthers(...)
     format(tip, str, ...args) {
         return this.basicFormat(tip, formatContexts(str).others, args);
     }
     formatOthers(tip, str, ...args) {
-        return this.basicFormat(tip, formatContexts(str).others, args);
+        const ctx = formatContexts(str);
+        return ctx.others ? this.basicFormat(tip, formatContexts(str).others, args) : '';
     }
     formatName(thing) {
         return `${thing.formatName()}${this.admin ? '(%' + thing._id + ')' : ''}`;
@@ -311,41 +328,53 @@ export class MudConnection {
     async describe(thing) {
         this.output(await this.description(thing));
     }
-    checkCommand(cmd, cmdProp, thing) {
-        return (cmd === thing.name && thing._cmd) || thing[cmdProp];
+    checkCommand(prefix, cmd, thing) {
+        return (cmd === thing.name && thing[prefix]) || thing[`${prefix}_${cmd}`];
     }
-    async findCommand(words) {
+    async findCommand(words, prefix = '_cmd') {
+        const result = await this.findTemplate(words, prefix);
+        if (result) {
+            const [context, template] = result;
+            return this.substituteCommand(template, [`%${context._id}`, ...words]);
+        }
+    }
+    async findTemplate(words, prefix) {
         const cmd = words[0].toLowerCase();
-        const cmdProp = `_cmd_${cmd}`;
         let template;
         for (const item of (await this.thing.getContents())) {
-            template = this.checkCommand(cmd, cmdProp, item);
+            template = this.checkCommand(prefix, cmd, item);
             if (template) {
-                break;
+                return [item, template];
             }
         }
         if (!template) {
             for (const item of (await this.thing.getLinks())) {
-                template = this.checkCommand(cmd, cmdProp, item);
+                template = this.checkCommand(prefix, cmd, item);
                 if (template) {
-                    break;
+                    return [item, template];
                 }
             }
         }
         if (!template) {
             const loc = await this.thing.getLocation();
-            template = this.checkCommand(cmd, cmdProp, loc);
-            if (!template) {
+            template = this.checkCommand(prefix, cmd, loc);
+            if (template) {
+                return [loc, template];
+            }
+            else {
                 for (const item of (await loc.getLinks())) {
-                    template = this.checkCommand(cmd, cmdProp, item);
+                    template = this.checkCommand(prefix, cmd, item);
                     if (template) {
-                        break;
+                        return [item, template];
                     }
                 }
             }
         }
-        if (template) {
-            const parts = template.split(/( *\$\w*)/);
+    }
+    substituteCommand(template, words) {
+        const lines = [];
+        for (const line of template.split(/;/)) {
+            const parts = line.split(/( *\$\w*)/);
             let newCmd = '';
             for (const part of parts) {
                 const match = part.match(/^( *)\$([0-9]+)$/);
@@ -358,17 +387,18 @@ export class MudConnection {
                     newCmd += part;
                 }
             }
-            return newCmd.split(/\s+/);
+            lines.push(newCmd);
         }
+        return lines.length > 0 ? lines : null;
     }
     async runCommands(lines) {
         for (const line of lines) {
-            await this.command(line.join(' '), true);
+            await this.command(line, true);
             if (this.failed)
                 break;
         }
     }
-    async command(line, suppressFind = false) {
+    async command(line, substituted = false) {
         if (line[0] === '"' || line[0] === "'") {
             line = `say ${line.substring(1)}`;
         }
@@ -377,21 +407,26 @@ export class MudConnection {
         }
         let words = line.split(/\s+/);
         let commandName = words[0].toLowerCase();
-        this.output('<div class="input">&gt; <span class="input-text">' + line + '</span></div>');
-        if (!commands.has(commandName) && !suppressFind) {
-            const newWords = (await this.findCommand(words));
-            if (Array.isArray(newWords[0]))
-                return this.runCommands(newWords);
-            if (newWords && commands.has(newWords[0])) {
-                words = newWords;
-                commandName = words[0].toLowerCase();
+        if (!substituted) {
+            this.output('<div class="input">&gt; <span class="input-text">' + line + '</span></div>');
+        }
+        if (!commands.has(commandName) && !substituted && this.thing) {
+            const newCommands = await this.findCommand(words);
+            if (newCommands) {
+                if (newCommands.length > 1)
+                    return this.runCommands(newCommands);
+                const newWords = newCommands[0].split(/\s+/);
+                if (commands.has(newWords[0])) {
+                    words = newWords;
+                    commandName = words[0].toLowerCase();
+                }
             }
         }
         if (this.thing ? commands.has(commandName) : commandName === 'login' || commandName === 'help') {
             let command = commands.get(commandName);
             if (command.alt)
                 command = commands.get(command.alt);
-            if (command?.admin && !this.admin) {
+            if (command?.admin && !this.admin && !substituted) {
                 return this.error('Unknown command: ' + words[0]);
             }
             // execute command inside a transaction so it will automatically store any dirty objects
@@ -405,6 +440,13 @@ export class MudConnection {
             this.myName = this.thing.name;
             mudproto.userThingChanged(this.thing);
         }
+    }
+    async findAll(names, start = this.thing, errTag = '') {
+        const result = [];
+        for (const name of names) {
+            result.push(await this.find(name, start, errTag));
+        }
+        return result;
     }
     async find(name, start = this.thing, errTag = '') {
         let result;
@@ -568,8 +610,10 @@ export class MudConnection {
         let location;
         if (!direction._linkOwner) {
             await this.thing.setLocation(direction);
-            this.output(await this.formatMe(direction, direction._contentsEnterFormat, this.thing));
-            await this.commandDescripton(await this.formatOthers(direction, direction._contentsEnterFormat, this.thing), this.thing, oldLoc);
+            const output = await this.formatMe(direction, direction._contentsEnterFormat, this.thing);
+            output && this.output(output);
+            const descripton = await this.formatOthers(direction, direction._contentsEnterFormat, this.thing);
+            descripton && await this.commandDescripton(descripton, this.thing, oldLoc);
         }
         else {
             const link = direction._otherLink && await direction.getOtherLink();
@@ -586,12 +630,16 @@ export class MudConnection {
             }
             await this.thing.setLocation(location);
             if (direction._locked) {
-                this.output(await this.formatMe(direction, direction._lockPassFormat, this.thing, location));
-                await this.commandDescripton(await this.formatOthers(direction, direction._lockPassFormat, this.thing, oldLoc), this.thing, oldLoc);
+                const output = await this.formatMe(direction, direction._lockPassFormat, this.thing, location);
+                output && this.output(output);
+                const descripton = await this.formatOthers(direction, direction._lockPassFormat, this.thing, oldLoc);
+                descripton && await this.commandDescripton(descripton, this.thing, oldLoc);
             }
             else {
-                this.output(await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location));
-                await this.commandDescripton(await this.format(direction, direction._linkExitFormat, this.thing, oldLoc), this.thing, oldLoc);
+                const output = await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location);
+                output && this.output(output);
+                const descripton = await this.format(direction, direction._linkExitFormat, this.thing, oldLoc);
+                descripton && await this.commandDescripton(descripton, this.thing, oldLoc);
             }
             await this.commandDescripton(await this.format(link, link._linkEnterFormat, this.thing, location), this.thing, location);
         }
@@ -605,6 +653,7 @@ export class MudConnection {
     async get(cmdInfo, thingStr, ...args) {
         const location = await this.thing.getLocation();
         let loc = location;
+        let newCommands;
         if (args.length) {
             const [_, name] = findSimpleName(args.join(' '));
             loc = await this.find(name, loc);
@@ -612,6 +661,16 @@ export class MudConnection {
                 return this.errorNoThing(name);
         }
         const thing = await this.find(thingStr, loc);
+        if (thing) {
+            const cmd = this.checkCommand('_get', thingStr, thing);
+            if (cmd)
+                newCommands = this.substituteCommand(cmd, [`%${thing._id}`, ...dropArgs(1, cmdInfo).split(/\s+/)]);
+        }
+        if (!newCommands && !thing) {
+            newCommands = (await this.findCommand(dropArgs(1, cmdInfo).split(/\s+/), '_get'));
+        }
+        if (newCommands)
+            return this.runCommands(newCommands);
         if (!thing)
             return this.errorNoThing(thingStr);
         if (thing === this.thing)
@@ -741,6 +800,18 @@ Prototypes:
         this.output(result);
     }
     // COMMAND
+    async atOutput(cmdInfo /*, thingStr: string, ...words: string[]*/) {
+        const initialLine = dropArgs(1, cmdInfo).split(',');
+        const thingWords = initialLine[0].split(/\s+/);
+        const args = initialLine.length > 1 ? await this.findAll(thingWords.slice(1)) : [];
+        const thing = await this.find(thingWords[0], undefined, 'thing');
+        const line = initialLine.length === 1 ? dropArgs(2, cmdInfo) : initialLine.slice(1).join(',');
+        const forMe = await this.formatMe(thing, line, ...args);
+        const forOthers = await this.formatOthers(thing, line, ...args);
+        forMe && this.output(forMe);
+        forOthers && this.commandDescripton(forOthers, undefined, undefined, false);
+    }
+    // COMMAND
     async atMove(cmdInfo, thingStr, locStr) {
         const thing = await this.find(thingStr);
         const loc = await this.find(locStr);
@@ -760,12 +831,12 @@ Prototypes:
         const con = connectionMap.get(thing);
         const boolVal = toggle.toLowerCase() in { t: true, true: true };
         const user = await this.world.getUserForThing(thing);
-        if (user.admin !== toggle) {
-            user.admin = toggle;
+        if (user.admin !== boolVal) {
+            user.admin = boolVal;
             await this.world.putUser(user);
             if (con)
-                con.admin = toggle;
-            if (toggle)
+                con.admin = boolVal;
+            if (boolVal)
                 con.output(`${this.formatName(this.thing)} just upgraded you`);
         }
         this.output(`You just ${toggle ? 'upgraded' : 'downgraded'} ${thingStr}`);
@@ -827,7 +898,7 @@ Prototypes:
     // COMMAND
     async atSet(cmdInfo, thingStr, property, value) {
         checkArgs(cmdInfo, arguments);
-        const [thing, lowerProp, realProp, val, propMap] = await this.thingProps(thingStr, property, value, cmdInfo);
+        const [thing, lowerProp, realProp, val] = await this.thingProps(thingStr, property, value, cmdInfo);
         value = val;
         if (!thing)
             return;
@@ -976,6 +1047,11 @@ Format words:
   <b>\$forothers</b> -- following content is for messages shown to observers of a command\'s actor
   <b>\$arg</b>       -- first argument (if there is one)
   <b>\$argN</b>      -- Nth argument (if there is one)
+
+Command templates are string properties on objects to implement custom commands.
+Example command template properties are get_key, cmd, and cmd_whistle -- see the help for @set.
+Templates replace the original command with different commands, separated by semicolons.
+Templates can contain $0..$N to refer to the command arguments. $0 refers to the thing itself.
 ` : ''}</pre>`);
     }
 }
@@ -1028,7 +1104,10 @@ function formatContexts(format) {
         for (let i = 1; i < contexts.length; i += 2) {
             tmp[contexts[i].trim().substring(1).toLowerCase()] = contexts[i + 1];
         }
-        return { me: tmp.forme || tmp.forothers, others: tmp.forothers || tmp.forme };
+        return {
+            me: tmp.forme,
+            others: tmp.forothers,
+        };
     }
     return { others: contexts[0], me: contexts[0] };
 }

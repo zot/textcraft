@@ -1,7 +1,6 @@
-import libp2p from "./protocol.js"
 import {
-    NatState, RoleState, RelayState, SectionState, PeerState, MudState,
-    StateTracker, stateObserver,
+    RoleState, RelayState, SectionState, PeerState, MudState,
+    StateTracker,
     natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, mudTracker,
 } from "./base.js"
 import * as model from './model.js'
@@ -13,18 +12,18 @@ const jsyaml: any = (window as any).jsyaml
 
 let nextId = 0
 
-export function init(appObj) {}
+export function init(appObj: any) { }
 
 /// simplementation of jQuery
 type nodespec = string | Node | NodeListOf<Node> | Node[]
 
-function $(sel) {
+function $(sel: any) {
     return typeof sel === 'string' ? document.querySelector(sel) : sel
 }
-function $all(sel) {
+function $all(sel: any) {
     return [...document.querySelectorAll(sel)]
 }
-function $find(el: nodespec, sel) {
+function $find(el: nodespec, sel: any) {
     let res: Node[]
 
     if (typeof el === 'string') {
@@ -48,15 +47,7 @@ function $find(el: nodespec, sel) {
         return $(el).querySelector(sel);
     }
 }
-function $findAll(el: nodespec, sel) {
-    let res: Node[]
-
-    if (typeof el === 'string') {
-        res = $all(el);
-    }
-    if (el instanceof NodeList) {
-        el = [...el];
-    }
+function $findAll(el: nodespec, sel: any) {
     if (Array.isArray(el)) {
         const results = [];
 
@@ -77,8 +68,8 @@ class CssClassTracker {
     constructor(tracker: StateTracker<any>, idSuffix: string) {
         this.tracker = tracker
         this.idSuffix = idSuffix
-        tracker.observe(state=>{
-            for (const node of $all('#'+this.tracker.currentStateName().toLowerCase()+this.idSuffix)) {
+        tracker.observe(() => {
+            for (const node of $all('#' + this.tracker.currentStateName().toLowerCase() + this.idSuffix)) {
                 node.checked = true
             }
             this.show()
@@ -101,13 +92,13 @@ class RadioTracker extends CssClassTracker {
     constructor(tracker: StateTracker<any>, idSuffix: string) {
         super(tracker, idSuffix)
         for (const name of this.tracker.names) {
-            for (const node of $all('#'+name.toLowerCase()+this.idSuffix)) {
-                node.onclick = evt=> this.clicked(evt.target)
+            for (const node of $all('#' + name.toLowerCase() + this.idSuffix)) {
+                node.onclick = evt => this.clicked(evt.target)
                 if (!node.name) node.name = idSuffix + '-radio'
             }
         }
-        tracker.observe(state=>{
-            for (const node of $all('#'+this.tracker.currentStateName().toLowerCase()+this.idSuffix)) {
+        tracker.observe(() => {
+            for (const node of $all('#' + this.tracker.currentStateName().toLowerCase() + this.idSuffix)) {
                 node.checked = true
             }
         })
@@ -129,7 +120,7 @@ function setUser(name) {
     document.body.classList.add('hasuser')
 }
 
-function cloneTemplate(name) {
+function cloneTemplate(name: string) {
     const t = $(name)
 
     if (t) {
@@ -166,8 +157,8 @@ export function showMuds() {
 
         $('#storage-list').append(div)
         $find(div, '[name=name]').textContent = world
-        div.onclick = async ()=> editWorld(await model.storage.openWorld(world))
-        $find(div, '[name=copy-mud]').onclick = async evt=> {
+        div.onclick = async () => editWorld(await model.storage.openWorld(world))
+        $find(div, '[name=copy-mud]').onclick = async evt => {
             evt.stopPropagation()
             const w = await model.storage.openWorld(world)
             const newName = worldCopyName(world)
@@ -175,14 +166,14 @@ export function showMuds() {
             showMuds()
             return editWorld(await model.storage.openWorld(newName))
         }
-        $find(div, '[name=activate-mud]').onclick = async evt=> {
+        $find(div, '[name=activate-mud]').onclick = async evt => {
             evt.stopPropagation()
             if (mudTracker.value === MudState.NotPlaying) {
                 $('#mud-output').innerHTML = ''
                 sectionTracker.setValue(SectionState.Mud)
                 roleTracker.setValue(RoleState.Solo)
-                mudcontrol.runMud(await model.storage.openWorld(world), text=> {
-                    addMudOutput('<div>'+text+'</div>')
+                mudcontrol.runMud(await model.storage.openWorld(world), text => {
+                    addMudOutput('<div>' + text + '</div>')
                 })
                 $('#mud-name').textContent = world
             } else {
@@ -194,7 +185,7 @@ export function showMuds() {
 }
 
 function worldCopyName(oldName: string) {
-    const nameTemplate = 'Copy of '+oldName
+    const nameTemplate = 'Copy of ' + oldName
 
     if (model.storage.worlds.indexOf(nameTemplate) === -1) {
         return nameTemplate
@@ -208,7 +199,7 @@ function worldCopyName(oldName: string) {
 }
 
 export function onEnter(input, action, shouldClear = false) {
-    input.onkeydown = evt=> {
+    input.onkeydown = evt => {
         if (evt.key === 'Enter') {
             action(input.value)
             if (shouldClear) {
@@ -218,17 +209,86 @@ export function onEnter(input, action, shouldClear = false) {
     };
 }
 
+async function uploadMudExtension(world: model.World, editor: HTMLElement, evt, changes: any, ext?: model.Extension, item?: HTMLElement) {
+    const files = evt.target.files
+
+    try {
+        if (files.length) {
+            for (const file of files) {
+                const fileExt = new model.Extension({})
+
+                await fileExt.populate(file)
+                if (ext) {
+                    if ((await ext.getHash()) === (await fileExt.getHash()) && ext.name === fileExt.name) {
+                        return
+                    }
+                    const oldName = ext.name
+                    Object.assign(ext, fileExt)
+                    ext.name = oldName
+                } else {
+                    ext = fileExt
+                }
+                changes.extensions.add(ext)
+                if (item) {
+                    populateExtensionItem(world, editor, ext, changes, item)
+                } else {
+                    $find(editor, '[name=mud-extension-list]').appendChild(populateExtensionItem(world, editor, ext, changes))
+                }
+                break
+            }
+        }
+    } finally {
+        evt.target.value = null
+    }
+}
+
+function populateExtensionItem(world: model.World, editor: HTMLElement, ext: model.Extension, changes: any, item?: HTMLElement) {
+    if (!item) {
+        item = cloneTemplate('#mud-extension-item')
+    }
+    $find(item, '[name=mud-extension-name]').value = ext.name
+    $find(item, '[name=mud-extension-name]').onchange = evt => {
+        ext.name = evt.target.value
+        changes.extensions.add(ext)
+    }
+    $find(item, '[name=mud-extension-hash]').value = ext.hash
+    $find(item, '[name=upload-mud-extension-version]').onchange = async evt => {
+        await uploadMudExtension(world, editor, evt, changes, ext, item)
+    }
+    const extBlob = URL.createObjectURL(new Blob([ext.text], { type: 'text/javascript' }))
+    changes.blobsToRevoke.add(extBlob)
+    $find(item, '[name=save-mud-extension]').href = extBlob
+    $find(item, '[name=delete-mud-extension]').onclick = () => {
+        (ext as any).deleted = true
+        changes.extensions.add(ext)
+        item.remove()
+    }
+    return item
+}
+
+async function populateExtensions(world: model.World, editor: HTMLElement, changes: any) {
+    const extensionDiv = $find(editor, '[name=mud-extension-list]')
+
+    extensionDiv.innerHTML = ''
+    for (const ext of await world.getExtensions()) {
+        extensionDiv.appendChild(populateExtensionItem(world, editor, ext, changes))
+    }
+}
+
 export async function editWorld(world: model.World) {
     let processUsers = false
     let deleted = false
     const div = cloneTemplate('#mud-editor-template')
     const nameField = $find(div, '[name="mud-name"]')
     const userList = $find(div, '[name=mud-user-list]')
-    let blobToRevoke = null
-    const success = async ()=> {
+    const changes = {
+        blobsToRevoke: new Set<string>(),
+        extensions: new Set<model.Extension>(),
+    }
+    const success = async () => {
         const name = nameField.value
 
-        if (blobToRevoke) {
+        for (const blobToRevoke of changes.blobsToRevoke as Set<string>) {
             URL.revokeObjectURL(blobToRevoke)
         }
         if (deleted) {
@@ -268,40 +328,55 @@ export async function editWorld(world: model.World) {
             }
             await world.replaceUsers(newUsers)
         }
+        for (const ext of changes.extensions as Set<any>) {
+            if (ext.deleted) {
+                await world.removeExtension(ext.id)
+            } else {
+                ext.id = await world.addExtension(ext)
+            }
+        }
+        if (changes.extensions.size) {
+            world.close()
+        }
+        changes.extensions.clear()
     }
 
     for (const user of await world.getAllUsers()) {
-        const itemDiv = userItem(user, ()=> processUsers = true)
+        const itemDiv = userItem(user, () => processUsers = true)
 
         userList.appendChild(itemDiv)
     }
-    $find(div, '[name=mud-add-user]').onclick = async evt=> {
+    await populateExtensions(world, div, changes)
+    $find(div, '[name=upload-mud-extension]').onchange = async evt => {
+        await uploadMudExtension(world, div, evt, changes)
+    }
+    $find(div, '[name=mud-add-user]').onclick = async evt => {
         console.log('burp')
         evt.stopPropagation()
         const randomName = await world.randomUserName()
         const password = model.randomName('password')
-        const user = {name: randomName, password}
-        const userDiv = userItem(user, ()=> processUsers = true)
+        const user = { name: randomName, password }
+        const userDiv = userItem(user, () => processUsers = true)
         userList.appendChild(userDiv, user)
         $find(userDiv, '[name=mud-user-name]').select()
         $find(userDiv, '[name=mud-user-name]').focus()
         processUsers = true
     }
     nameField.value = world.name
-    onEnter(nameField, newName=> {
+    onEnter(nameField, newName => {
         div.remove()
         return success()
     })
-    $find(div, '[name=download-mud]').onclick = async evt=> {
+    $find(div, '[name=download-mud]').onclick = async evt => {
         evt.stopPropagation()
         const link = $find(div, '[name=download-mud-link]')
         link.textContent = "Preparing download..."
         const blob = await model.storage.fullBlobForWorld(world.name)
-        blobToRevoke = link.href = URL.createObjectURL(blob)
-        link.setAttribute('download', world.name+'.yaml')
-        link.textContent = 'Click to download '+world.name+'.yaml'
+        changes.blobsToRevoke.add(link.href = URL.createObjectURL(blob))
+        link.setAttribute('download', world.name + '.yaml')
+        link.textContent = 'Click to download ' + world.name + '.yaml'
     }
-    $find(div, '[name=delete-mud]').onclick = async evt=> {
+    $find(div, '[name=delete-mud]').onclick = async evt => {
         evt.stopPropagation()
         deleted = !deleted
         div.classList.toggle('mud-deleted')
@@ -309,15 +384,15 @@ export async function editWorld(world: model.World) {
     try {
         await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]')
         await success()
-    } catch(err) { // revoke URL on cancel
-        if (blobToRevoke) {
+    } catch (err) { // revoke URL on cancel
+        for (const blobToRevoke of changes.blobsToRevoke as Set<string>) {
             URL.revokeObjectURL(blobToRevoke)
         }
     }
 }
 
 function userItem(user: any, processUsersFunc) {
-    const {name, password, admin} = user
+    const { name, password, admin } = user
     const div = cloneTemplate('#mud-user-item')
     const nameField = $find(div, '[name=mud-user-name]')
     const passwordField = $find(div, '[name=mud-user-password]')
@@ -327,7 +402,7 @@ function userItem(user: any, processUsersFunc) {
     nameField.value = name
     passwordField.value = password
     adminCheckbox.checked = !!admin
-    $find(div, '[name=delete-user]').onclick = async evt=> {
+    $find(div, '[name=delete-user]').onclick = async evt => {
         evt.stopPropagation()
         div.remove()
         processUsersFunc()
@@ -337,17 +412,23 @@ function userItem(user: any, processUsersFunc) {
 
 export function okCancel(div, okSel, cancelSel, focusSel) {
     document.body.appendChild(div)
-    focusSel && setTimeout(()=>{
+    focusSel && setTimeout(() => {
         console.log('focusing ', focusSel, $find(div, focusSel))
         $find(div, focusSel)?.select()
         $find(div, focusSel)?.focus()
     }, 1)
-    return new Promise((succeed, fail)=> {
-        $find(div, okSel).onclick = ()=> {
+    return new Promise((succeed, fail) => {
+        div.onclick = evt => {
+            if (evt.target === div) {
+                div.remove()
+                fail()
+            }
+        }
+        $find(div, okSel).onclick = () => {
             div.remove()
             succeed()
         }
-        $find(div, cancelSel).onclick = ()=> {
+        $find(div, cancelSel).onclick = () => {
             div.remove()
             fail()
         }
@@ -359,9 +440,9 @@ export function setMudOutput(html) {
 }
 
 export function addMudOutput(html) {
-    parseHtml(html, $('#mud-output'), (el)=> {
+    parseHtml(html, $('#mud-output'), (el) => {
         for (const node of $findAll(el, '.input')) {
-            node.onclick = ()=> {
+            node.onclick = () => {
                 $('#mud-command').value = $find(node, '.input-text').textContent
                 $('#mud-command').select()
                 $('#mud-command').focus()
@@ -375,7 +456,7 @@ export function focusMudInput() {
     $('#mud-command').focus()
 }
 
-export function parseHtml(html, receivingNode = null, formatter:(el: HTMLElement)=>void = null) {
+export function parseHtml(html, receivingNode = null, formatter: (el: HTMLElement) => void = null) {
     const parser = $('#parsing')
 
     parser.innerHTML = html
@@ -432,21 +513,21 @@ export function noConnection() {
 }
 
 export function connectedToHost(peerID: string) {
-    $('#connectStatus').textContent = 'Connected to '+ peerID
+    $('#connectStatus').textContent = 'Connected to ' + peerID
 }
 
 export function connectionRefused(peerID: string, protocol: string, msg) {
-    $('#toHostID').value = 'Failed to connect to '+peerID+' on protocol '+protocol
+    $('#toHostID').value = 'Failed to connect to ' + peerID + ' on protocol ' + protocol
 }
 
 export function hosting(protocol: string) {
-    $('#host-protocol').value = 'WAITING TO ESTABLISH LISTENER ON '+protocol
+    $('#host-protocol').value = 'WAITING TO ESTABLISH LISTENER ON ' + protocol
 }
 
 export function showUsers(userMap: Map<string, mudproto.UserInfo>) {
     const users = [...userMap.values()]
 
-    users.sort((a, b)=> a.name === b.name ? 0 : a.name < b.name ? -1 : 1)
+    users.sort((a, b) => a.name === b.name ? 0 : a.name < b.name ? -1 : 1)
     $('#mud-users').innerHTML = ''
     for (const user of users) {
         const div = cloneTemplate('#mud-connected-user-item')
@@ -511,8 +592,8 @@ function showRelayState(state) {
     if (state === RelayState.PendingHosting || state === RelayState.Hosting) {
         $('#relayConnectString').value = mudproto.relayConnectString()
         $('#relayConnectString').select()
-        $('#relayConnectString').onclick = evt=> {
-            setTimeout(()=> {
+        $('#relayConnectString').onclick = evt => {
+            setTimeout(() => {
                 evt.target.select()
                 evt.target.focus()
             }, 1)
@@ -531,7 +612,7 @@ export function start() {
     radioTracker(relayTracker, 'Relay')
     radioTracker(sectionTracker, 'Section')
     radioTracker(mudTracker, 'Mud')
-    sectionTracker.observe(state=> {
+    sectionTracker.observe(state => {
         if (state === SectionState.Mud) {
             $('#mud-command').focus()
         }
@@ -541,40 +622,41 @@ export function start() {
     mudTracker.observe(showMudState)
     relayTracker.observe(showRelayState)
     roleTracker.observe(showRoleState)
-    $('#user').onblur = ()=> setUser($('#user').value)
-    $('#user').onkeydown = evt=> {
+    $('#user').onblur = () => setUser($('#user').value)
+    $('#user').onkeydown = evt => {
         if (evt.key === 'Enter') {
             setUser($('#user').value)
         }
     }
-    $('#toggleStatebuttons').onclick = ()=> document.body.classList.toggle('emulation')
-    $('#add-mud-button').onclick = ()=> {
+    $('#toggleStatebuttons').onclick = () => document.body.classList.toggle('emulation')
+    $('#add-mud-button').onclick = () => {
         sectionTracker.setValue(SectionState.Storage)
         return storagecontrol.addMud()
     }
-    $('#mud-command').onkeydown = async evt=> {
+    $('#mud-command').onkeydown = async evt => {
         if (evt.key === 'Enter') {
             await mudcontrol.executeCommand($('#mud-command').value)
             $('#mud-command').value = ''
         }
     }
     $('#upload-mud').onchange = uploadMud
-    $('#upload-mud').onclick = ()=> sectionTracker.setValue(SectionState.Storage)
-    $('#mud-host').onclick = ()=> {
+    $('#upload-mud').onclick = () => sectionTracker.setValue(SectionState.Storage)
+    //$('#upload-mud-extension').onchange = uploadMudExtension
+    $('#mud-host').onclick = () => {
         mudproto.startHosting()
     }
-    $('#mud-quit').onclick = ()=> {
+    $('#mud-quit').onclick = () => {
         mudproto.reset()
         mudcontrol.quit()
     }
-    $('#mud-users-toggle').onclick = ()=> $('#mud-section').classList.toggle('show-users')
-    $('#direct-connect-string').onclick = evt=> {
-        setTimeout(()=> {
+    $('#mud-users-toggle').onclick = () => $('#mud-section').classList.toggle('show-users')
+    $('#direct-connect-string').onclick = evt => {
+        setTimeout(() => {
             evt.target.select()
             evt.target.focus()
         }, 1)
     }
-    $('#connect').onclick = evt=> {
+    $('#connect').onclick = evt => {
         try {
             mudproto.joinSession($('#toHostID').value)
         } catch (err) {
@@ -583,20 +665,20 @@ export function start() {
     }
     $('#mud-stop-hosting').onclick = mudproto.reset
     $('#mud-stop-relay').onclick = mudproto.reset
-    $('#mud-select-relay').onclick = ()=> {
+    $('#mud-select-relay').onclick = () => {
         roleTracker.setValue(RoleState.Relay)
         sectionTracker.setValue(SectionState.Connection)
         mudproto.startRelay()
     }
-    $('#mud-select-join').onclick = ()=> {
+    $('#mud-select-join').onclick = () => {
         roleTracker.setValue(RoleState.Guest)
         sectionTracker.setValue(SectionState.Connection)
     }
-    $('#mud-request-relay').onclick = ()=> {
+    $('#mud-request-relay').onclick = () => {
         roleTracker.setValue(RoleState.Host)
         sectionTracker.setValue(SectionState.Connection)
     }
-    $('#host-with-relay').onclick = ()=> {
+    $('#host-with-relay').onclick = () => {
         mudproto.hostViaRelay($('#hosting-relay-connect-string').value)
     }
     showMuds()

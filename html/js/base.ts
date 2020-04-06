@@ -103,7 +103,7 @@ export class StateTracker<E> {
 
 function enumNames(enumObj) {
     if (!enumNameMaps.has(enumObj)) {
-        const names = Object.keys(enumObj).filter(o=> typeof enumObj[o] === 'string').map(o=> enumObj[o])
+        const names = Object.keys(enumObj).filter(o => typeof enumObj[o] === 'string').map(o => enumObj[o])
 
         enumNameMaps.set(enumObj, names as string[])
         return names

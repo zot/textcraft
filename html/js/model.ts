@@ -1,3 +1,5 @@
+import proto from './protocol-shim.js'
+
 export let storage: MudStorage
 
 const jsyaml: any = (window as any).jsyaml
@@ -8,8 +10,32 @@ const userThingIndex = 'things'
 const linkOwnerIndex = 'linkOwners'
 const nameIndex = 'names'
 const usersSuffix = ' users'
+const extensionsSuffix = ' extensions'
+const extensionNameIndex = 'names'
+const extensionHashIndex = 'hashes'
+
+let app: any
 
 export type thingId = number
+
+export class Extension {
+    id: number
+    name: string // human-readable name
+    text: string
+    hash: string
+
+    constructor(obj: any) {
+        Object.assign(this, obj)
+    }
+    async getHash() {
+        return this.hash || (this.hash = toHex(new Int8Array(await crypto.subtle.digest('sha-256', proto.utfEncoder.encode(this.text)))))
+    }
+    async populate(file: File) {
+        this.name = file.name
+        this.text = await file.text()
+        return this.getHash()
+    }
+}
 
 /*
  * ## The Thing class
@@ -62,12 +88,12 @@ export class Thing {
         this._linkOwner = null
         this._otherLink = null
     }
-    get id() {return this._id}
-    get article() {return this._article}
-    set article(a: string) {this._article = a}
-    get name() {return this._name}
-    set name(n: string) {this.markDirty(this._name = n)}
-    get fullName() {return this._fullName}
+    get id() { return this._id }
+    get article() { return this._article }
+    set article(a: string) { this._article = a }
+    get name() { return this._name }
+    set name(n: string) { this.markDirty(this._name = n) }
+    get fullName() { return this._fullName }
     set fullName(n: string) {
         n = n.trim()
         const [article, name] = findSimpleName(n)
@@ -80,16 +106,16 @@ export class Thing {
         this._name = escape(name)
         this._fullName = escape(n)
     }
-    get description() {return this._description}
-    set description(d: string) {this.markDirty(this._description = d)}
-    get contentsFormat() {return this._contentsFormat}
-    set contentsFormat(f: string) {this.markDirty(this._contentsFormat = f)}
-    get examineFormat() {return this._examineFormat}
-    set examineFormat(f: string) {this.markDirty(this._examineFormat = f)}
-    get linkFormat() {return this._linkFormat}
-    set linkFormat(f: string) {this.markDirty(this._linkFormat = f)}
-    getContents(): Promise<Thing[]> {return this.world.getContents(this)}
-    getPrototype(): Promise<Thing> {return this.world.getThing(this._prototype)}
+    get description() { return this._description }
+    set description(d: string) { this.markDirty(this._description = d) }
+    get contentsFormat() { return this._contentsFormat }
+    set contentsFormat(f: string) { this.markDirty(this._contentsFormat = f) }
+    get examineFormat() { return this._examineFormat }
+    set examineFormat(f: string) { this.markDirty(this._examineFormat = f) }
+    get linkFormat() { return this._linkFormat }
+    set linkFormat(f: string) { this.markDirty(this._linkFormat = f) }
+    getContents(): Promise<Thing[]> { return this.world.getContents(this) }
+    getPrototype(): Promise<Thing> { return this.world.getThing(this._prototype) }
     setPrototype(t: Thing) {
         this.markDirty(null)
         if (t) {
@@ -99,13 +125,13 @@ export class Thing {
             this._prototype = null
         }
     }
-    getLocation(): Promise<Thing> {return this.world.getThing(this._location)}
-    setLocation(t: Thing | thingId) {this.markDirty(this._location = idFor(t))}
-    getLinks(): Promise<Thing[]> {return this.world.getLinks(this)}
-    getLinkOwner(): Promise<Thing> {return this.world.getThing(this._linkOwner)}
-    setLinkOwner(t: Thing) {this.markDirty(this._linkOwner = t && t.id)}
-    getOtherLink(): Promise<Thing> {return this.world.getThing(this._otherLink)}
-    setOtherLink(t: Thing) {this.markDirty(this._otherLink = t && t.id)}
+    getLocation(): Promise<Thing> { return this.world.getThing(this._location) }
+    setLocation(t: Thing | thingId) { this.markDirty(this._location = idFor(t)) }
+    getLinks(): Promise<Thing[]> { return this.world.getLinks(this) }
+    getLinkOwner(): Promise<Thing> { return this.world.getThing(this._linkOwner) }
+    setLinkOwner(t: Thing) { this.markDirty(this._linkOwner = t && t.id) }
+    getOtherLink(): Promise<Thing> { return this.world.getThing(this._otherLink) }
+    setOtherLink(t: Thing) { this.markDirty(this._otherLink = t && t.id) }
 
     formatName() {
         return (this.article ? this.article + ' ' : '') + this.fullName
@@ -121,6 +147,13 @@ export class Thing {
         }
         exclude.add(this)
         for (const item of await this.getContents()) {
+            const result = await item.find(name, exclude)
+
+            if (result) {
+                return result
+            }
+        }
+        for (const item of await this.getLinks()) {
             const result = await item.find(name, exclude)
 
             if (result) {
@@ -159,18 +192,19 @@ export class Thing {
             this['_' + prop] = spec[prop]
         }
         if (spec.prototype) {
-            const proto = await this.world.getThing(spec.prototype)
+            const prototype = await this.world.getThing(spec.prototype)
 
-            if (!proto) {
-                throw new Error('Could not find prototype '+spec.prototype)
+            if (!prototype) {
+                throw new Error('Could not find prototype ' + spec.prototype)
             }
-            (this as any).__proto__ = proto
+            (this as any).__proto__ = prototype
         }
     }
 }
 export class World {
     name: string
     storeName: string
+    extensionsName: string
     lobby: thingId
     limbo: thingId
     hallOfPrototypes: thingId
@@ -180,29 +214,34 @@ export class World {
     roomProto: Thing
     users: string
     nextId: number
-    storage: Storage
+    storage: MudStorage
     thingCache: Map<thingId, Thing>
     txn: IDBTransaction
     thingStore: IDBObjectStore
     userStore: IDBObjectStore
+    extensionStore: IDBObjectStore
     dirty: Set<thingId>
 
-    constructor(name, stg) {
+    constructor(name: string, stg: MudStorage) {
         this.setName(name)
         this.storage = stg
         this.dirty = new Set()
         this.thingCache = new Map()
         this.nextId = 0
     }
+    close() {
+        this.storage.closeWorld(this.name)
+    }
     setName(name: string) {
         this.name = name
         this.storeName = mudDbName(name)
         this.users = userDbName(name)
+        this.extensionsName = extensionDbName(name)
     }
     initDb() {
-        return new Promise((succeed, fail)=> {
-            const req = storage.upgrade(()=> {
-                return this.doTransaction(async (store, users, txn)=> {
+        return new Promise((succeed, fail) => {
+            const req = storage.upgrade(() => {
+                return this.doTransaction(async (store, users, txn) => {
                     const limbo = await this.createThing('Limbo', 'You are floating in $this<br>$links<br><br>$contents')
                     this.limbo = limbo.id
                     const lobby = await this.createThing('Lobby', 'You are in $this')
@@ -221,21 +260,21 @@ export class World {
                 })
             })
 
-            req.onupgradeneeded = ()=> {
+            req.onupgradeneeded = () => {
                 const txn = req.transaction
                 //let userStore = txn.db.createObjectStore(this.users, {autoIncrement: true})
-                const userStore = txn.db.createObjectStore(this.users, {keyPath: 'name'})
-                const thingStore = txn.db.createObjectStore(this.storeName, {keyPath: 'id'})
+                const userStore = txn.db.createObjectStore(this.users, { keyPath: 'name' })
+                const thingStore = txn.db.createObjectStore(this.storeName, { keyPath: 'id' })
 
-                userStore.createIndex(userThingIndex, 'thing', {unique: true})
-                thingStore.createIndex(locationIndex, 'location', {unique: false})
-                thingStore.createIndex(linkOwnerIndex, 'linkOwner', {unique: false})
+                userStore.createIndex(userThingIndex, 'thing', { unique: true })
+                thingStore.createIndex(locationIndex, 'location', { unique: false })
+                thingStore.createIndex(linkOwnerIndex, 'linkOwner', { unique: false })
             }
             req.onerror = fail
         })
     }
     loadInfo() {
-        return this.doTransaction(async (store, users, txn)=> {
+        return this.doTransaction(async (store, users, txn) => {
             this.thingStore = store
             this.userStore = users
             await this.useInfo(await promiseFor(store.get('info')))
@@ -258,7 +297,7 @@ export class World {
         }
     }
     async initStdPrototypes() {
-        return this.doTransaction(async ()=> {
+        return this.doTransaction(async () => {
             const thingProto = this.thingProto
             const personProto = this.personProto
             const roomProto = this.roomProto
@@ -275,7 +314,7 @@ export class World {
             thingProto._locked = false
             linkProto.markDirty(linkProto._location = this.hallOfPrototypes)
             linkProto.article = '';
-            (linkProto as any)._cmd = 'go $0'
+            (linkProto as any)._cmd = 'go $1'
             linkProto._linkEnterFormat = '$Arg1 enters $arg2'
             linkProto._linkMoveFormat = 'You went $name to $arg3'
             linkProto._linkExitFormat = '$Arg1 went $name to $arg2'
@@ -302,16 +341,16 @@ export class World {
         }
     }
     rename(newName) {
-        this.storage.renameWorld(this.name, newName)
+        return this.storage.renameWorld(this.name, newName)
     }
     delete() {
-        this.storage.deleteWorld(this.name)
+        return this.storage.deleteWorld(this.name)
     }
     db() {
         return this.storage.db
     }
     // perform a transaction, then write all dirty things to storage
-    async doTransaction(func: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction)=> Promise<any>, allowIdChange = false) {
+    async doTransaction(func: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction) => Promise<any>, allowIdChange = false) {
         if (this.txn) {
             return this.processTransaction(func)
         } else {
@@ -322,8 +361,8 @@ export class World {
             this.thingStore = txn.objectStore(this.storeName)
             this.userStore = txn.objectStore(this.users)
             return this.processTransaction(func)
-                .finally(async ()=> {
-                    await Promise.allSettled([...this.dirty].map(dirty=> this.thingCache.get(dirty).store()))
+                .finally(async () => {
+                    await Promise.allSettled([...this.dirty].map(dirty => this.thingCache.get(dirty).store()))
                     this.dirty = new Set()
                     if (oldId !== this.nextId && !allowIdChange) {
                         await this.store()
@@ -333,28 +372,99 @@ export class World {
                 })
         }
     }
+    async addExtension(ext: Extension) {
+        if (!this.db().objectStoreNames.contains(this.extensionsName)) {
+            await new Promise((succeed, fail) => {
+                const req = storage.upgrade(succeed)
+
+                req.onerror = fail
+                req.onupgradeneeded = () => {
+                    const store = req.transaction.db.createObjectStore(this.extensionsName, { autoIncrement: true })
+                    store.createIndex(extensionNameIndex, 'name', { unique: false })
+                    store.createIndex(extensionHashIndex, 'hash', { unique: true })
+                }
+            })
+        }
+        const txn = this.db().transaction([this.extensionsName], 'readwrite')
+        const key = await txn.objectStore(this.extensionsName).put(ext, ext.id)
+        return promiseFor(txn).then(() => key)
+    }
+    async removeExtension(id: number) {
+        if (!this.db().objectStoreNames.contains(this.extensionsName)) return []
+        const txn = this.db().transaction([this.extensionsName], 'readwrite')
+        txn.objectStore(this.extensionsName).delete(id)
+        return promiseFor(txn)
+    }
+    async getExtensions(): Promise<Extension[]> {
+        if (!this.db().objectStoreNames.contains(this.extensionsName)) return []
+        const txn = this.db().transaction([this.extensionsName], 'readwrite')
+        const extensionStore = txn.objectStore(this.extensionsName)
+
+        return new Promise((succeed, fail) => {
+            const result = []
+            const req = extensionStore.openCursor()
+
+            req.onerror = fail
+            req.onsuccess = evt => {
+                const cursor = (evt.target as any).result
+
+                if (cursor) {
+                    const ext = new Extension(cursor.value)
+
+                    ext.id = cursor.key
+                    result.push(ext)
+                    cursor.continue()
+                } else {
+                    succeed(result)
+                }
+            }
+        })
+    }
+    async evalExtension(ext: Extension) {
+        try {
+            // tslint:disable-next-line:no-eval
+            const func = eval(ext.text)
+
+            if (func instanceof Function) {
+                func(this, app)
+            } else if (func instanceof Promise) {
+                return func.then(f => {
+                    if (f instanceof Function) {
+                        f(this, app)
+                    } else {
+                        throw new Error('Extension should be a function or Promise<Function> but it is not')
+                    }
+                })
+            } else {
+                throw new Error('Extension should be a function or Promise<Function> but it is not')
+            }
+        } catch (err) {
+            alert(`Error running extension ${ext.name} (see console for details): ${err.message}`)
+            console.error(err)
+        }
+    }
     store() {
         return promiseFor(this.thingStore.put(this.spec()))
     }
-    processTransaction(func: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction)=> Promise<any>) {
+    processTransaction(func: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction) => Promise<any>) {
         const result = func(this.thingStore, this.userStore, this.txn)
 
         return result instanceof Promise ? result : Promise.resolve(result)
     }
     getUser(name: string) {
-        return this.doTransaction(async (store, users, txn)=> await promiseFor(users.get(name)))
+        return this.doTransaction(async (store, users, txn) => await promiseFor(users.get(name)))
     }
     getUserForThing(ti: thingId | Thing) {
-        return this.doTransaction(async (store, users, txn)=> {
+        return this.doTransaction(async (store, users, txn) => {
             return promiseFor(users.index(userThingIndex).get(idFor(ti)))
         })
     }
     deleteUser(name: string) {
-        return this.doTransaction(async (store, users, txn)=> {
-            return new Promise((succeed, fail)=> {
+        return this.doTransaction(async (store, users, txn) => {
+            return new Promise((succeed, fail) => {
                 const req = users.openCursor(name)
 
-                req.onsuccess = evt=> {
+                req.onsuccess = evt => {
                     const cursor = (evt.target as any).result
 
                     if (cursor) {
@@ -373,10 +483,10 @@ export class World {
     async getAllUsers(): Promise<any[]> {
         const userList: any[] = []
 
-        return new Promise((succeed, fail)=> {
-            return this.doTransaction(async (store, users, txn)=> {
+        return new Promise((succeed, fail) => {
+            return this.doTransaction(async (store, users, txn) => {
                 const req = users.openCursor()
-                req.onsuccess = evt=> {
+                req.onsuccess = evt => {
                     const cursor = (evt.target as any).result
 
                     if (cursor) {
@@ -388,7 +498,7 @@ export class World {
                         succeed(userList)
                     }
                 }
-                req.onerror = evt=> {
+                req.onerror = evt => {
                     console.log('failure: ', evt)
                     fail(evt)
                 }
@@ -396,8 +506,8 @@ export class World {
         })
     }
     randomUserName() {
-        return this.doTransaction(async (store, users, txn)=> {
-            for (;;) {
+        return this.doTransaction(async (store, users, txn) => {
+            for (; ;) {
                 const name = randomName('user')
 
                 if (!await this.getUser(name)) {
@@ -412,8 +522,8 @@ export class World {
         return this.createUser(name, randomName('password'), false)
     }
     createUser(name: string, password: string, admin: boolean) {
-        return this.doTransaction(async (store, users, txn)=> {
-            const user = {name, password, admin}
+        return this.doTransaction(async (store, users, txn) => {
+            const user = { name, password, admin }
 
             await this.putUser(user)
             console.log('created user', user)
@@ -427,22 +537,43 @@ export class World {
         return promiseFor(this.thingStore.put(thing.spec()))
     }
     async replaceUsers(newUsers: any[]) {
-        await this.doTransaction(async (store, users, txn)=> deleteAll(users))
-        return this.doTransaction(async (store, users, txn)=> Promise.all(newUsers.map(u=> this.putUser(u))))
+        await this.doTransaction(async (store, users, txn) => deleteAll(users))
+        return this.doTransaction(async (store, users, txn) => Promise.all(newUsers.map(u => this.putUser(u))))
+    }
+    async replaceExtensions(newExtensions: any[]) {
+        if (!this.db().objectStoreNames.contains(this.extensionsName)) {
+            await new Promise((succeed, fail) => {
+                const req = storage.upgrade(succeed)
+
+                req.onerror = fail
+                req.onupgradeneeded = () => {
+                    const store = req.transaction.db.createObjectStore(this.extensionsName, { autoIncrement: true })
+                    store.createIndex(extensionNameIndex, 'name', { unique: false })
+                    store.createIndex(extensionHashIndex, 'hash', { unique: true })
+                }
+            })
+        }
+        const txn = this.db().transaction([this.extensionsName], 'readwrite')
+        const extensions = txn.objectStore(this.extensionsName)
+        await deleteAll(extensions)
+        for (const ext of newExtensions) {
+            extensions.put(ext, ext.id)
+        }
+        return promiseFor(txn)
     }
     async replaceThings(newThings: any[]) {
         let info: any
 
-        await this.doTransaction(async (store, users, txn)=> {
-            const index = newThings.findIndex(t=> t.id === 'info')
+        await this.doTransaction(async (store, users, txn) => {
+            const index = newThings.findIndex(t => t.id === 'info')
 
             info = newThings[index]
             newThings.splice(index, 1)
             return deleteAll(store)
         })
-        return this.doTransaction(async (store, users, txn)=> {
+        return this.doTransaction(async (store, users, txn) => {
             await this.useInfo(info)
-            return Promise.all(newThings.map(t=> promiseFor(this.thingStore.put(t))))
+            return Promise.all(newThings.map(t => promiseFor(this.thingStore.put(t))))
         })
     }
     async getThing(tip: thingId | Thing | Promise<Thing>): Promise<Thing> {
@@ -462,14 +593,14 @@ export class World {
         if (cached) {
             return Promise.resolve(cached)
         }
-        return this.doTransaction(async (store)=> await this.cacheThingFor(await promiseFor(store.get(id))))
+        return this.doTransaction(async (store) => await this.cacheThingFor(await promiseFor(store.get(id))))
     }
     authenticate(name: string, passwd: string, noauthentication = false) {
-        return this.doTransaction(async (store, users, txn)=> {
+        return this.doTransaction(async (store, users, txn) => {
             let user: any = await promiseFor(users.get(name))
 
             if (noauthentication && !user) { // auto-create a user
-                user = {name, password: null}
+                user = { name, password: null }
                 await promiseFor(users.put(user))
             } else if (!user || user.password !== passwd) {
                 throw new Error('Bad user or password')
@@ -495,7 +626,7 @@ export class World {
         t._location = this.limbo
         if (this.thingProto) t.setPrototype(this.thingProto)
         this.thingCache.set(t.id, t)
-        await this.doTransaction(async ()=> {
+        await this.doTransaction(async () => {
             return await this.putThing(t)
         })
         return t
@@ -518,21 +649,21 @@ export class World {
     }
     getContents(thing: thingId | Thing): Promise<Thing[]> {
         const id = typeof thing === 'number' ? thing : thing.id
-        return this.doTransaction(async (things)=> {
+        return this.doTransaction(async (things) => {
             return this.cacheThings(await promiseFor(things.index(locationIndex).getAll(IDBKeyRange.only(id))))
         })
     }
     getLinks(thing: Thing): Promise<Thing[]> {
-        return this.doTransaction(async (things)=> {
+        return this.doTransaction(async (things) => {
             return this.cacheThings(await promiseFor(this.thingStore.index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id))))
         })
     }
     async getAncestors(thing: Thing, ancestors = []): Promise<Thing[]> {
         if (thing._prototype) {
-            return this.doTransaction(async ()=> {
-                const proto = await thing.getPrototype()
+            return this.doTransaction(async () => {
+                const prototype = await thing.getPrototype()
 
-                await this.getAncestors(proto, ancestors)
+                await this.getAncestors(prototype, ancestors)
                 return ancestors
             })
         } else {
@@ -544,7 +675,7 @@ export class World {
     }
     async copyWorld(newName: string) {
         if (this.storage.hasWorld(newName)) {
-            throw new Error('there is already a world named "'+newName+'"')
+            throw new Error('there is already a world named "' + newName + '"')
         }
         const newWorld = await this.storage.openWorld(newName)
         const txn = this.db().transaction([this.storeName, newWorld.storeName, this.users, newWorld.users], 'readwrite')
@@ -570,6 +701,9 @@ export class MudStorage {
     hasWorld(name: string) {
         return contains([...this.worlds], name)
     }
+    closeWorld(name: string) {
+        this.openWorlds.delete(name)
+    }
     async openWorld(name = '') {
         if (this.openWorlds.has(name)) {
             return this.openWorlds.get(name)
@@ -587,13 +721,15 @@ export class MudStorage {
         }
         await world.initStdPrototypes()
         this.openWorlds.set(name, world)
+        for (const extension of await world.getExtensions()) {
+            await world.evalExtension(extension)
+        }
         return world
     }
     randomWorldName() {
-        let name
+        for (; ;) {
+            const name = randomName('mud')
 
-        for (;;) {
-            name = randomName('mud')
             if (!this.hasWorld(name)) {
                 return name;
             }
@@ -606,30 +742,30 @@ export class MudStorage {
         return promiseFor(store.put(this.spec(), infoKey))
     }
     spec() {
-        return {worlds: this.worlds}
+        return { worlds: this.worlds }
     }
-    upgrade(then: (arg)=>void) {
+    upgrade(then: (arg) => void) {
         let version = this.db.version
         this.db.close()
         const req = indexedDB.open(centralDbName, ++version)
 
-        req.onsuccess = evt=> {
+        req.onsuccess = evt => {
             this.db = req.result
             then(evt)
         }
         return req
     }
     deleteWorld(name: string) {
-        return new Promise((succeed, fail)=> {
+        return new Promise((succeed, fail) => {
             const index = this.worlds.indexOf(name)
 
             if (index !== -1) {
-                const req = this.upgrade(async ()=> {
+                const req = this.upgrade(async () => {
                     await this.store()
                     return succeed()
                 })
 
-                req.onupgradeneeded = ()=> {
+                req.onupgradeneeded = () => {
                     const txn = req.transaction
 
                     this.db = req.result
@@ -640,25 +776,25 @@ export class MudStorage {
                 }
                 req.onerror = fail
             } else {
-                fail(new Error('There is no world named '+name))
+                fail(new Error('There is no world named ' + name))
             }
         })
     }
     renameWorld(name: string, newName: string) {
-        return new Promise(async (succeed, fail)=> {
+        return new Promise(async (succeed, fail) => {
             const index = this.worlds.indexOf(name)
 
             if (newName && name !== newName && index !== -1 && !this.hasWorld(newName)) {
                 const world = await this.openWorld(name)
-                const req = this.upgrade(async ()=> {
+                const req = this.upgrade(async () => {
                     world.setName(newName)
-                    await world.doTransaction(()=> world.store())
+                    await world.doTransaction(() => world.store())
                     console.log('STORING MUD INFO')
                     await this.store()
                     succeed()
                 })
 
-                req.onupgradeneeded = async ()=> {
+                req.onupgradeneeded = async () => {
                     const txn = req.transaction
 
                     this.db = req.result
@@ -672,9 +808,9 @@ export class MudStorage {
             } else if (name === newName) {
                 succeed()
             } else if (index === -1) {
-                fail(new Error('There is no world named '+name))
+                fail(new Error('There is no world named ' + name))
             } else {
-                fail(new Error('There is already a world named '+newName))
+                fail(new Error('There is already a world named ' + newName))
             }
         })
     }
@@ -682,27 +818,44 @@ export class MudStorage {
         const index = this.worlds.indexOf(name)
 
         if (index === -1) {
-            return Promise.reject(new Error('No world found named '+name))
+            return Promise.reject(new Error('No world found named ' + name))
         }
-        return new Promise(async (succeed, fail)=> {
-            const txn = this.db.transaction([mudDbName(name)])
+        return new Promise(async (succeed, fail) => {
+            const dbs = [mudDbName(name)]
+            if (this.db.objectStoreNames.contains(extensionDbName(name))) {
+                dbs.push(extensionDbName(name))
+            }
+            const txn = this.db.transaction(dbs)
+            const result: any = {
+                objects: await jsonObjectsForDb(txn.objectStore(mudDbName(name))),
+            }
 
-            return blobForDb(await txn.objectStore(mudDbName(name)))
+            if (dbs.length === 2) {
+                result.extensions = await jsonObjectsForDb(txn.objectStore(extensionDbName(name)))
+            }
+            succeed(blobForYamlObject(result))
         })
     }
     fullBlobForWorld(name: string): Promise<Blob> {
         const index = this.worlds.indexOf(name)
 
         if (index === -1) {
-            return Promise.reject(new Error('No world found named '+name))
+            return Promise.reject(new Error('No world found named ' + name))
         }
-        return new Promise(async (succeed, fail)=> {
-            const txn = this.db.transaction([mudDbName(name), userDbName(name)])
-            const result = {
+        return new Promise(async (succeed, fail) => {
+            const dbs = [mudDbName(name), userDbName(name)]
+            if (this.db.objectStoreNames.contains(extensionDbName(name))) {
+                dbs.push(extensionDbName(name))
+            }
+            const txn = this.db.transaction(dbs)
+            const result: any = {
+                users: await jsonObjectsForDb(txn.objectStore(userDbName(name))),
                 objects: await jsonObjectsForDb(txn.objectStore(mudDbName(name))),
-                users: await jsonObjectsForDb(txn.objectStore(userDbName(name)))
             }
 
+            if (dbs.length === 3) {
+                result.extensions = await jsonObjectsForDb(txn.objectStore(extensionDbName(name)))
+            }
             succeed(blobForYamlObject(result))
         })
     }
@@ -713,31 +866,32 @@ export class MudStorage {
     async uploadFullWorld(worldAndUsers) {
         const users = worldAndUsers.users
         const objects = worldAndUsers.objects
-        const info = objects.find(i=> i.id === 'info')
+        const info = objects.find(i => i.id === 'info')
         const world = await this.openWorld(info.name)
 
-        return world.doTransaction(async (thingStore, userStore, txn)=> {
+        return world.doTransaction(async (thingStore, userStore, txn) => {
             await this.uploadStrippedWorld(objects, world)
             await world.replaceUsers(users)
         })
     }
-    async uploadStrippedWorld(objects, world = null) {
+    async uploadStrippedWorld(data: any, world = null) {
         if (world) {
-            return world.replaceThings(objects)
+            return world.replaceThings(data.objects)
         } else {
-            const info = objects.find(i=> i.id === 'info')
+            const info = data.objects.find(i => i.id === 'info')
 
             world = await this.openWorld(info.name)
-            await world.replaceThings(objects)
+            await world.replaceThings(data.objects)
+            if (data.extensions) return world.replaceExtensions(data.extensions)
         }
     }
 }
 
 export function blobForYamlObject(object) {
-    return new Blob([jsyaml.dump(object, {flowLevel: 3})], {type: 'text/yaml'})
+    return new Blob([jsyaml.dump(object, { flowLevel: 3 })], { type: 'text/yaml' })
 }
 export function blobForJsonObjects(objects) {
-    return new Blob(objects, {type: 'application/json'})
+    return new Blob(objects, { type: 'application/json' })
 }
 
 export async function blobForDb(objectStore) {
@@ -745,11 +899,11 @@ export async function blobForDb(objectStore) {
 }
 
 export function jsonObjectsForDb(objectStore, records = []) {
-    return new Promise((succeed, fail)=> {
+    return new Promise((succeed, fail) => {
         const req = objectStore.openCursor()
         const first = true
 
-        req.onsuccess = evt=> {
+        req.onsuccess = evt => {
             const cursor = evt.target.result
 
             if (cursor) {
@@ -759,7 +913,7 @@ export function jsonObjectsForDb(objectStore, records = []) {
                 succeed(records)
             }
         }
-        req.onerror = evt=> {
+        req.onerror = evt => {
             console.log('failure: ', evt)
             fail(evt)
         }
@@ -779,11 +933,11 @@ export async function getStorage() {
     return storage || await openStorage()
 }
 export function openStorage() {
-    return new Promise((succeed, fail)=> {
+    return new Promise((succeed, fail) => {
         console.log('opening storage')
         const req = indexedDB.open(centralDbName)
 
-        req.onupgradeneeded = ()=> {
+        req.onupgradeneeded = () => {
             const db = req.result
             const txn = req.transaction
 
@@ -793,7 +947,7 @@ export function openStorage() {
 
             store.put(storage.spec(), infoKey)
         }
-        req.onsuccess = async evt=> {
+        req.onsuccess = async evt => {
             const db = req.result
             const txn = db.transaction(centralDbName, 'readwrite')
             const store = txn.objectStore(centralDbName)
@@ -810,26 +964,26 @@ export function openStorage() {
 
 export function promiseFor(req: IDBRequest | IDBTransaction) {
     if (req instanceof IDBRequest) {
-        return new Promise((succeed, fail)=> {
+        return new Promise((succeed, fail) => {
             req.onerror = fail
-            req.onsuccess = ()=> succeed(req.result)
+            req.onsuccess = () => succeed(req.result)
         })
     } else {
-        return new Promise((succeed, fail)=> {
+        return new Promise((succeed, fail) => {
             req.onerror = fail
-            req.oncomplete = ()=> succeed()
+            req.oncomplete = () => succeed()
         })
     }
 }
 
 export function rawPromiseFor(req: IDBRequest | IDBTransaction): Promise<any> {
     if (req instanceof IDBRequest) {
-        return new Promise((succeed, fail)=> {
+        return new Promise((succeed, fail) => {
             req.onerror = fail
             req.onsuccess = succeed
         })
     } else {
-        return new Promise((succeed, fail)=> {
+        return new Promise((succeed, fail) => {
             req.onerror = fail
             req.oncomplete = succeed
         })
@@ -841,11 +995,15 @@ export function contains(array: any[], item: any) {
 }
 
 function mudDbName(name: string) {
-    return 'world '+name
+    return 'world ' + name
 }
 
 function userDbName(name: string) {
-    return 'world '+name+usersSuffix
+    return 'world ' + name + usersSuffix
+}
+
+function extensionDbName(name: string) {
+    return 'world ' + name + extensionsSuffix
 }
 
 export function randomName(prefix: string) {
@@ -853,11 +1011,11 @@ export function randomName(prefix: string) {
 }
 
 function deleteAll(store: IDBObjectStore) {
-    return new Promise((succeed, fail)=> {
+    return new Promise((succeed, fail) => {
         const req = store.openCursor()
 
         req.onerror = fail
-        req.onsuccess = evt=> {
+        req.onsuccess = evt => {
             const cursor = (evt.target as any).result
 
             if (cursor) {
@@ -872,11 +1030,11 @@ function deleteAll(store: IDBObjectStore) {
 
 async function copyAll(srcStore, dstStore: IDBObjectStore) {
     await deleteAll(dstStore)
-    return new Promise((succeed, fail)=> {
+    return new Promise((succeed, fail) => {
         const req = srcStore.openCursor()
 
         req.onerror = fail
-        req.onsuccess = async evt=> {
+        req.onsuccess = async evt => {
             const cursor = (evt.target as any).result
 
             if (cursor) {
@@ -896,7 +1054,7 @@ export function findSimpleName(str: string) {
     let foundPrep = false
     let tmp = str
 
-    for (;;) {
+    for (; ;) {
         const prepMatch = tmp.match(/^(.*?)\b(of|on|about|in|from)\b/)
 
         if (prepMatch) {
@@ -928,4 +1086,28 @@ export function escape(text: string) {
     return typeof text === 'string' ? text.replace(/</g, '&lt;') : text
 }
 
-export function init(app: any) {}
+export function init(appObj: any) {
+    app = appObj
+}
+
+export function toHex(arraylike: any) {
+    let result = ''
+
+    for (const i of arraylike) {
+        // tslint:disable-next-line:no-bitwise
+        const val = (i & 0xFF).toString(16)
+
+        if (val.length === 1) result += '0'
+        result += val
+    }
+    return result
+}
+
+export function fromHex(hex: string) {
+    const output = new Int8Array(hex.length / 2)
+
+    for (let i = 0; i < hex.length; i += 2) {
+        output[i / 2] = Number.parseInt(hex.substring(i, i + 2), 16)
+    }
+    return output
+}

@@ -286,9 +286,9 @@ class HostStrategy extends Strategy {
             user: peer.userMap.get(peerID).name,
         };
         for (const [pid, con] of this.mudConnections) {
-            const conID = proto.getInfoForPeerAndProtocol(peer.connections, pid, this.mudProtocol);
-            if (conID !== undefined) {
-                this.sendObject(conID, cmd);
+            const info = proto.getInfoForPeerAndProtocol(peer.connections, pid, this.mudProtocol);
+            if (info !== undefined) {
+                this.sendObject(info.conID, cmd);
             }
         }
         return cmd;
@@ -630,7 +630,7 @@ function decodeObject(str) {
         return null;
     }
 }
-function randomChars(count = 16) {
+export function randomChars(count = 16) {
     const a = 'a'.charCodeAt(0);
     const A = 'A'.charCodeAt(0);
     let chars = '';

@@ -259,15 +259,20 @@
             <div id='templates'>
                 <div id='mud-item-template' class='mud-view'>
                     <i class="fas fa-fist-raised"></i>&nbsp;<span name='name'></span>&nbsp;&nbsp;<button name='activate-mud'>Activate</button>&nbsp;&nbsp;&nbsp;&nbsp;<button name='copy-mud'>Copy</button>&nbsp;</div>
-                <div id='mud-editor-template' class='dialog fcolumn'>
-                    <div class='field mud-edit-top'>
-                        World name:&nbsp;<input type='text' name='mud-name'>&nbsp;<button name='download-mud'>Generate download</button>&nbsp;<a name='download-mud-link' class='fgrow'></a><span name='mud-deleted' class='when-mud-deleted error'>DELETING&nbsp;</span><button name='delete-mud' class='naked-button'><i class="fas fa-window-close"></i></button>
+                <div id='mud-editor-template' class='dialog'>
+                    <div class='fcolumn'>
+                        <div class='field mud-edit-top'>
+                            World name:&nbsp;<input type='text' name='mud-name'>&nbsp;<button name='download-mud'>Generate download</button>&nbsp;<a name='download-mud-link' class='fgrow'></a><span name='mud-deleted' class='when-mud-deleted error'>DELETING&nbsp;</span><button name='delete-mud' class='naked-button'><i class="fas fa-window-close"></i></button>
+                        </div>
+                        <div>Users <button name='mud-add-user'><i class="fas fa-plus"></i></button></div>
+                        <div class='fcolumn fgrow' name='mud-user-list'></div>
+                        <div class='fcenter'>
+                            Extensions&nbsp;
+                            <button><label for='upload-mud-extension' class='fcenter'>Upload extension</label></button></div>
+                        <input type='file' name='upload-mud-extension' class='hidden' accept='text/yaml'>
+                        <div class='fcolumn fgrow' name='mud-extension-list'></div>
+                        <div><button name='save' class='left'>Save</button><button name='cancel' class='right'>Cancel</button></div>
                     </div>
-                    <div>Users <button name='mud-add-user'><i class="fas fa-plus"></i></button></div>
-                    <div class='fcolumn fgrow' name='mud-user-list'>
-                        
-                    </div>
-                    <div><button name='save' class='left'>Save</button><button name='cancel' class='right'>Cancel</button></div>
                 </div>
                 <div id='mud-user-item' class='field mud-view'>
                     Name:&nbsp;
@@ -278,6 +283,16 @@
                     <span class='fslim'><input type="checkbox" name="mud-user-admin"> <label for="mud-user-admin">admin</label></span>
                     &nbsp;
                     <button name='delete-user' class='naked-button'><i class="fas fa-window-close"></i></button>
+                </div>
+                <div id='mud-extension-item' class='field mud-view'>
+                    Name&nbsp;<input name='mud-extension-name'>
+                    &nbsp;Hash&nbsp;<input name='mud-extension-hash' readonly>
+                    <button><label for='upload-mud-extension-version' class='fcenter'>Upload new version</label></button>
+                    <input type='file' name='upload-mud-extension-version' class='hidden' accept='text/yaml'>
+                    &nbsp;
+                    <small><a name='save-mud-extension' target='_blank'>View extension</a></small>
+                    &nbsp;
+                    <button name='delete-mud-extension' class='naked-button'><i class="fas fa-window-close"></i></button>
                 </div>
                 <div id='mud-connected-user-item' class='field mud-view'></div>
             </div>
