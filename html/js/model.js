@@ -197,6 +197,8 @@ export class World {
                     limbo.setPrototype(this.roomProto);
                     lobby.setPrototype(this.roomProto);
                     protos.setPrototype(this.roomProto);
+                    await this.createUser('a', 'a', true);
+                    this.defaultUser = 'a';
                     await this.store();
                     succeed();
                 });
@@ -223,13 +225,14 @@ export class World {
     async useInfo(info) {
         this.nextId = info.nextId;
         this.name = info.name;
+        this.defaultUser = info.defaultUser;
         this.lobby = info.lobby;
         this.limbo = info.limbo;
         this.hallOfPrototypes = info.hallOfPrototypes;
         this.thingProto = await this.getThing(info.thingProto);
         this.personProto = await this.getThing(info.personProto);
-        this.roomProto = (await this.getThing(info.personProto)) || await this.findPrototype('room');
-        this.linkProto = (await this.getThing(info.personProto)) || await this.findPrototype('link');
+        this.roomProto = (await this.getThing(info.roomProto)) || await this.findPrototype('room');
+        this.linkProto = (await this.getThing(info.linkProto)) || await this.findPrototype('link');
     }
     async findPrototype(name) {
         for (const aproto of await (await this.getThing(this.hallOfPrototypes)).getContents()) {
@@ -251,15 +254,14 @@ export class World {
             thingProto.linkFormat = '$This leads to $link';
             thingProto._keys = [];
             thingProto._template = false;
-            thingProto._locked = false;
             linkProto.markDirty(linkProto._location = this.hallOfPrototypes);
             linkProto.article = '';
-            linkProto._cmd = 'go $1';
+            linkProto._locked = false;
+            linkProto._cmd = '@if !$0.locked || $0 in me.keys @then go $1 @else @output $0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key';
+            linkProto._go = '@if !$0.locked || $0 in me.keys @then go $1 @else @output $0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key';
             linkProto._linkEnterFormat = '$Arg1 enters $arg2';
             linkProto._linkMoveFormat = 'You went $name to $arg3';
             linkProto._linkExitFormat = '$Arg1 went $name to $arg2';
-            linkProto._lockPassFormat = '$forme You open $this and go through to $arg2 $forothers $Arg open$s $this and go$s through to $arg2';
-            linkProto._lockFailFormat = 'You cannot go $this because it is locked';
             roomProto.markDirty(roomProto._location = this.hallOfPrototypes);
             roomProto._closed = true;
             roomProto.setPrototype(thingProto);
@@ -278,6 +280,7 @@ export class World {
             hallOfPrototypes: this.hallOfPrototypes,
             thingProto: this.thingProto.id,
             personProto: this.personProto.id,
+            defaultUser: this.defaultUser
         };
     }
     rename(newName) {
@@ -534,7 +537,7 @@ export class World {
                 user = { name, password: null };
                 await promiseFor(users.put(user));
             }
-            else if (!user || user.password !== passwd) {
+            else if (!(user && (noauthentication || user.password === passwd))) {
                 throw new Error('Bad user or password');
             }
             if (!user.thing) {
@@ -951,7 +954,9 @@ export function findSimpleName(str) {
     let name;
     let article;
     let foundPrep = false;
-    let tmp = str;
+    let tmp;
+    str = str.replace(/[^a-zA-Z0-9_\s]/, '');
+    tmp = str;
     for (;;) {
         const prepMatch = tmp.match(/^(.*?)\b(of|on|about|in|from)\b/);
         if (prepMatch) {
@@ -975,9 +980,14 @@ export function findSimpleName(str) {
         article = words[0];
         words = words.slice(1);
     }
-    // choose the last word
-    name = words[words.length - 1].toLowerCase();
-    return [article, name];
+    if (article) { // the blah BLAH of blah
+        // choose the last word
+        name = words[words.length - 1].toLowerCase();
+        return [article, name];
+    }
+    else { // BLAH blah of blah,  BLAH blah the blah
+        return ['', words[0]];
+    }
 }
 export function escape(text) {
     return typeof text === 'string' ? text.replace(/</g, '&lt;') : text;

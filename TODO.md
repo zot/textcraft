@@ -1,14 +1,17 @@
+# Extensions:
+* Make quitting a MUD with an extension offer to reload the page
+
+# BUG: you can go into something you're holding -- limit go to your location and its links
+
 # copying objects (thing + contents + links + linked things)
 * _template flag to autocopy during move
 * @copy command
-
-# auto-login user for activating muds
 
 # after nat acquired, check textcraft.org for updates
 * send current and latest version numbers in ident() message
 * provide peerID when checking for updates
 
-# use JSON for commands (or encode it) so we can put exits in the GUI
+# use JSON for commands output (or encode it) so we can put exits in the GUI
 
 # object editor
 

@@ -172,7 +172,7 @@ export function showMuds() {
                 $('#mud-output').innerHTML = ''
                 sectionTracker.setValue(SectionState.Mud)
                 roleTracker.setValue(RoleState.Solo)
-                mudcontrol.runMud(await model.storage.openWorld(world), text => {
+                await mudcontrol.runMud(await model.storage.openWorld(world), text => {
                     addMudOutput('<div>' + text + '</div>')
                 })
                 $('#mud-name').textContent = world
@@ -306,10 +306,12 @@ export async function editWorld(world: model.World) {
                 const childNameField = $find(childDiv, '[name=mud-user-name]')
                 const passwordField = $find(childDiv, '[name=mud-user-password]')
                 const adminCheckbox = $find(childDiv, '[name=mud-user-admin]')
+                const defaultCheckbox = $find(div, '[name=mud-user-default]')
 
                 if (childDiv.originalUser.name !== childNameField.value
                     || childDiv.originalUser.password !== passwordField.value
-                    || childDiv.originalUser.admin !== adminCheckbox.checked) {
+                    || childDiv.originalUser.admin !== adminCheckbox.checked
+                    || defaultCheckbox.checked !== (world.defaultUser === childDiv.originalUser.name)) {
                     processUsers = true
                     break
                 }
@@ -324,6 +326,9 @@ export async function editWorld(world: model.World) {
                 user.name = $find(childDiv, '[name=mud-user-name]').value
                 user.password = $find(childDiv, '[name=mud-user-password]').value
                 user.admin = $find(childDiv, '[name=mud-user-admin]').checked
+                if ($find(childDiv, '[name=mud-user-default]').checked) {
+                    world.defaultUser = user.name
+                }
                 newUsers.push(user)
             }
             await world.replaceUsers(newUsers)
@@ -342,7 +347,7 @@ export async function editWorld(world: model.World) {
     }
 
     for (const user of await world.getAllUsers()) {
-        const itemDiv = userItem(user, () => processUsers = true)
+        const itemDiv = userItem(world, user, () => processUsers = true)
 
         userList.appendChild(itemDiv)
     }
@@ -356,7 +361,7 @@ export async function editWorld(world: model.World) {
         const randomName = await world.randomUserName()
         const password = model.randomName('password')
         const user = { name: randomName, password }
-        const userDiv = userItem(user, () => processUsers = true)
+        const userDiv = userItem(world, user, () => processUsers = true)
         userList.appendChild(userDiv, user)
         $find(userDiv, '[name=mud-user-name]').select()
         $find(userDiv, '[name=mud-user-name]').focus()
@@ -391,17 +396,19 @@ export async function editWorld(world: model.World) {
     }
 }
 
-function userItem(user: any, processUsersFunc) {
+function userItem(world: model.World, user: any, processUsersFunc) {
     const { name, password, admin } = user
     const div = cloneTemplate('#mud-user-item')
     const nameField = $find(div, '[name=mud-user-name]')
     const passwordField = $find(div, '[name=mud-user-password]')
     const adminCheckbox = $find(div, '[name=mud-user-admin]')
+    const defaultCheckbox = $find(div, '[name=mud-user-default]')
 
     div.originalUser = user
     nameField.value = name
     passwordField.value = password
     adminCheckbox.checked = !!admin
+    defaultCheckbox.checked = world.defaultUser === user.name
     $find(div, '[name=delete-user]').onclick = async evt => {
         evt.stopPropagation()
         div.remove()

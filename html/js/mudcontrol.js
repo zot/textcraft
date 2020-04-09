@@ -1,5 +1,5 @@
 import { MudState, RoleState, PeerState, mudTracker, roleTracker, peerTracker, } from './base.js';
-import { findSimpleName, escape, } from './model.js';
+import { Thing, findSimpleName, escape, } from './model.js';
 import * as mudproto from './mudproto.js';
 let app;
 let connection;
@@ -56,16 +56,28 @@ const setHelp = ['thing property value', `Set one of these properties on a thing
     linkOwner       -- the owner of this link (if this is a link)
     otherLink       -- the other link (if this is a link)
     keys[]          -- locks that this thing allows opening
-    locked          -- whether this link is locked
-    lockPassFormat  -- message to show when someone passes through a locked link
-    lockFailFormat  -- message to show when someone fails to pass through a locked link
     closed          -- whether this object propagates descriptons to its location
     template        -- whether to copy this object during a move command
     cmd             -- command template for when the object's name is used as a command
     cmd_WORD        -- command template for when the WORD is used as a command
     get             -- command template for when someone tries to get the object
     get_WORD        -- command template for when someone tries to get WORD
+    go              -- command template for when someone tries to go into in object or through a link
+    go_WORD         -- command template for when someone tries to go into WORD (virtual directions)
 `
+];
+const valuePat = /^(".*"|([0-9]*\.)?[0-9]+|true|false|null)$/;
+const namePat = /^[a-zA-Z][a-zA-Z0-9]*/;
+const thingPat = /^([a-zA-Z][a-zA-Z0-9]*|%[0-9]+|%[a-zA-Z]+|%[a-zA-z]+:[a-zA-Z]+)(?:\.([a-zA-Z][a-zA-Z0-9]*))?$/;
+const ifPat = /(?:^|\s)(@if|@then|@else|@elseif|@end)\b/;
+const tokPrecLevels = [
+    ['!'],
+    ['in'],
+    ['*', '/'],
+    ['+', '-'],
+    ['<', '<=', '==', '>=', '>'],
+    ['&&'],
+    ['||'],
 ];
 class Command {
     constructor({ help, admin, alt }) {
@@ -90,17 +102,14 @@ const commands = new Map([
     ['act', new Command({ help: ['words...', `Do something`] })],
     ['gesture', new Command({ help: ['thing words...', `Do something towards thing`] })],
     ['get', new Command({
-            help: ['thing', `grab a thing`,
-                'thing [from] location', `grab a thing from a location`]
+            help: ['thing', `grab a thing`, 'thing [from] location', `grab a thing from a location`]
         })],
     ['drop', new Command({ help: ['thing', `drop something you are carrying`] })],
     ['@dump', new Command({ help: ['thing', 'See properties of a thing'] })],
     ['@move', new Command({ help: ['thing location', 'Move a thing'] })],
     ['@output', new Command({
-            help: [
-                'contextThing words...', '',
-                'contextThing arg..., words...', `Output text to the user and/or others using a format string on contextThing`
-            ]
+            help: ['contextThing arg..., words...', `Output text to the user and/or others using a format string on contextThing
+  DON'T FORGET THE COMMA!`]
         })],
     ['@admin', new Command({ help: ['thing boolean', 'Change a thing\'s admin privileges'] })],
     ['@create', new Command({ help: ['proto name [description words...]', 'Create a thing'] })],
@@ -110,19 +119,36 @@ const commands = new Map([
         })],
     ['@link', new Command({ help: ['loc1 link1 link2 loc2', 'create links between two things'] })],
     ['@info', new Command({ help: ['', 'List important information'] })],
-    ['@add', new Command({ help: ['thing property thing2', `Add thing2 to the list in property`], admin: true })],
+    ['@add', new Command({
+            help: ['thing property thing2', `Add thing2 to the list or set in property
+  If there is no property, create a set
+  thing2 is optional`], admin: true
+        })],
     ['@remove', new Command({ help: ['thing property thing2', `Remove thing2 from the list in property`], admin: true })],
     ['@setNum', new Command({ help: ['thing property number'], admin: true, alt: '@set' })],
     ['@setBigint', new Command({ help: ['thing property bigint'], admin: true, alt: '@set' })],
     ['@setBool', new Command({ help: ['thing property boolean'], admin: true, alt: '@set' })],
     ['@set', new Command({ help: setHelp, admin: true })],
     ['@del', new Command({ help: ['thing property', `Delete a properties from a thing so it will inherit from its prototype`] })],
+    ['@expr', new Command({ help: ['thing property expr', `Set a property to the value of an expression`], admin: true })],
+    ['@if', new Command({
+            minArgs: 2,
+            help: ['condition @then commands... @elseif condition @then commands ... @else commands... @end', `conditionally run commands
+@else and @end are optional, use @end if you nest @ifs
+Conditions can contain expressions -- see expressions
+
+Example:
+  @if me.x == 1 @then say one; @if true @then say derp @end @elseif me.x == 2 @then say two @else say other
+`]
+        })],
 ]);
 export function init(appObj) {
     app = appObj;
     for (const cmdName of commands.keys()) {
         const command = commands.get(cmdName);
-        command.minArgs = 1000;
+        if (command.minArgs === undefined) {
+            command.minArgs = 1000;
+        }
         command.name = cmdName;
         if (command.alt) {
             const alt = commands.get(command.alt);
@@ -272,6 +298,12 @@ export class MudConnection {
                         }
                         continue;
                     }
+                    case 'actor': {
+                        let name;
+                        name = this.formatName(this.thing);
+                        result += capitalize(name, format);
+                        continue;
+                    }
                     case 'location': {
                         result += capitalize((await thing.getLocation()).formatName(), format);
                         continue;
@@ -392,10 +424,12 @@ export class MudConnection {
         return lines.length > 0 ? lines : null;
     }
     async runCommands(lines) {
-        for (const line of lines) {
-            await this.command(line, true);
-            if (this.failed)
-                break;
+        if (lines) {
+            for (const line of lines) {
+                await this.command(line, true);
+                if (this.failed)
+                    break;
+            }
         }
     }
     async command(line, substituted = false) {
@@ -405,21 +439,14 @@ export class MudConnection {
         else if (line[0] === ':') {
             line = `act ${line.substring(1)}`;
         }
-        let words = line.split(/\s+/);
-        let commandName = words[0].toLowerCase();
+        const words = line.split(/\s+/);
+        const commandName = words[0].toLowerCase();
         if (!substituted) {
             this.output('<div class="input">&gt; <span class="input-text">' + line + '</span></div>');
-        }
-        if (!commands.has(commandName) && !substituted && this.thing) {
-            const newCommands = await this.findCommand(words);
-            if (newCommands) {
-                if (newCommands.length > 1)
+            if (!commands.has(commandName) && this.thing) {
+                const newCommands = await this.findCommand(words);
+                if (newCommands)
                     return this.runCommands(newCommands);
-                const newWords = newCommands[0].split(/\s+/);
-                if (commands.has(newWords[0])) {
-                    words = newWords;
-                    commandName = words[0].toLowerCase();
-                }
             }
         }
         if (this.thing ? commands.has(commandName) : commandName === 'login' || commandName === 'help') {
@@ -430,7 +457,7 @@ export class MudConnection {
                 return this.error('Unknown command: ' + words[0]);
             }
             // execute command inside a transaction so it will automatically store any dirty objects
-            await this.world.doTransaction(() => this[command.method]({ command, line }, ...words.slice(1)))
+            await this.world.doTransaction(() => this[command.method]({ command, line, substituted }, ...words.slice(1)))
                 .catch(err => this.error(err.message));
         }
         else {
@@ -576,6 +603,138 @@ export class MudConnection {
         }
         return false;
     }
+    // the command is split into if-keywords (@if, @then, @else, @elseif, @end) and quoted strings
+    // intervening clauses can contain if-keywords, quoted strings, and semicolons
+    async runIfs(parts) {
+        const clauses = findIfClauses(parts.slice(1));
+        const [condition, conditionRest] = await this.computeExpr(exprTokens(clauses[0]));
+        if (conditionRest.length) {
+            throw new Error(`Extra text after condition: ${conditionRest.join(' ')}`);
+        }
+        if (condition) {
+            return this.runCommands(findCommands(clauses[1]));
+        }
+        else {
+            for (let i = 2; i < clauses.length - 1; i += 2) {
+                const [elcondition, elconditionRest] = await this.computeExpr(exprTokens(clauses[i]));
+                if (elconditionRest.length) {
+                    throw new Error(`Extra text after condition: ${elconditionRest.join(' ')}`);
+                }
+                if (elcondition) {
+                    return this.runCommands(findCommands(clauses[i + 1]));
+                }
+            }
+            if (clauses.length % 2 === 1) { // there is an else clause
+                return this.runCommands(findCommands(clauses[clauses.length - 1]));
+            }
+        }
+    }
+    async computeExpr(toks, prec = tokPrecLevels.length) {
+        const origExpr = toks.join(' ');
+        let first;
+        let second;
+        while (toks.length) {
+            if (toks[0] === '!') {
+                const [fst, firstToks] = await this.parseItem(toks.slice(1));
+                first = !fst;
+                toks = firstToks;
+            }
+            else {
+                const [fst, firstToks] = await this.parseItem(toks);
+                first = fst;
+                toks = firstToks;
+            }
+            if (!toks.length)
+                break;
+            const op = toks[0];
+            const tokPrec = tokPrecLevels.findIndex(t => t.indexOf(op) > -1);
+            if (tokPrec === -1)
+                throw new Error(`Bad expression operator: ${op}`);
+            if (tokPrec >= prec)
+                return [first, toks];
+            const [next, nextToks] = await this.computeExpr(toks.slice(1), tokPrec);
+            second = next;
+            toks = nextToks;
+            switch (op) {
+                case 'in':
+                    if (!(first instanceof Thing))
+                        throw new Error(`in only works on things: ${origExpr}`);
+                    if ('indexOf' in second) {
+                        first = second.indexOf(first._id) !== -1;
+                    }
+                    else if ('has' in second) {
+                        first = second.has(first._id);
+                    }
+                    else {
+                        throw new Error(`value for 'in' is not a collection: ${origExpr}`);
+                    }
+                case '*':
+                    first = first * second;
+                    break;
+                case '/':
+                    first = first / second;
+                    break;
+                case '+':
+                    first = first + second;
+                    break;
+                case '-':
+                    first = first - second;
+                    break;
+                case '<':
+                    first = first < second;
+                    break;
+                case '<=':
+                    first = first <= second;
+                    break;
+                case '==':
+                    first = first === second;
+                    break;
+                case '!=':
+                    first = first !== second;
+                    break;
+                case '>=':
+                    first = first >= second;
+                    break;
+                case '>':
+                    first = first > second;
+                    break;
+                case '&&':
+                    first = first && second;
+                    break;
+                case '||':
+                    first = first || second;
+                    break;
+                default:
+                    throw new Error(`Unknown operator: ${op}`);
+            }
+        }
+        return [first, toks];
+    }
+    // could be a number, string, boolean, name, name.property
+    async parseItem(toks) {
+        if (toks[0] === '(') {
+            const [value, newToks] = await this.computeExpr(toks.slice(1));
+            if (newToks[0] !== ')')
+                throw new Error(`Unclosed parentheses: ${toks.join(' ')}`);
+            return [value, newToks.slice(1)];
+        }
+        else if (toks[0].match(valuePat)) {
+            return [JSON.parse(toks[0]), toks.slice(1)];
+        }
+        else if (toks[0] === 'undefined') {
+            return [undefined, toks.slice(1)];
+        }
+        else if (toks[0].match(thingPat)) {
+            const match = toks[0].match(thingPat);
+            const thing = await this.find(match[1]);
+            if (!thing)
+                throw new Error(`Could not find thing ${match[1]}`);
+            return [match[2] ? thing['_' + match[2]] : thing, toks.slice(1)];
+        }
+        else {
+            throw new Error(`Could not parse ${toks[0]}`);
+        }
+    }
     // COMMAND
     login(cmdInfo, user, password) {
         return this.doLogin(user, password);
@@ -605,11 +764,16 @@ export class MudConnection {
     }
     // COMMAND
     async go(cmdInfo, directionStr) {
+        if (!cmdInfo.substituted) {
+            const cmd = await this.findCommand([directionStr, 'me'], '_go');
+            if (cmd)
+                return this.runCommands(cmd);
+        }
         const oldLoc = await this.thing.getLocation();
         const direction = await this.find(directionStr, this.thing, 'direction');
         let location;
         if (!direction._linkOwner) {
-            await this.thing.setLocation(direction);
+            this.thing.setLocation(direction);
             const output = await this.formatMe(direction, direction._contentsEnterFormat, this.thing);
             output && this.output(output);
             const descripton = await this.formatOthers(direction, direction._contentsEnterFormat, this.thing);
@@ -623,24 +787,11 @@ export class MudConnection {
                     return this.error(`${directionStr} does not lead anywhere`);
                 }
             }
-            if (direction._locked) {
-                if (!await this.hasKey(direction, this.thing)) {
-                    return this.error(await this.format(direction, direction._lockFailFormat, this.thing, location));
-                }
-            }
-            await this.thing.setLocation(location);
-            if (direction._locked) {
-                const output = await this.formatMe(direction, direction._lockPassFormat, this.thing, location);
-                output && this.output(output);
-                const descripton = await this.formatOthers(direction, direction._lockPassFormat, this.thing, oldLoc);
-                descripton && await this.commandDescripton(descripton, this.thing, oldLoc);
-            }
-            else {
-                const output = await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location);
-                output && this.output(output);
-                const descripton = await this.format(direction, direction._linkExitFormat, this.thing, oldLoc);
-                descripton && await this.commandDescripton(descripton, this.thing, oldLoc);
-            }
+            this.thing.setLocation(location);
+            const output = await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location);
+            output && this.output(output);
+            const descripton = await this.format(direction, direction._linkExitFormat, this.thing, oldLoc);
+            descripton && await this.commandDescripton(descripton, this.thing, oldLoc);
             await this.commandDescripton(await this.format(link, link._linkEnterFormat, this.thing, location), this.thing, location);
         }
         await this.look(cmdInfo);
@@ -951,6 +1102,30 @@ Prototypes:
         }
         this.output(`set ${thingStr} ${property} to ${value}`);
     }
+    async atExpr(cmdInfo, thingStr, property, expr) {
+        checkArgs(cmdInfo, arguments);
+        const [thing, lowerProp, realProp, val] = await this.thingProps(thingStr, property, '0', cmdInfo);
+        if (!thing)
+            return;
+        if (addableProperties.has(realProp))
+            return this.error(`Cannot set ${property}`);
+        const [value, rest] = await this.computeExpr(exprTokens(splitIf(dropArgs(3, cmdInfo))));
+        if (rest.length) {
+            throw new Error(`Extra text after condition: ${rest.join(' ')}`);
+        }
+        if (realProp in thing) {
+            const old = thing[realProp];
+            if (typeof old !== typeof value) {
+                return this.error(`${property} is a ${typeof old}, not a ${typeof value}`);
+            }
+        }
+        thing.markDirty(thing[realProp] = value);
+        this.output(`You set ${thingStr} ${property} to ${value}`);
+    }
+    // COMMAND
+    async atIf(cmdInfo) {
+        return this.runIfs(splitIf(cmdInfo.line));
+    }
     // COMMAND
     async atDel(cmdInfo, thingStr, property) {
         checkArgs(cmdInfo, arguments);
@@ -1035,6 +1210,7 @@ To make something into a prototype, move it to <b>%protos</b>
 
 Format words:
   <b>\$this</b>      -- formatted string for this object or "you" if the user is the thing
+  <b>\$actor</b>     -- formatted string for the thing that is currently running a command
   <b>\$name</b>      -- this object\'s name
   <b>\$is</b>        -- is or are, depending on the plurality of the thing
   <b>\$s</b>         -- optional "s" depending on the plurality of the thing (or "es" if it\'s after go)
@@ -1052,8 +1228,138 @@ Command templates are string properties on objects to implement custom commands.
 Example command template properties are get_key, cmd, and cmd_whistle -- see the help for @set.
 Templates replace the original command with different commands, separated by semicolons.
 Templates can contain $0..$N to refer to the command arguments. $0 refers to the thing itself.
+
+The following are legal expressions:
+   number
+   string
+   boolean
+   null
+   undefined
+   '(' expression ')'
+   expression1 + expression2
+   expression1 - expression2
+   expression1 * expression2
+   expression1 / expression2
+   expression1 < expression2
+   expression1 <= expression2
+   expression1 > expression2
+   expression1 >= expression2
+   expression1 == expression2
+   expression1 != expression2
+   expression1 && expression2
+   expression1 || expression2
+   !expression1
+   expression1 in expression2 -- expression2 must be a collection
 ` : ''}</pre>`);
     }
+}
+function exprTokens(cond) {
+    const tokens = [];
+    for (const part of cond) {
+        if (part[0] === '"' || part[0] === "'") {
+            tokens.push(part);
+        }
+        else {
+            tokens.push(...part.split(/(\(|\)|\s+|<|<=|==|>=|>|\+|-|!|&&|\|\|)/).filter(x => x.trim()));
+        }
+    }
+    return tokens;
+}
+function findCommands(toks) {
+    const lines = [];
+    let curLine = [];
+    let nesting = 0;
+    for (const tok of toks) {
+        if (tok.toLowerCase() === '@if') {
+            nesting++;
+        }
+        else if (tok.toLowerCase() === '@end') {
+            nesting--;
+        }
+        // only statements at the top level of this context are different commands
+        if (nesting === 0) {
+            const lineChunks = tok.split(';');
+            for (let i = 0; i < lineChunks.length; i++) {
+                if (i > 0) {
+                    lines.push(curLine.join(' ').trim());
+                    curLine = [];
+                }
+                curLine.push(lineChunks[i]);
+            }
+        }
+        else {
+            curLine.push(tok);
+        }
+    }
+    if (curLine.length) {
+        lines.push(curLine.join(' ').trim());
+    }
+    return lines;
+}
+function splitIf(line) {
+    const chunks = [];
+    for (const part of line.split(/("(?:[^"]|\\.)*"|'(?:[^']|\\.)*')/).filter(x => x)) {
+        if (part[0] === '"' || part[0] === "'") {
+            chunks.push(part);
+        }
+        else {
+            chunks.push(...part.split(ifPat));
+        }
+    }
+    return chunks.filter(x => x); // discard empty strings
+}
+function findIfClauses(toks) {
+    let nesting = 0;
+    let start = 0;
+    const clauses = [];
+    let i = 0;
+    let foundThen = false;
+    let foundElse = false;
+    for (; i < toks.length; i++) {
+        if (nesting === 0 && toks[i].toLowerCase().match(/^(@then|@else|@elseif|@end)$/)) {
+            if (toks[i].toLowerCase() === '@then') {
+                if (foundThen)
+                    throw new Error(`More than one @then: ${toks.join(' ')}`);
+                foundThen = true;
+            }
+            else if (toks[i].toLowerCase() !== '@then' && !foundThen) {
+                if (clauses.length)
+                    throw new Error(`@if requires a @then: ${toks.join(' ')}`);
+            }
+            else if (toks[i].toLowerCase() === '@else') {
+                if (foundElse)
+                    throw new Error(`More than one @else: ${toks.join(' ')}`);
+                foundElse = true;
+            }
+            else if (toks[i].toLowerCase() === '@elseif') {
+                if (foundElse)
+                    throw new Error(`@elseif should not be after @else: ${toks.join(' ')}`);
+                foundThen = false;
+            }
+            clauses.push(toks.slice(start, i));
+            start = i + 1;
+            if (toks[i].toLowerCase() === '@end')
+                break;
+        }
+        else if (toks[i].toLowerCase() === '@if') {
+            if (nesting === 0 && !foundThen)
+                throw new Error(`More than one @if: ${toks.join(' ')}`);
+            nesting++;
+        }
+        else if (nesting > 0 && toks[i].toLowerCase() === '@end') {
+            nesting--;
+        }
+    }
+    if (start < i) { // no @end for @if
+        clauses.push(toks.slice(start, i));
+    }
+    else if (start < toks.length) {
+        throw new Error(`Extra text after @end: ${toks.slice(start)}`);
+    }
+    else if (clauses.length < 2) {
+        throw new Error('@if requires @then');
+    }
+    return clauses;
 }
 function helpText(argLen, command) {
     let result = '';
@@ -1129,10 +1435,16 @@ export async function executeCommand(text) {
         mudproto.command(text);
     }
 }
-export function runMud(world, handleOutput) {
+export async function runMud(world, handleOutput) {
     activeWorld = world;
     connection = new MudConnection(world, handleOutput);
     connection.start();
+    if (world.defaultUser) {
+        const user = world.defaultUser;
+        if (user) {
+            await connection.doLogin(user, null, true);
+        }
+    }
 }
 export function quit() {
     // tslint:disable-next-line:no-floating-promises
