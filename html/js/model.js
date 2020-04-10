@@ -271,8 +271,8 @@ export class World {
             linkProto.markDirty(linkProto._location = this.hallOfPrototypes.id);
             linkProto.article = '';
             linkProto._locked = false;
-            linkProto._cmd = '@if !$0.locked || $0 in me.keys @then go $1 @else @output $0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key';
-            linkProto._go = '@if !$0.locked || $0 in me.keys @then go $1 @else @output $0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key';
+            linkProto._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key';
+            linkProto._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key';
             linkProto._linkEnterFormat = '$Arg1 enters $arg2';
             linkProto._linkMoveFormat = 'You went $name to $arg3';
             linkProto._linkExitFormat = '$Arg1 went $name to $arg2';
@@ -287,6 +287,7 @@ export class World {
             generatorProto._get = `
 @quiet;
 @copy $0;
+@expr %-1 fullName "a " + $0.name;
 @reproto %-1 %proto:thing;
 @loud;
 @output %-1 $forme You pick up $this $forothers $Actor picks up %-1
@@ -614,30 +615,33 @@ export class World {
     async copyThing(thing, location, connected = new Set()) {
         return this.doTransaction(async () => {
             await this.findConnected(thing, connected);
+            const originals = new Map();
             const copies = new Map();
             for (const conThing of connected) {
                 const cpy = await this.createThing(conThing.name);
+                originals.set(conThing._id, conThing);
                 copies.set(conThing._id, cpy);
                 const id = cpy._id;
                 cpy.__proto__ = conThing.__proto__;
                 cpy._id = id;
             }
-            for (const cpy of copies.values()) {
-                for (const prop of Object.keys(cpy)) {
+            for (const [id, cpy] of copies) {
+                const original = originals.get(id);
+                for (const prop of Object.keys(original)) {
                     if (prop === '_linkOwner' || prop === '_otherLink') {
-                        cpy[prop] = copies.get(thing[prop])?.id;
+                        cpy[prop] = copies.get(original[prop])?.id;
                     }
-                    else if (copies.has(thing[prop])) { // probably an id
-                        cpy[prop] = copies.get(thing[prop])?.id;
+                    else if (copies.has(original[prop])) { // probably an id
+                        cpy[prop] = copies.get(original[prop])?.id;
                     }
-                    else if (thing[prop] instanceof Set) {
-                        cpy[prop] = new Set([...thing[prop]].map(t => copies.get(t) || t));
+                    else if (original[prop] instanceof Set) {
+                        cpy[prop] = new Set([...original[prop]].map(t => copies.get(t) || t));
                     }
-                    else if (Array.isArray(thing[prop])) {
-                        cpy[prop] = [...thing[prop]].map(t => copies.get(t) || t);
+                    else if (Array.isArray(original[prop])) {
+                        cpy[prop] = [...original[prop]].map(t => copies.get(t) || t);
                     }
                     else {
-                        cpy[prop] = thing[prop];
+                        cpy[prop] = original[prop];
                     }
                 }
             }

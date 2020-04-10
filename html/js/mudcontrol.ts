@@ -116,6 +116,10 @@ The following are legal expressions:
    boolean
    null
    undefined
+   THING
+   THING.property
+   %any.property              -- returns the first value found on your thing or a thing your inventory
+                                 If property is a collection, it returns the union of all found
    '(' expression ')'
    expression1 + expression2
    expression1 - expression2
@@ -794,6 +798,7 @@ export class MudConnection {
                     } else {
                         throw new Error(`value for 'in' is not a collection: ${origExpr}`)
                     }
+                    break
                 case '*':
                     first = first * second
                     break
@@ -836,6 +841,7 @@ export class MudConnection {
         }
         return [first, toks]
     }
+
     // could be a number, string, boolean, name, name.property
     async parseItem(toks: string[]) {
         if (toks[0] === '(') {
@@ -849,12 +855,49 @@ export class MudConnection {
             return [undefined, toks.slice(1)]
         } else if (toks[0].match(thingPat)) {
             const match = toks[0].match(thingPat)
+            if (match[1] === '%any' && match[2]) {
+                const prop = `_${match[2]}`
+                const collection = new Set()
+                let pair: [any, any]
+                let possible: any
+                let useCollection = false
+
+                pair = this.gatherAny(this.thing, prop, collection)
+                if (pair) {
+                    if (pair[0] !== undefined) return [pair[0], toks.slice(1)]
+                    possible = pair[1]
+                    if (possible === undefined) useCollection = true
+                }
+                for (const item of await this.thing.getContents()) {
+                    pair = this.gatherAny(item, prop, collection)
+                    if (pair) {
+                        if (pair[0] !== undefined) return [pair[0], toks.slice(1)]
+                        possible = pair[1]
+                        if (possible === undefined) useCollection = true
+                    }
+                }
+                if (possible !== undefined) return [possible, toks.slice(1)]
+                if (useCollection) return [collection, toks.slice(1)]
+                throw new Error(`Could not find a ${match[2]} property`)
+            }
             const thing = await this.find(match[1])
 
             if (!thing) throw new Error(`Could not find thing ${match[1]}`)
             return [match[2] ? thing['_' + match[2]] : thing, toks.slice(1)]
         } else {
             throw new Error(`Could not parse ${toks[0]}`)
+        }
+    }
+    gatherAny(thing: Thing, prop: string, collection: Set<any>): [any, any] {
+        if (prop in thing) {
+            if (Array.isArray(thing[prop]) || thing[prop] instanceof Set) {
+                for (const item of thing[prop]) {
+                    collection.add(item)
+                }
+                return [undefined, undefined]
+            } else {
+                return thing.hasOwnProperty(prop) ? [thing[prop], null] : [undefined, thing[prop]]
+            }
         }
     }
     // COMMAND
@@ -1312,7 +1355,11 @@ Prototypes:
                 return this.error(`${property} is a ${typeof old}, not a ${typeof value}`)
             }
         }
-        thing.markDirty(thing[realProp] = value)
+        if (realProp === '_fullName') {
+            thing.markDirty(thing.fullName = value)
+        } else {
+            thing.markDirty(thing[realProp] = value)
+        }
         this.output(`You set ${thingStr} ${property} to ${value}`)
     }
     // COMMAND

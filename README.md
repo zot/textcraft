@@ -8,6 +8,25 @@ There are no servers. YOU own your data.
 
 It relies on [libp2p](https://github.com/libp2p/go-libp2p) for peer-to-peer networking and uses [libp2p-websocket](https://github.com/zot/libp2p-websocket) to connect browsers to libp2p.
 
+# Using the MUD
+
+1. Start by creating or uploading a MUD
+1. Activate the MUD, your default user should have admin privileges
+1. You should start in the lobby
+1. Create a room: `@create room The Dark Forest`
+1. Link it to your current room: `@link here north south %-1` -- %-1 refers to the last created thing
+1. Lock the north exit: `@set north locked true`
+1. Create a key generator: `@create generator a pile of keys`
+1. Fix up the name of the generator: `@set %-1 name key`
+1. Add the exit to the keys property on the key: `@add key keys north`
+1. Drop the key so other people can get it: `drop key`
+1. Try going north: `north`
+1. Pick up a key: `get key` -- this actually copies the generator key
+1. Really go north: `north`
+1. Toast your key copy: `@toast key`
+1. Go south (south isn't locked -- you could lock it and add it to the key generator)
+1. Try going north
+
 # MUD Model
 
 ## The Thing class
