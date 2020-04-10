@@ -12,7 +12,7 @@ It relies on [libp2p](https://github.com/libp2p/go-libp2p) for peer-to-peer netw
 
 1. Start by creating or uploading a MUD
 1. Activate the MUD, your default user should have admin privileges
-1. You should start in the lobby
+1. A new MUD will start you in the lobby
 1. Create a room: `@create room The Dark Forest`
 1. Link it to your current room: `@link here north south %-1` -- `%-1` refers to the last created thing
 1. Lock the north exit: `@set north locked true`
