@@ -18,7 +18,7 @@ for (const mod of Object.values(app)) {
 async function start() {
     await Model.openStorage();
     Gui.start();
-    Mudproto.start(Model.storage);
+    return Mudproto.start(Model.storage);
 }
 window.onload = start;
 //# sourceMappingURL=textcraft.js.map

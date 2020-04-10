@@ -8,6 +8,7 @@ const infoKey = 'info'
 const locationIndex = 'locations'
 const userThingIndex = 'things'
 const linkOwnerIndex = 'linkOwners'
+const otherLinkIndex = 'otherLink'
 const nameIndex = 'names'
 const usersSuffix = ' users'
 const extensionsSuffix = ' extensions'
@@ -15,6 +16,12 @@ const extensionNameIndex = 'names'
 const extensionHashIndex = 'hashes'
 
 let app: any
+
+const idProps = {
+    _location: true,
+    _linkOwner: true,
+    _otherLink: true,
+}
 
 export type thingId = number
 
@@ -74,7 +81,6 @@ export class Thing {
     _otherLink: thingId          // the other link (if this is a link)
     _keys: thingId[]
     _closed: boolean             // closed objects do not propagate descriptons to their locations
-    _template: boolean           // move commands produce a deep copy of this
     world: World
 
     constructor(id: number, name: string, description?) {
@@ -96,7 +102,7 @@ export class Thing {
         const [article, name] = findSimpleName(n)
 
         this.markDirty(null)
-        if (article && n.substring(0, article.length) === article) {
+        if (article && n.substring(0, article.length).toLowerCase() === article.toLowerCase()) {
             n = n.substring(article.length).trim()
         }
         if (article) this._article = article
@@ -133,8 +139,14 @@ export class Thing {
     formatName() {
         return (this.article ? this.article + ' ' : '') + this.fullName
     }
-    markDirty(sideEffect?) {
+    markDirty(sideEffect?: any) {
         this.world?.markDirty(this)
+    }
+    async findConnected() {
+        return await this.world.findConnected(this, new Set<Thing>())
+    }
+    copy(location: Thing, connected?: Set<Thing>) {
+        return this.world.copyThing(this, location, connected)
     }
     async find(name: string, exclude = new Set([])) {
         if (exclude.has(this)) {
@@ -202,13 +214,14 @@ export class World {
     name: string
     storeName: string
     extensionsName: string
-    lobby: thingId
-    limbo: thingId
-    hallOfPrototypes: thingId
+    lobby: Thing
+    limbo: Thing
+    hallOfPrototypes: Thing
     thingProto: Thing   // used by createThing()
     personProto: Thing  // used by authenticate()
     linkProto: Thing
     roomProto: Thing
+    generatorProto: Thing
     users: string
     nextId: number
     storage: MudStorage
@@ -240,19 +253,19 @@ export class World {
         return new Promise((succeed, fail) => {
             const req = storage.upgrade(() => {
                 return this.doTransaction(async (store, users, txn) => {
-                    const limbo = await this.createThing('Limbo', 'You are floating in $this<br>$links<br><br>$contents')
-                    this.limbo = limbo.id
-                    const lobby = await this.createThing('Lobby', 'You are in $this')
-                    this.lobby = lobby.id
-                    const protos = await this.createThing('Hall of Prototypes')
-                    this.hallOfPrototypes = protos.id
+                    this.limbo = await this.createThing('Limbo', 'You are floating in $this<br>$links<br><br>$contents')
+                    this.lobby = await this.createThing('Lobby', 'You are in $this')
+                    this.hallOfPrototypes = await this.createThing('Hall of Prototypes')
                     this.thingProto = await this.createThing('thing', 'This is $this')
                     this.linkProto = await this.createThing('link', '$This to $link')
                     this.roomProto = await this.createThing('room', 'You are in $this')
+                    this.generatorProto = await this.createThing('generator', 'This is a thing')
                     this.personProto = await this.createThing('person', '$This $is only a dude')
-                    limbo.setPrototype(this.roomProto)
-                    lobby.setPrototype(this.roomProto)
-                    protos.setPrototype(this.roomProto)
+                    this.limbo.setPrototype(this.roomProto)
+                    this.lobby.setPrototype(this.roomProto)
+                    this.generatorProto.setPrototype(this.thingProto)
+                    this.hallOfPrototypes.setPrototype(this.roomProto)
+                    this.limbo.setLocation(this.limbo)
                     await this.createUser('a', 'a', true)
                     this.defaultUser = 'a'
                     await this.store()
@@ -269,6 +282,7 @@ export class World {
                 userStore.createIndex(userThingIndex, 'thing', { unique: true })
                 thingStore.createIndex(locationIndex, 'location', { unique: false })
                 thingStore.createIndex(linkOwnerIndex, 'linkOwner', { unique: false })
+                thingStore.createIndex(otherLinkIndex, 'otherLink', { unique: false })
             }
             req.onerror = fail
         })
@@ -284,16 +298,17 @@ export class World {
         this.nextId = info.nextId
         this.name = info.name
         this.defaultUser = info.defaultUser
-        this.lobby = info.lobby
-        this.limbo = info.limbo
-        this.hallOfPrototypes = info.hallOfPrototypes
+        this.lobby = await this.getThing(info.lobby)
+        this.limbo = await this.getThing(info.limbo)
+        this.hallOfPrototypes = await this.getThing(info.hallOfPrototypes)
         this.thingProto = await this.getThing(info.thingProto)
         this.personProto = await this.getThing(info.personProto)
         this.roomProto = (await this.getThing(info.roomProto)) || await this.findPrototype('room')
         this.linkProto = (await this.getThing(info.linkProto)) || await this.findPrototype('link')
+        this.generatorProto = (await this.getThing(info.generatorProto)) || await this.findPrototype('generatorProto')
     }
     async findPrototype(name: string) {
-        for (const aproto of await (await this.getThing(this.hallOfPrototypes)).getContents()) {
+        for (const aproto of await this.hallOfPrototypes.getContents()) {
             if (name === aproto.name) return aproto
         }
     }
@@ -303,16 +318,16 @@ export class World {
             const personProto = this.personProto
             const roomProto = this.roomProto
             const linkProto = this.linkProto
+            const generatorProto = this.generatorProto
 
-            thingProto.markDirty(thingProto._location = this.hallOfPrototypes)
+            thingProto.markDirty(thingProto._location = this.hallOfPrototypes.id)
             thingProto.article = 'the'
             thingProto.contentsFormat = '$This $is here'
             thingProto._contentsEnterFormat = '$forme You go into $this $forothers $Arg goes into $this'
             thingProto.examineFormat = 'Exits: $links<br>Contents: $contents'
             thingProto.linkFormat = '$This leads to $link'
             thingProto._keys = []
-            thingProto._template = false
-            linkProto.markDirty(linkProto._location = this.hallOfPrototypes)
+            linkProto.markDirty(linkProto._location = this.hallOfPrototypes.id)
             linkProto.article = '';
             (linkProto as any)._locked = false;
             (linkProto as any)._cmd = '@if !$0.locked || $0 in me.keys @then go $1 @else @output $0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key';
@@ -320,12 +335,21 @@ export class World {
             linkProto._linkEnterFormat = '$Arg1 enters $arg2'
             linkProto._linkMoveFormat = 'You went $name to $arg3'
             linkProto._linkExitFormat = '$Arg1 went $name to $arg2'
-            roomProto.markDirty(roomProto._location = this.hallOfPrototypes)
+            roomProto.markDirty(roomProto._location = this.hallOfPrototypes.id)
             roomProto._closed = true
             roomProto.setPrototype(thingProto)
-            personProto.markDirty(personProto._location = this.hallOfPrototypes)
+            personProto.markDirty(personProto._location = this.hallOfPrototypes.id)
             personProto.setPrototype(thingProto)
             personProto._article = ''
+            generatorProto.markDirty(generatorProto._location = this.hallOfPrototypes.id)
+            generatorProto.setPrototype(thingProto);
+            (generatorProto as any)._get = `
+@quiet;
+@copy $0;
+@reproto %-1 %proto:thing;
+@loud;
+@output %-1 $forme You pick up $this $forothers $Actor picks up %-1
+`
         })
     }
     spec() {
@@ -333,11 +357,12 @@ export class World {
             id: infoKey,
             nextId: this.nextId,
             name: this.name,
-            lobby: this.lobby,
-            limbo: this.limbo,
-            hallOfPrototypes: this.hallOfPrototypes,
+            lobby: this.lobby.id,
+            limbo: this.limbo.id,
+            hallOfPrototypes: this.hallOfPrototypes.id,
             thingProto: this.thingProto.id,
             personProto: this.personProto.id,
+            generatorProto: this.generatorProto.id,
             defaultUser: this.defaultUser
         }
     }
@@ -447,10 +472,8 @@ export class World {
     store() {
         return promiseFor(this.thingStore.put(this.spec()))
     }
-    processTransaction(func: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction) => Promise<any>) {
-        const result = func(this.thingStore, this.userStore, this.txn)
-
-        return result instanceof Promise ? result : Promise.resolve(result)
+    async processTransaction(func: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction) => Promise<any>) {
+        return await func(this.thingStore, this.userStore, this.txn)
     }
     getUser(name: string) {
         return this.doTransaction(async (store, users, txn) => await promiseFor(users.get(name)))
@@ -573,8 +596,9 @@ export class World {
             return deleteAll(store)
         })
         return this.doTransaction(async (store, users, txn) => {
+            await Promise.all(newThings.map(t => promiseFor(this.thingStore.put(t))))
+            this.thingCache = new Map()
             await this.useInfo(info)
-            return Promise.all(newThings.map(t => promiseFor(this.thingStore.put(t))))
         })
     }
     async getThing(tip: thingId | Thing | Promise<Thing>): Promise<Thing> {
@@ -609,7 +633,7 @@ export class World {
             if (!user.thing) {
                 const thing = await this.createThing(name)
 
-                thing.markDirty(thing._location = this.lobby)
+                thing.markDirty(thing._location = this.lobby.id)
                 if (this.personProto) thing.setPrototype(this.personProto)
                 thing.article = ''
                 user.thing = thing.id
@@ -624,13 +648,75 @@ export class World {
         const t = new Thing(this.nextId++, name, description)
 
         t.world = this
-        t._location = this.limbo
+        if (this.limbo) t._location = this.limbo.id
         if (this.thingProto) t.setPrototype(this.thingProto)
         this.thingCache.set(t.id, t)
         await this.doTransaction(async () => {
             return await this.putThing(t)
         })
         return t
+    }
+    async toast(toasted: Set<Thing>) {
+        return this.doTransaction(async (things) => {
+            for (const thing of toasted) {
+                things.delete(thing.id)
+                this.thingCache.delete(thing.id)
+            }
+            for (const thing of toasted) {
+                for (const guts of await thing.getContents()) {
+                    guts.setLocation(this.limbo)
+                }
+                for (const link of await thing.getLinks()) {
+                    link.markDirty(delete link._linkOwner)
+                }
+                for (const other of await this.getOthers(thing)) {
+                    other.markDirty(delete other._otherLink)
+                }
+            }
+        })
+    }
+    async copyThing(thing: Thing, location: Thing, connected = new Set<Thing>()) {
+        return this.doTransaction(async () => {
+            await this.findConnected(thing, connected)
+            const copies = new Map<number, Thing>()
+            for (const conThing of connected) {
+                const cpy = await this.createThing(conThing.name)
+                copies.set(conThing._id, cpy)
+                const id = cpy._id;
+                (cpy as any).__proto__ = (conThing as any).__proto__
+                cpy._id = id
+            }
+            for (const cpy of copies.values()) {
+                for (const prop of Object.keys(cpy)) {
+                    if (prop === '_linkOwner' || prop === '_otherLink') {
+                        cpy[prop] = copies.get(thing[prop])?.id
+                    } else if (copies.has(thing[prop])) { // probably an id
+                        cpy[prop] = copies.get(thing[prop])?.id
+                    } else if (thing[prop] instanceof Set) {
+                        cpy[prop] = new Set([...thing[prop]].map(t => copies.get(t) || t))
+                    } else if (Array.isArray(thing[prop])) {
+                        cpy[prop] = [...thing[prop]].map(t => copies.get(t) || t)
+                    } else {
+                        cpy[prop] = thing[prop]
+                    }
+                }
+            }
+            const thingCopy = copies.get(thing.id)
+            thingCopy.setLocation(location.id)
+            return thingCopy
+        })
+    }
+    async findConnected(thing: Thing, connected: Set<Thing>) {
+        if (!connected.has(thing)) {
+            connected.add(thing)
+            for (const item of await thing.getContents()) {
+                await this.findConnected(item, connected)
+            }
+            for (const link of await thing.getLinks()) {
+                await this.findConnected(link, connected)
+            }
+        }
+        return connected
     }
     async cacheThingFor(thingSpec) {
         const thing = new Thing(null, '')
@@ -652,6 +738,12 @@ export class World {
         const id = typeof thing === 'number' ? thing : thing.id
         return this.doTransaction(async (things) => {
             return this.cacheThings(await promiseFor(things.index(locationIndex).getAll(IDBKeyRange.only(id))))
+        })
+    }
+    getOthers(thing: thingId | Thing): Promise<Thing[]> {
+        const id = typeof thing === 'number' ? thing : thing.id
+        return this.doTransaction(async (things) => {
+            return this.cacheThings(await promiseFor(things.index(otherLinkIndex).getAll(IDBKeyRange.only(id))))
         })
     }
     getLinks(thing: Thing): Promise<Thing[]> {
@@ -860,9 +952,9 @@ export class MudStorage {
             succeed(blobForYamlObject(result))
         })
     }
-    uploadWorld(world) {
-        return world.users ? this.uploadFullWorld(world)
-            : this.uploadStrippedWorld(world)
+    async uploadWorld(world) {
+        await world.users ? this.uploadFullWorld(world) : this.uploadStrippedWorld(world)
+        this.closeWorld(world)
     }
     async uploadFullWorld(worldAndUsers) {
         const users = worldAndUsers.users
@@ -871,20 +963,18 @@ export class MudStorage {
         const world = await this.openWorld(info.name)
 
         return world.doTransaction(async (thingStore, userStore, txn) => {
-            await this.uploadStrippedWorld(objects, world)
+            await this.uploadStrippedWorld(worldAndUsers, world)
             await world.replaceUsers(users)
         })
     }
     async uploadStrippedWorld(data: any, world = null) {
-        if (world) {
-            return world.replaceThings(data.objects)
-        } else {
+        if (!world) {
             const info = data.objects.find(i => i.id === 'info')
 
             world = await this.openWorld(info.name)
-            await world.replaceThings(data.objects)
-            if (data.extensions) return world.replaceExtensions(data.extensions)
         }
+        await world.replaceThings(data.objects)
+        if (data.extensions) return world.replaceExtensions(data.extensions)
     }
 }
 
@@ -1050,43 +1140,26 @@ async function copyAll(srcStore, dstStore: IDBObjectStore) {
 
 export function findSimpleName(str: string) {
     let words: string[]
-    let name: string
     let article: string
-    let foundPrep = false
     let tmp: string
 
-    str = str.replace(/[^a-zA-Z0-9_\s]/, '')
-    tmp = str
-    for (; ;) {
-        const prepMatch = tmp.match(/^(.*?)\b(of|on|about|in|from)\b/)
-
-        if (prepMatch) {
-            if (prepMatch[1].trim()) {
-                // if it contains a preposition, discard from the first preposition on
-                // the king of sorrows
-                // the king in absentia
-                words = str.substring(0, tmp.length - prepMatch[1].length).trim().split(/\s+/)
-                foundPrep = true
-                break
-            } else {
-                tmp = tmp.substring(prepMatch[1].length)
-                continue
-            }
-        }
-        words = str.split(/\s+/)
-        break
+    str = str.replace(/[^a-zA-Z0-9_\s]/, '') // scrape out noise characters
+    tmp = str.toLowerCase()
+    const prepMatch = tmp.match(/^(.(.*?))\b(of|on|about|in|from|the)\b/)
+    if (prepMatch) {
+        // if it contains a preposition, discard from the first preposition on
+        // the king of sorrows
+        // the king in absentia
+        // Big Bob of the forest
+        // Conan the Barbarian
+        str = prepMatch[1]
     }
-    if (words.length > 1 && words[0].match(/\b(the|a|an)\b/)) { // scrape articles
+    words = str.split(/\s+/)
+    if (words.length > 1 && words[0].toLowerCase().match(/\b(the|a|an)\b/)) { // scrape articles
         article = words[0]
         words = words.slice(1)
     }
-    if (article) { // the blah BLAH of blah
-        // choose the last word
-        name = words[words.length - 1].toLowerCase()
-        return [article, name]
-    } else {  // BLAH blah of blah,  BLAH blah the blah
-        return ['', words[0]]
-    }
+    return [article, words[words.length - 1].toLowerCase()]
 }
 
 export function escape(text: string) {

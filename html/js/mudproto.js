@@ -55,10 +55,6 @@ class Peer extends proto.DelegatingHandler {
         this.storage = storage;
         this.trackingHandler = new proto.TrackingHandler(this, this.connections);
         this.setStrategy(new Strategy());
-        if ([...this.db().objectStoreNames].indexOf(peerDbName) === -1) {
-            // tslint:disable-next-line:no-floating-promises
-            this.createPeerDb();
-        }
     }
     startHosting() {
         this.reset();
@@ -128,8 +124,11 @@ class Peer extends proto.DelegatingHandler {
         map.delete(this.peerID);
         gui.showUsers(map);
     }
-    start() {
+    async start() {
         const url = "ws://" + document.location.host + "/";
+        if ([...this.db().objectStoreNames].indexOf(peerDbName) === -1) {
+            await this.createPeerDb();
+        }
         console.log("STARTING MUDPROTO");
         proto.startProtocol(url + "libp2p", new proto.LoggingHandler(this.trackingHandler));
     }
@@ -640,10 +639,10 @@ export function randomChars(count = 16) {
     }
     return chars;
 }
-export function start(storage) {
+export async function start(storage) {
     peer = new Peer(storage);
     natTracker.setValue(NatState.Unknown);
-    peer.start();
+    return peer.start();
 }
 export function startHosting() {
     peer?.startHosting();

@@ -66,6 +66,57 @@ const setHelp = ['thing property value', `Set one of these properties on a thing
     go_WORD         -- command template for when someone tries to go into WORD (virtual directions)
 `
 ];
+const adminHelp = `
+You can use <b>%lobby</b>, <b>%limbo</b>, and <b>%protos</b> for the standard rooms
+You can use <b>%proto:name</b> for a prototype
+You can use <b>%NUMBER</b> for an object by its ID (try <b>@dump me</b> for an example)
+You can use <b>%-NUMBER</b> for an item you created recently (<b>%-1</b> is the last item, <b>%-2</b> is the next to last, etc.)
+
+To make something into a prototype, move it to <b>%protos</b>
+
+Format words:
+  <b>\$this</b>      -- formatted string for this object or "you" if the user is the thing
+  <b>\$actor</b>     -- formatted string for the thing that is currently running a command
+  <b>\$name</b>      -- this object\'s name
+  <b>\$is</b>        -- is or are, depending on the plurality of the thing
+  <b>\$s</b>         -- optional "s" depending on the plurality of the thing (or "es" if it\'s after go)
+  <b>\$location</b>  -- the thing\'s location
+  <b>\$owner</b>     -- the link\'s owner (if this is a link)
+  <b>\$link</b>      -- the link\'s destination (if this is a link)
+  <b>\$contents</b>  -- the things\'s contents
+  <b>\$links</b>     -- the things\'s links
+  <b>\$forme</b>     -- following content is for messages shown to a command\'s actor
+  <b>\$forothers</b> -- following content is for messages shown to observers of a command\'s actor
+  <b>\$arg</b>       -- first argument (if there is one)
+  <b>\$argN</b>      -- Nth argument (if there is one)
+
+Command templates are string properties on objects to implement custom commands.
+Example command template properties are get_key, cmd, and cmd_whistle -- see the help for @set.
+Templates replace the original command with different commands, separated by semicolons.
+Templates can contain $0..$N to refer to the command arguments. $0 refers to the thing itself.
+
+The following are legal expressions:
+   number
+   string
+   boolean
+   null
+   undefined
+   '(' expression ')'
+   expression1 + expression2
+   expression1 - expression2
+   expression1 * expression2
+   expression1 / expression2
+   expression1 < expression2
+   expression1 <= expression2
+   expression1 > expression2
+   expression1 >= expression2
+   expression1 == expression2
+   expression1 != expression2
+   expression1 && expression2
+   expression1 || expression2
+   !expression1
+   expression1 in expression2 -- expression2 must be a collection
+`;
 const valuePat = /^(".*"|([0-9]*\.)?[0-9]+|true|false|null)$/;
 const namePat = /^[a-zA-Z][a-zA-Z0-9]*/;
 const thingPat = /^([a-zA-Z][a-zA-Z0-9]*|%[0-9]+|%[a-zA-Z]+|%[a-zA-z]+:[a-zA-Z]+)(?:\.([a-zA-Z][a-zA-Z0-9]*))?$/;
@@ -111,8 +162,15 @@ const commands = new Map([
             help: ['contextThing arg..., words...', `Output text to the user and/or others using a format string on contextThing
   DON'T FORGET THE COMMA!`]
         })],
+    ['@quiet', new Command({ help: ['', 'temporarily disable output'] })],
+    ['@loud', new Command({ help: ['', 'enable output'] })],
     ['@admin', new Command({ help: ['thing boolean', 'Change a thing\'s admin privileges'] })],
     ['@create', new Command({ help: ['proto name [description words...]', 'Create a thing'] })],
+    ['@toast', new Command({ help: ['thing...', 'Toast things and everything they\'re connected to'] })],
+    ['@copy', new Command({
+            help: ['thing', '',
+                'thing force', `Copy a thing to your inventory (force allows copying the entire world -- can be dangerous)`]
+        })],
     ['@find', new Command({
             help: ['thing', 'Find a thing',
                 'thing location', 'Find a thing from a location',]
@@ -128,8 +186,9 @@ const commands = new Map([
     ['@setNum', new Command({ help: ['thing property number'], admin: true, alt: '@set' })],
     ['@setBigint', new Command({ help: ['thing property bigint'], admin: true, alt: '@set' })],
     ['@setBool', new Command({ help: ['thing property boolean'], admin: true, alt: '@set' })],
-    ['@set', new Command({ help: setHelp, admin: true })],
+    ['@set', new Command({ help: setHelp })],
     ['@del', new Command({ help: ['thing property', `Delete a properties from a thing so it will inherit from its prototype`] })],
+    ['@reproto', new Command({ help: ['thing proto', `Change the prototype of a thing`] })],
     ['@expr', new Command({ help: ['thing property expr', `Set a property to the value of an expression`], admin: true })],
     ['@if', new Command({
             minArgs: 2,
@@ -221,14 +280,19 @@ export class MudConnection {
         }
     }
     error(text) {
+        const oldSup = this.suppressOutput;
+        this.suppressOutput = false;
         this.output('<div class="error">' + text + '</div>');
         this.failed = true;
+        this.suppressOutput = oldSup;
     }
     errorNoThing(thing) {
         this.error(`You don't see any ${thing} here`);
     }
     output(text) {
-        this.outputHandler(text.match(/^</) ? text : `<div>${text}</div>`);
+        if (!this.suppressOutput) {
+            this.outputHandler(text.match(/^</) ? text : `<div>${text}</div>`);
+        }
         this.failed = false;
     }
     start() {
@@ -419,7 +483,7 @@ export class MudConnection {
                     newCmd += part;
                 }
             }
-            lines.push(newCmd);
+            lines.push(newCmd.trim());
         }
         return lines.length > 0 ? lines : null;
     }
@@ -442,7 +506,7 @@ export class MudConnection {
         const words = line.split(/\s+/);
         const commandName = words[0].toLowerCase();
         if (!substituted) {
-            this.output('<div class="input">&gt; <span class="input-text">' + line + '</span></div>');
+            this.output('<div class="input">&gt; <span class="input-text">' + escape(line) + '</span></div>');
             if (!commands.has(commandName) && this.thing) {
                 const newCommands = await this.findCommand(words);
                 if (newCommands)
@@ -457,7 +521,11 @@ export class MudConnection {
                 return this.error('Unknown command: ' + words[0]);
             }
             // execute command inside a transaction so it will automatically store any dirty objects
-            await this.world.doTransaction(() => this[command.method]({ command, line, substituted }, ...words.slice(1)))
+            await this.world.doTransaction(async () => {
+                await this[command.method]({ command, line, substituted }, ...words.slice(1));
+                if (!substituted)
+                    this.suppressOutput = false;
+            })
                 .catch(err => this.error(err.message));
         }
         else {
@@ -484,20 +552,20 @@ export class MudConnection {
             if (name === 'out') {
                 const location = await this.thing.getLocation();
                 result = location && await location.getLocation();
-                if (!result || result.id === this.world.limbo) {
+                if (!result || result === this.world.limbo) {
                     throw new Error('You are not in a container');
                 }
             }
             else {
                 result = name === 'me' ? this.thing
                     : name === 'here' ? await this.thing.getLocation()
-                        : name === '%limbo' ? await this.world.getThing(this.world.limbo)
-                            : name === '%lobby' ? await this.world.getThing(this.world.lobby)
-                                : name === '%protos' ? await this.world.getThing(this.world.hallOfPrototypes)
-                                    : name.match(/^%proto:/) ? await (await this.world.getThing(this.world.hallOfPrototypes)).find(name.replace(/^%proto:/, ''))
+                        : name === '%limbo' ? this.world.limbo
+                            : name === '%lobby' ? this.world.lobby
+                                : name === '%protos' ? this.world.hallOfPrototypes
+                                    : name.match(/^%proto:/) ? await this.world.hallOfPrototypes.find(name.replace(/^%proto:/, ''))
                                         : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
                                             : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
-                                                : await start.find(name, this.thing._location === this.world.limbo ? new Set() : new Set([await this.world.getThing(this.world.limbo)]));
+                                                : await start.find(name, this.thing._location === this.world.limbo.id ? new Set() : new Set([this.world.limbo]));
             }
         }
         if (!result && errTag) {
@@ -563,7 +631,6 @@ export class MudConnection {
     async doLogin(user, password, noauthentication = false) {
         try {
             const [thing, admin] = await this.world.authenticate(user, password, noauthentication);
-            const lobby = await this.world.getThing(this.world.lobby);
             this.user = user;
             this.thing = thing;
             this.myName = thing.name;
@@ -572,7 +639,7 @@ export class MudConnection {
             connectionMap.set(this.thing, this);
             this.output('Connected.');
             mudproto.userThingChanged(this.thing);
-            thing.setLocation(lobby);
+            thing.setLocation(this.world.lobby);
             await this.commandDescripton('has arrived');
             // tslint:disable-next-line:no-floating-promises
             await this.look(null, null);
@@ -582,15 +649,17 @@ export class MudConnection {
         }
     }
     async commandDescripton(action, except = this.thing, startAt, prefix = true) {
-        const text = prefix ? `${this.formatName(this.thing)} ${action}` : action;
-        const desc = new Descripton(thing => {
-            connectionMap.get(thing)?.output(text);
-        });
-        if (!startAt)
-            startAt = await this.thing.getLocation();
-        if (except)
-            desc.visited.add(except);
-        return desc.propagate(startAt);
+        if (!this.suppressOutput) {
+            const text = prefix ? `${this.formatName(this.thing)} ${action}` : action;
+            const desc = new Descripton(thing => {
+                connectionMap.get(thing)?.output(text);
+            });
+            if (!startAt)
+                startAt = await this.thing.getLocation();
+            if (except)
+                desc.visited.add(except);
+            return desc.propagate(startAt);
+        }
     }
     async hasKey(lock, start) {
         if (start._keys.indexOf(lock._id) !== -1) {
@@ -659,7 +728,10 @@ export class MudConnection {
                 case 'in':
                     if (!(first instanceof Thing))
                         throw new Error(`in only works on things: ${origExpr}`);
-                    if ('indexOf' in second) {
+                    if (!second) {
+                        first = false;
+                    }
+                    else if ('indexOf' in second) {
                         first = second.indexOf(first._id) !== -1;
                     }
                     else if ('has' in second) {
@@ -742,7 +814,7 @@ export class MudConnection {
     // COMMAND
     async look(cmdInfo, target) {
         if (target) {
-            const thing = await this.find(target, this.thing, 'object');
+            const thing = await this.find(target, this.thing);
             if (!thing) {
                 this.errorNoThing(target);
                 return this.commandDescripton(`looks for a ${target} but doesn't see any`);
@@ -801,6 +873,14 @@ export class MudConnection {
         this.output(`<pre>You are carrying\n${indent(3, (await this.thing.getContents()).map(item => this.formatName(item)).join('\n'))}</pre>`);
     }
     // COMMAND
+    atQuiet() {
+        this.suppressOutput = true;
+    }
+    // COMMAND
+    atLoud() {
+        this.suppressOutput = false;
+    }
+    // COMMAND
     async get(cmdInfo, thingStr, ...args) {
         const location = await this.thing.getLocation();
         let loc = location;
@@ -828,7 +908,7 @@ export class MudConnection {
             return this.error(`You just don't get yourself. Some people are that way.`);
         if (thing === location)
             return this.error(`You just don't get this place. Some people are that way.`);
-        await thing.setLocation(this.thing);
+        thing.setLocation(this.thing);
         this.output(`You pick up ${thing.formatName()}`);
         return this.commandDescripton(`picks up ${this.formatName(thing)}`);
     }
@@ -875,9 +955,9 @@ export class MudConnection {
     }
     // COMMAND
     async atCreate(cmdInfo, protoStr, name) {
-        const proto = await this.find(protoStr, await this.world.getThing(this.world.hallOfPrototypes));
+        const proto = await this.find(protoStr, this.world.hallOfPrototypes);
         if (!proto) {
-            const hall = await this.world.getThing(this.world.hallOfPrototypes);
+            const hall = this.world.hallOfPrototypes;
             const protos = [];
             for (const aproto of await hall.getContents()) {
                 protos.push(`%${aproto._id} %proto:${aproto.name}`);
@@ -893,12 +973,21 @@ Prototypes:
             this.created.push(thing);
             if (this.created.length > 100)
                 this.created = this.created.slice(this.created.length - 50);
-            this.output(`Created ${await this.dumpName(thing)}`);
+            if (thing._prototype === this.world.roomProto.id) {
+                this.output(`You created a room: ${await this.dumpName(thing)}`);
+            }
+            else if (thing._prototype === this.world.linkProto.id) {
+                this.output(`You created a link: ${await this.dumpName(thing)}`);
+            }
+            else {
+                thing.setLocation(this.thing);
+                this.output(`You are holding your new creation: ${await this.dumpName(thing)}`);
+            }
         }
     }
     // COMMAND
     async getPrototype(name) {
-        return this.find(name, await this.world.getThing(this.world.hallOfPrototypes), `${name} prototype`);
+        return this.find(name, this.world.hallOfPrototypes, `${name} prototype`);
     }
     // COMMAND
     async atLink(cmdInfo, loc1Str, exit1Str, exit2Str, loc2Str) {
@@ -1032,6 +1121,15 @@ Prototypes:
         }
     }
     // COMMAND
+    async atReproto(cmdInfo, thingStr, protoStr) {
+        checkArgs(cmdInfo, arguments);
+        const thing = await this.find(thingStr, this.thing, 'thing');
+        const proto = await this.find(protoStr, this.thing, 'prototype');
+        thing.__proto__ = proto;
+        thing.markDirty(thing._prototype = proto.id);
+        this.output(`You changed the prototype of ${this.formatName(thing)} to ${this.formatName(proto)}`);
+    }
+    // COMMAND
     atSetBigInt(cmdInfo, thingStr, property, value) {
         checkArgs(cmdInfo, arguments);
         return this.atSet(cmdInfo, thingStr, property, BigInt(value));
@@ -1089,7 +1187,7 @@ Prototypes:
                 await thing.setOtherLink(other);
                 break;
             case 'prototype':
-                const proto = await this.find(value, await this.world.getThing(this.world.hallOfPrototypes));
+                const proto = await this.find(value, this.world.hallOfPrototypes);
                 if (!proto) {
                     this.error('Could not find prototype ' + value);
                     return;
@@ -1101,6 +1199,60 @@ Prototypes:
                 break;
         }
         this.output(`set ${thingStr} ${property} to ${value}`);
+    }
+    async atCopy(cmdInfo, thingStr, force) {
+        checkArgs(cmdInfo, arguments);
+        const thing = await this.find(thingStr, this.thing, 'thing');
+        const connected = await thing.findConnected();
+        if (!force) {
+            for (const item of connected) {
+                if (item === this.world.limbo) {
+                    throw new Error(`${thingStr} is connected to Limbo, use force to copy anyway`);
+                }
+                else if (item === this.world.lobby) {
+                    throw new Error(`${thingStr} is connected to the Lobby, use force to copy anyway`);
+                }
+                else if (item === this.world.hallOfPrototypes) {
+                    throw new Error(`${thingStr} is connected to the Hall of Prototypes, use force to copy anyway`);
+                }
+                else if (connectionMap.has(item)) {
+                    throw new Error(`${this.formatName(item)} has a player, use force to copy anyway`);
+                }
+            }
+        }
+        const newThing = await thing.copy(this.thing, connected);
+        this.created.push(newThing);
+        this.output(`You copied ${this.formatName(thing)} to your inventory`);
+    }
+    async atToast(cmdInfo, thingStr) {
+        checkArgs(cmdInfo, arguments);
+        const things = [...arguments].slice(1).map(async (t) => await this.find(t, this.thing, 'thing'));
+        let out = '';
+        for await (const thing of things) {
+            const connected = await thing.findConnected();
+            for (const item of connected) {
+                if (item === this.world.limbo) {
+                    throw new Error(`${this.formatName(thing)} is connected to Limbo`);
+                }
+                else if (item === this.world.lobby) {
+                    throw new Error(`${this.formatName(thing)} is connected to the Lobby`);
+                }
+                else if (item === this.world.hallOfPrototypes) {
+                    throw new Error(`${this.formatName(thing)} is connected to the Hall of Prototypes`);
+                }
+                else if (connectionMap.has(item)) {
+                    throw new Error(`${this.formatName(item)} has a player`);
+                }
+            }
+            await this.world.toast(connected);
+            out += `<div>You toasted ${this.formatName(thing)}`;
+            if (connected.size > 1) {
+                const num = connected.size - 1;
+                out += ` and everything it was connected to (${num} other object${num === 1 ? '' : 's'})`;
+            }
+            out += '<\div>';
+        }
+        this.output(out);
     }
     async atExpr(cmdInfo, thingStr, property, expr) {
         checkArgs(cmdInfo, arguments);
@@ -1123,7 +1275,7 @@ Prototypes:
         this.output(`You set ${thingStr} ${property} to ${value}`);
     }
     // COMMAND
-    async atIf(cmdInfo) {
+    atIf(cmdInfo) {
         return this.runIfs(splitIf(cmdInfo.line));
     }
     // COMMAND
@@ -1151,7 +1303,7 @@ Prototypes:
     }
     // COMMAND
     async atInfo() {
-        const hall = await this.world.getThing(this.world.hallOfPrototypes);
+        const hall = this.world.hallOfPrototypes;
         const protos = [];
         for (const proto of await hall.getContents()) {
             protos.push(`%${proto._id} %proto:${proto.name}`);
@@ -1169,7 +1321,7 @@ Prototypes:
     }
     // COMMAND
     async atPrototypes() {
-        const hall = await this.world.getThing(this.world.hallOfPrototypes);
+        const hall = this.world.hallOfPrototypes;
         this.output(`Prototypes:<br><br>${(await hall.getContents()).map(t => this.dumpName(t)).join('<br>')}`);
     }
     // COMMAND
@@ -1200,57 +1352,7 @@ Prototypes:
         }
         this.output('<pre>' + result + `
 
-You can use <b>me</b> for yourself, <b>here</b> for your location, and <b>out</b> for your location's location (if you're in a container)${this.admin ? `
-You can use <b>%lobby</b>, <b>%limbo</b>, and <b>%protos</b> for the standard rooms
-You can use <b>%proto:name</b> for a prototype
-You can use <b>%NUMBER</b> for an object by its ID (try <b>@dump me</b> for an example)
-You can use <b>%-NUMBER</b> for an item you created recently (<b>%-1</b> is the last item, <b>%-2</b> is the next to last, etc.)
-
-To make something into a prototype, move it to <b>%protos</b>
-
-Format words:
-  <b>\$this</b>      -- formatted string for this object or "you" if the user is the thing
-  <b>\$actor</b>     -- formatted string for the thing that is currently running a command
-  <b>\$name</b>      -- this object\'s name
-  <b>\$is</b>        -- is or are, depending on the plurality of the thing
-  <b>\$s</b>         -- optional "s" depending on the plurality of the thing (or "es" if it\'s after go)
-  <b>\$location</b>  -- the thing\'s location
-  <b>\$owner</b>     -- the link\'s owner (if this is a link)
-  <b>\$link</b>      -- the link\'s destination (if this is a link)
-  <b>\$contents</b>  -- the things\'s contents
-  <b>\$links</b>     -- the things\'s links
-  <b>\$forme</b>     -- following content is for messages shown to a command\'s actor
-  <b>\$forothers</b> -- following content is for messages shown to observers of a command\'s actor
-  <b>\$arg</b>       -- first argument (if there is one)
-  <b>\$argN</b>      -- Nth argument (if there is one)
-
-Command templates are string properties on objects to implement custom commands.
-Example command template properties are get_key, cmd, and cmd_whistle -- see the help for @set.
-Templates replace the original command with different commands, separated by semicolons.
-Templates can contain $0..$N to refer to the command arguments. $0 refers to the thing itself.
-
-The following are legal expressions:
-   number
-   string
-   boolean
-   null
-   undefined
-   '(' expression ')'
-   expression1 + expression2
-   expression1 - expression2
-   expression1 * expression2
-   expression1 / expression2
-   expression1 < expression2
-   expression1 <= expression2
-   expression1 > expression2
-   expression1 >= expression2
-   expression1 == expression2
-   expression1 != expression2
-   expression1 && expression2
-   expression1 || expression2
-   !expression1
-   expression1 in expression2 -- expression2 must be a collection
-` : ''}</pre>`);
+You can use <b>me</b> for yourself, <b>here</b> for your location, and <b>out</b> for your location's location (if you're in a container)${this.admin ? adminHelp : ''}</pre>`);
     }
 }
 function exprTokens(cond) {
