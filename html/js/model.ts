@@ -341,6 +341,7 @@ export class World {
             personProto.markDirty(personProto._location = this.hallOfPrototypes.id)
             personProto.setPrototype(thingProto)
             personProto._article = ''
+            personProto.examineFormat = 'Carrying: $contents'
             generatorProto.markDirty(generatorProto._location = this.hallOfPrototypes.id)
             generatorProto.setPrototype(thingProto);
             (generatorProto as any)._get = `

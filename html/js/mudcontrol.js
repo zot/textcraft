@@ -148,6 +148,9 @@ const commands = new Map([
             help: ['', `See a description of your current location`,
                 'thing', 'See a description of a thing']
         })],
+    ['examine', new Command({
+            help: ['thing', 'See a detailed description of a thing']
+        })],
     ['go', new Command({ help: ['location', `move to another location (may be a direction)`] })],
     ['i', new Command({ help: [''], alt: 'inventory' })],
     ['invent', new Command({ help: [''], alt: 'inventory' })],
@@ -861,25 +864,47 @@ export class MudConnection {
     }
     // COMMAND
     async look(cmdInfo, target) {
-        if (target) {
+        const thing = await (target ? this.find(target, this.thing) : this.thing.getLocation());
+        if (!thing) {
+            this.errorNoThing(target);
+            return this.commandDescripton(`looks for a ${target} but doesn't see any`);
+        }
+        else if (thing === this.thing) {
+            this.output(await this.examination(thing));
+            return this.commandDescripton(`looks at themself`);
+        }
+        else if (thing.id === this.thing._location) {
+            this.output(await this.examination(await this.thing.getLocation()));
+            return this.commandDescripton(`looks around`);
+        }
+        else {
+            this.output(await this.description(thing));
+            return this.commandDescripton(`looks at ${await this.description(thing)}`);
+        }
+    }
+    // COMMAND
+    async examine(cmdInfo, target) {
+        if (!target) {
+            this.error(`What do you want to examine?`);
+        }
+        else {
             const thing = await this.find(target, this.thing);
             if (!thing) {
                 this.errorNoThing(target);
-                return this.commandDescripton(`looks for a ${target} but doesn't see any`);
+                return this.commandDescripton(`tries to examine a ${target} but doesn't see any`);
             }
             else {
-                this.output(await this.description(thing));
+                this.output(await this.examination(thing));
                 if (thing === this.thing) {
                     return this.commandDescripton(`looks at themself`);
                 }
+                else if (thing.id === this.thing._location) {
+                    return this.commandDescripton(`looks around`);
+                }
                 else {
-                    return this.commandDescripton(`looks at ${await this.description(thing)}`);
+                    return this.commandDescripton(`examines ${this.formatName(thing)}`);
                 }
             }
-        }
-        else {
-            this.output(await this.examination(await this.thing.getLocation()));
-            return this.commandDescripton(`looks around`);
         }
     }
     // COMMAND
