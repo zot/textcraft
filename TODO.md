@@ -15,8 +15,8 @@
 
 # private messages
 
-# after nat acquired, check textcraft.org for updates
-* send current and latest version numbers in ident() message
+# check textcraft.org for updates
+* send current and latest version numbers in hello() message
 * provide peerID when checking for updates
 
 # use JSON for commands output (or encode it) so we can put exits in the GUI

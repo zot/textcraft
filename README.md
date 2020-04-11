@@ -82,6 +82,16 @@ Use the help command for more details
 
 Each MUD can have extensions. There is an example extension [here](html/js/exampleExtension.ts)
 
+Extensions can optionally provide onStarted and onLoggedIn functions:
+
+```TypeScript
+function onStarted(world: World, con: MudConnection)
+
+function onLoggedIn(user: any, thing: Thing)
+```
+
+They can import Textcraft modules by using the prefix `/js/` for module files (see example).
+
 # MUD Model
 
 ## The Thing class

@@ -185,17 +185,18 @@ export function showMuds() {
 }
 
 function worldCopyName(oldName: string) {
-    const nameTemplate = 'Copy of ' + oldName
+    const oldPrefix = oldName.match(/^Copy( [0-9]+)? of /)
+    let newName = oldPrefix ? oldName : `Copy of ${oldName}`
+    let counter = 2
 
-    if (model.storage.worlds.indexOf(nameTemplate) === -1) {
-        return nameTemplate
+    if (oldPrefix) {
+        oldName = oldName.slice(oldPrefix[0].length)
     }
-    let counter = 1
-
-    while (model.storage.worlds.indexOf(nameTemplate + ' ' + counter) !== -1) {
+    while (model.storage.worlds.indexOf(newName) !== -1) {
+        newName = `Copy ${counter} of ${oldName}`
         counter++
     }
-    return nameTemplate + ' ' + counter
+    return newName
 }
 
 export function onEnter(input, action, shouldClear = false) {
@@ -347,10 +348,6 @@ export async function editWorld(world: model.World) {
         changes.extensions.clear()
     }
     const validate = () => {
-        if (nameField.value.match(/\s/)) {
-            alert('World names cannot contain spaces')
-            return false
-        }
         return true
     }
 
@@ -592,7 +589,7 @@ function showMudState(state: MudState) {
         $('#mud-command').removeAttribute('disabled')
         $('#mud-command').focus()
         if (roleTracker.value === RoleState.Host || roleTracker.value === RoleState.Solo) {
-            $(`button[mud=${mudcontrol.activeWorld.name}]`).textContent = 'Quit'
+            $(`button[mud="${mudcontrol.activeWorld.name}"]`).textContent = 'Quit'
         }
     } else {
         for (const button of $all(`button[mud]`)) {

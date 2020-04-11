@@ -880,6 +880,7 @@ export class MudStorage {
                     this.openWorlds.delete(name)
                     txn.db.deleteObjectStore(mudDbName(name))
                     txn.db.deleteObjectStore(userDbName(name))
+                    txn.db.deleteObjectStore(extensionDbName(name))
                 }
                 req.onerror = fail
             } else {
