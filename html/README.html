@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+<title>README.html</title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>
+
+</head>
+
+<body>
+
+<p><img src="images/textcraft.png" alt="Textcraft MUD" title="Textcraft MUD"></p>
+<h1>TEXTCRAFT</h1>
+<p>Textcraft is an oldskool text-based MUD with a twist -- it's peer-to-peer.</p>
+<p>There are no servers. YOU own your data.</p>
+<p>It relies on <a href="https://github.com/libp2p/go-libp2p">libp2p</a> for peer-to-peer networking and uses <a href="https://github.com/zot/libp2p-websocket">libp2p-websocket</a> to connect browsers to libp2p.</p>
+<h1>Using the MUD</h1>
+<ol>
+<li>Start by creating or uploading a MUD</li>
+<li>Activate the MUD, your default user should have admin privileges</li>
+<li>A new MUD will start you in the lobby</li>
+<li>Create a room: <code>@create room The Dark Forest</code></li>
+<li>Link it to your current room: <code>@link here north south %-1</code> -- <code>%-1</code> refers to the last created thing</li>
+<li>Lock the north exit: <code>@set north locked true</code></li>
+<li>Create a key generator: <code>@create generator a pile of keys</code></li>
+<li>Fix up the name of the generator: <code>@set %-1 name key</code></li>
+<li>Add the exit to the keys property on the key: <code>@add key keys north</code></li>
+<li>Drop the key generator so other people can get it: <code>drop key</code></li>
+<li>Try going north: <code>north</code></li>
+<li>Pick up a key: <code>get key</code> -- this actually copies the generator key</li>
+<li>Really go north: <code>north</code></li>
+<li>Toast your key copy: <code>@toast key</code></li>
+<li>Go south (south isn't locked -- you could lock it and add it to the key generator)</li>
+<li>Try going north</li>
+</ol>
+<h2>Example MUDs</h2>
+<p>Here are some <a href="examples">example MUDS</a></p>
+<h2>Creating things</h2>
+<p>When you create something with @create, you need a prototype, like this: <code>@create thing stone</code></p>
+<p>You can see a list of prototypes with the <code>@info</code> command.</p>
+<p>You can list any prototype with <code>%proto:NAME</code>, like this: <code>@dump %proto:room</code></p>
+<h2>Format strings</h2>
+<p>Various commands like <code>output</code> and <code>look</code> use format strings with special codes that start with $ in properties like description or examineFormat. Commands like look print a format string with arguments (look uses the description property).</p>
+<p>Some format string properties:</p>
+<ul>
+<li>description     -- Used when someone looks at the object</li>
+<li>contentsFormat  -- Used when displaying this thing as part of the contents of its location</li>
+<li>examineFormat   -- Used by the examine command and the look command for your location or yourself</li>
+</ul>
+<p>Use the help command and check out the documentation for @set for more info on the properties</p>
+<p>Some format codes:</p>
+<ul>
+<li>$forme ...      -- Use the text after $forme when it is outputting to the user</li>
+<li>$forothers ...  -- Use the text after $forothers if it is outputting to users other than the actor</li>
+<li>$actor          -- The formated name of the thing running the command</li>
+<li>$thing          -- The current thing (like the object you're looking at in a look command)</li>
+<li>$arg            -- The first format argument ($arg1 also works)</li>
+<li>$arg2           -- The second format argument</li>
+</ul>
+<p>Use the help command and check out the format string documentation for more info.</p>
+<h2>Command templates</h2>
+<p>An object can add or enhance commands if it contains a command property and a) the user is holding it, b) it is the user's location, or c) it is a link on the user's location.</p>
+<p>Command properties:</p>
+<ul>
+<li>cmd       -- The object's name becomes a command</li>
+<li>cmd_NAME  -- NAME becomes a command</li>
+<li>go        -- If you are going into the object, this replaces the go comand</li>
+<li>go_NAME   -- If you are going NAME, this replaces the go comand</li>
+<li>get       -- If you are getting the object, this replaces the get command</li>
+<li>get_NAME  -- If you are getting NAME, this replaces the get command</li>
+</ul>
+<p>Command templates can use $N to substitute in the command's arguments (and 'me' for the actor).</p>
+<ul>
+<li>$0 is the object itself</li>
+<li>$1...$N are the words in the command (so go north will have $0 as the exit and $1 as 'north' which may be useful in a go_north property)</li>
+</ul>
+<p>Use the help command for more details</p>
+<h1>Extensions</h1>
+<p>Each MUD can have extensions. There is an example extension <a href="html/js/exampleExtension.ts">here</a></p>
+<p>Extensions can optionally provide onStarted and onLoggedIn functions:</p>
+<pre><code class="language-TypeScript">function onStarted(world: World, con: MudConnection)
+
+function onLoggedIn(user: any, thing: Thing)
+</code></pre>
+<p>They can import Textcraft modules by using the prefix <code>/js/</code> for module files (see example).</p>
+<h1>MUD Model</h1>
+<h2>The Thing class</h2>
+<p>The World is made of things, and only things. Each room is a thing. Exits between rooms are things. People are things. Items are things. Boxes are things.</p>
+<p>Bill's good friend, Fritz Passow, came up with this idea, which he called &quot;Container MUD&quot;, where everything is a container.</p>
+<p>The Thing class has these properties:</p>
+<ul>
+<li>id: an identifying number for this thing, unique among things</li>
+<li>name: the name; since this is used in commands, spaces are not allowed</li>
+<li>description: the description</li>
+<li>location: the thing this is located in -- if this is a link, it has no location</li>
+<li>contents: things inside this thing</li>
+<li>links: links (which are things) attached to this thing</li>
+<li>linkOwner: the thing that owns this link, if this is a link</li>
+<li>otherLink: the companion to this link, if this is a link</li>
+</ul>
+<h1>MIT LICENSE</h1>
+<p>The MIT license is <a href="LICENSE">here</a></p>
+<h1>More later...</h1>
+<p>For the moment, there are basic instructions for developing the MUD, below.</p>
+<h1>Installing typescript</h1>
+<pre><code class="language-shell">npm install -g typescript
+</code></pre>
+<h1>Using typescript</h1>
+<p>Run this in one terminal to compile as you edit -- note that we are using <code>--target esnext</code></p>
+<pre><code class="language-shell">tsc -w
+</code></pre>
+<h1>USE TSLINT!!!</h1>
+<p>in another terminal, run this every now and then and <em>certainly</em> before pushing to a shared branch</p>
+<pre><code class="language-shell">tslint -p tsconfig.json
+</code></pre>
+<p>Run this in another terminal to serve up the web page -- we use modules so file:/// won't work :(. This will run the server on port 8888. You can change it with the -port option.</p>
+<pre><code class="language-shell">textcraft
+</code></pre>
+<h1>Things to look out for with async functions with database operations</h1>
+<p>When you call an async function, make sure to use await or return or the transaction will be lost!</p>
+
+</body>
+</html>
