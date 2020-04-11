@@ -199,8 +199,11 @@ export const commands = new Map([
     ['@expr', new Command({ help: ['thing property expr', `Set a property to the value of an expression`], admin: true })],
     ['@if', new Command({
             minArgs: 2,
-            help: ['condition @then commands... @elseif condition @then commands ... @else commands... @end', `conditionally run commands
+            help: ['condition CLAUSES @end', `conditionally run commands
+@if condition @then commands... @elseif condition @then commands ... @else commands... @end
+
 @else and @end are optional, use @end if you nest @ifs
+clauses can contain multiple commands separated by semicolons
 Conditions can contain expressions -- see expressions
 
 Example:
@@ -1435,6 +1438,17 @@ Prototypes:
             const help = this.commands.get(name).help;
             for (let i = 0; i < help.length; i += 2) {
                 argLen = Math.max(argLen, name.length + 1 + help[i].length);
+            }
+        }
+        if (cmd) {
+            if (this.commands.has(cmd.toLowerCase())) {
+                const command = this.commands.get(cmd.toLowerCase());
+                const name = command.name;
+                const help = command.help;
+                for (let i = 0; i < help.length; i += 2) {
+                    argLen = Math.max(argLen, name.length + 1 + help[i].length);
+                }
+                return this.output(`<pre>${helpText(argLen, command)}</pre>`);
             }
         }
         cmds.sort();
