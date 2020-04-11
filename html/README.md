@@ -96,6 +96,13 @@ function onLoggedIn(user: any, thing: Thing)
 
 They can import Textcraft modules by using the prefix `/js/` for module files (see example).
 
+# Four levels of building
+
+1. Creating things and setting properties
+1. Using command templates
+1. Writing extensions (like for game mechanics)
+1. Changing the Textcraft executable
+
 # MUD Model
 
 ## The Thing class

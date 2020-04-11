@@ -86,24 +86,28 @@ You can use <b>%lobby</b>, <b>%limbo</b>, and <b>%protos</b> for the standard ro
 You can use <b>%proto:name</b> for a prototype
 You can use <b>%NUMBER</b> for an object by its ID (try <b>@dump me</b> for an example)
 You can use <b>%-NUMBER</b> for an item you created recently (<b>%-1</b> is the last item, <b>%-2</b> is the next to last, etc.)
+You can use <b>%result</b> to refer to the result of the active successful if-condition
+You can use <b>%result.PROPERTY</b> to refer to a property of the result (including numeric indexes)
 
 To make something into a prototype, move it to <b>%protos</b>
 
 Format words:
-  <b>\$this</b>      -- formatted string for this object or "you" if the user is the thing
-  <b>\$actor</b>     -- formatted string for the thing that is currently running a command
-  <b>\$name</b>      -- this object\'s name
-  <b>\$is</b>        -- is or are, depending on the plurality of the thing
-  <b>\$s</b>         -- optional "s" depending on the plurality of the thing (or "es" if it\'s after go)
-  <b>\$location</b>  -- the thing\'s location
-  <b>\$owner</b>     -- the link\'s owner (if this is a link)
-  <b>\$link</b>      -- the link\'s destination (if this is a link)
-  <b>\$contents</b>  -- the things\'s contents
-  <b>\$links</b>     -- the things\'s links
-  <b>\$forme</b>     -- following content is for messages shown to a command\'s actor
-  <b>\$forothers</b> -- following content is for messages shown to observers of a command\'s actor
-  <b>\$arg</b>       -- first argument (if there is one)
-  <b>\$argN</b>      -- Nth argument (if there is one)
+  <b>\$this</b>        -- formatted string for this object or "you" if the user is the thing
+  <b>\$actor</b>       -- formatted string for the thing that is currently running a command
+  <b>\$name</b>        -- this object\'s name
+  <b>\$is</b>          -- is or are, depending on the plurality of the thing
+  <b>\$s</b>           -- optional "s" depending on the plurality of the thing (or "es" if it\'s after go)
+  <b>\$location</b>    -- the thing\'s location
+  <b>\$owner</b>       -- the link\'s owner (if this is a link)
+  <b>\$link</b>        -- the link\'s destination (if this is a link)
+  <b>\$contents</b>    -- the things\'s contents
+  <b>\$links</b>       -- the things\'s links
+  <b>\$forme</b>       -- following content is for messages shown to a command\'s actor
+  <b>\$forothers</b>   -- following content is for messages shown to observers of a command\'s actor
+  <b>\$arg</b>         -- first argument (if there is one)
+  <b>\$argN</b>        -- Nth argument (if there is one)
+  <b>\$result</b>      -- The result of the active successful if-condition
+  <b>\$result.PROP</b> -- A property of the current result (including numeric indexes)
 
 Command templates are string properties on objects to implement custom commands.
 Example command template properties are get_key, cmd, and cmd_whistle -- see the help for @set.
@@ -137,13 +141,13 @@ The following are legal expressions:
    expr1 in expr2  -- returns whether expr1 is in expr2 (which must be a collection)
 `
 
-const valuePat = /^(".*"|([0-9]*\.)?[0-9]+|true|false|null)$/;
+const valuePat = /^("([^"\\]|\\.)*"|([0-9]*\.)?[0-9]+|true|false|null)$/;
 const namePat = /^[a-zA-Z][a-zA-Z0-9]*/;
 const thingPat = /^([a-zA-Z][a-zA-Z0-9]*|%[0-9]+|%[a-zA-Z]+|%[a-zA-z]+:[a-zA-Z]+)(?:\.([a-zA-Z][a-zA-Z0-9]*))?$/;
 const ifPat = /(?:^|\s)(@if|@then|@else|@elseif|@end)\b/
 const tokPrecLevels = [
     ['!'],
-    ['in'],
+    ['in', 'match'],
     ['*', '/'],
     ['+', '-'],
     ['<', '<=', '==', '>=', '>'],
@@ -320,6 +324,7 @@ export class MudConnection {
     myName: string
     suppressOutput: boolean
     commands: Map<string, Command>
+    conditionResult: any
 
     constructor() {
         this.created = []
@@ -389,7 +394,7 @@ export class MudConnection {
     async basicFormat(tip: thingId | Thing | Promise<Thing>, str: string, args: Thing[]) {
         if (!str) return str
         const thing = await this.world.getThing(tip)
-        const parts = str.split(/( *\$\w*)/)
+        const parts = str.split(/( *\$result(?:\.\w*)?| *\$\w*)/)
         let result = ''
 
         for (const part of parts) {
@@ -404,6 +409,9 @@ export class MudConnection {
                     const arg = args[argMatch[1] ? Number(argMatch[1]) - 1 : 0]
 
                     result += capitalize(this.formatName(arg), format)
+                    continue
+                } else if (format.match(/^result(\.[0-9]+)?$/)) {
+                    result += this.getResult(format)
                     continue
                 }
                 switch (format.toLowerCase()) {
@@ -623,6 +631,11 @@ export class MudConnection {
         }
         return result
     }
+    getResult(resultExpr: string) {
+        const match = resultExpr.match(/^result(?:\.(.+))?$/)
+
+        return match[1] ? this.conditionResult[match[1]] : this.conditionResult
+    }
     async find(name: string, start: Thing = this.thing, errTag: string = ''): Promise<Thing> {
         let result: Thing
 
@@ -642,10 +655,11 @@ export class MudConnection {
                         : name === '%limbo' ? this.world.limbo
                             : name === '%lobby' ? this.world.lobby
                                 : name === '%protos' ? this.world.hallOfPrototypes
-                                    : name.match(/^%proto:/) ? await this.world.hallOfPrototypes.find(name.replace(/^%proto:/, ''))
-                                        : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
-                                            : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
-                                                : await start.find(name, this.thing._location === this.world.limbo.id ? new Set() : new Set([this.world.limbo]))
+                                    : name.match(/^%result(\.[0-9]+)?$/) ? this.getResult(name.slice(1))
+                                        : name.match(/^%proto:/) ? await this.world.hallOfPrototypes.find(name.replace(/^%proto:/, ''))
+                                            : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
+                                                : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
+                                                    : await start.find(name, this.thing._location === this.world.limbo.id ? new Set() : new Set([this.world.limbo]))
             }
         }
         if (!result && errTag) {
@@ -759,7 +773,13 @@ export class MudConnection {
             throw new Error(`Extra text after condition: ${conditionRest.join(' ')}`)
         }
         if (condition) {
-            return this.runCommands(findCommands(clauses[1]))
+            try {
+                this.conditionResult = condition
+                await this.runCommands(findCommands(clauses[1]))
+                return
+            } finally {
+                this.conditionResult = null
+            }
         } else {
             for (let i = 2; i < clauses.length - 1; i += 2) {
                 const [elcondition, elconditionRest] = await this.computeExpr(exprTokens(clauses[i]))
@@ -768,7 +788,13 @@ export class MudConnection {
                     throw new Error(`Extra text after condition: ${elconditionRest.join(' ')}`)
                 }
                 if (elcondition) {
-                    return this.runCommands(findCommands(clauses[i + 1]))
+                    try {
+                        this.conditionResult = condition
+                        await this.runCommands(findCommands(clauses[i + 1]))
+                        return
+                    } finally {
+                        this.conditionResult = null
+                    }
                 }
             }
             if (clauses.length % 2 === 1) { // there is an else clause
@@ -813,6 +839,9 @@ export class MudConnection {
                     } else {
                         throw new Error(`value for 'in' is not a collection: ${origExpr}`)
                     }
+                    break
+                case 'match':
+                    first = String(first).match(String(second))
                     break
                 case '*':
                     first = first * second
@@ -1555,7 +1584,7 @@ function findCommands(toks: string[]) {
 function splitIf(line: string) {
     const chunks = []
 
-    for (const part of line.split(/("(?:[^"]|\\.)*"|'(?:[^']|\\.)*')/).filter(x => x)) {
+    for (const part of line.split(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/).filter(x => x)) {
         if (part[0] === '"' || part[0] === "'") {
             chunks.push(part)
         } else {
