@@ -8,4 +8,4 @@ There are no servers. YOU own your data.
 
 It relies on [libp2p](https://github.com/libp2p/go-libp2p) for peer-to-peer networking and uses [libp2p-websocket](https://github.com/zot/libp2p-websocket) to connect browsers to libp2p.
 
-For many more details, see this readme: (html/README.md)
+For many more details, see this [readme](html/README.md)
