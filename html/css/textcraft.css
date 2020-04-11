@@ -410,7 +410,7 @@ body:not(.emulation) #toggleStateButtons {
     grid-auto-columns: auto;
     grid-auto-flow: column;
 }
-#info > iframe {
+#about > iframe {
     background: lightgray;
     border: none;
     width: 100%;
