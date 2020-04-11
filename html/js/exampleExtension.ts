@@ -14,9 +14,9 @@ const floopCommands = new Map([
 ])
 
 class FloopConnection extends MudConnection {
-    floop(cmdInfo) {
+    async floop(cmdInfo) {
         this.output('You floop around')
-        this.commandDescripton('floops around')
+        return this.commandDescripton('floops around')
     }
 }
 FloopConnection.prototype.commands = initCommands(floopCommands)
