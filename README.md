@@ -78,6 +78,10 @@ Command templates can use $N to substitute in the command's arguments (and 'me' 
 
 Use the help command for more details
 
+# Extensions
+
+Each MUD can have extensions. There is an example extension [here](html/js/exampleExtension.ts)
+
 # MUD Model
 
 ## The Thing class
