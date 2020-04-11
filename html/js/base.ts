@@ -27,6 +27,7 @@ export enum SectionState {
     Mud,
     Profile,
     Storage,
+    Info,
 }
 
 export enum MudState {

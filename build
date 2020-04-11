@@ -10,7 +10,7 @@ mkdir -p $tmpdir
 output=$tmpdir/files.go
 rsync $godir/* $tmpdir
 cd $target/html
-find * -type f | grep -v '#' | xargs esc -o $output
+find * -type f \( -name '#*' -prune -o -print0 \) | xargs -0 esc -o $output
 cd $tmpdir
 go build -ldflags "-X main.defaultPage=textcraft.html" -o $target/textcraft libp2p-websocket.go protocol.go files.go
 GOARCH=386 go build -ldflags "-X main.defaultPage=textcraft.html" -o $target/textcraft-32 libp2p-websocket.go protocol.go files.go

@@ -27,6 +27,7 @@ export var SectionState;
     SectionState[SectionState["Mud"] = 1] = "Mud";
     SectionState[SectionState["Profile"] = 2] = "Profile";
     SectionState[SectionState["Storage"] = 3] = "Storage";
+    SectionState[SectionState["Info"] = 4] = "Info";
 })(SectionState || (SectionState = {}));
 export var MudState;
 (function (MudState) {

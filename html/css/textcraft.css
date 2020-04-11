@@ -134,6 +134,7 @@ body:not(.connectionSection) .when-section-connection,
 body:not(.mudSection) .when-section-mud,
 body:not(.profileSection) .when-section-profile,
 body:not(.storageSection) .when-section-storage,
+body:not(.infoSection) .when-section-info,
 body.mudSection .when-not-section-mud,
 /* mud editor */
 .dialog:not(.mud-deleted) .when-mud-deleted
@@ -408,4 +409,11 @@ body:not(.emulation) #toggleStateButtons {
     grid: auto / auto minmax(0, 1fr);
     grid-auto-columns: auto;
     grid-auto-flow: column;
+}
+#info > iframe {
+    background: lightgray;
+    border: none;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
 }
