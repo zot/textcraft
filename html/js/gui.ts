@@ -330,6 +330,7 @@ export async function editWorld(world: model.World) {
                     world.defaultUser = user.name
                 }
                 newUsers.push(user)
+                await mudcontrol.updateUser(user)
             }
             await world.replaceUsers(newUsers)
         }
@@ -344,6 +345,13 @@ export async function editWorld(world: model.World) {
             world.close()
         }
         changes.extensions.clear()
+    }
+    const validate = () => {
+        if (nameField.value.match(/\s/)) {
+            alert('World names cannot contain spaces')
+            return false
+        }
+        return true
     }
 
     for (const user of await world.getAllUsers()) {
@@ -369,8 +377,10 @@ export async function editWorld(world: model.World) {
     }
     nameField.value = world.name
     onEnter(nameField, newName => {
-        div.remove()
-        return success()
+        if (validate()) {
+            div.remove()
+            return success()
+        }
     })
     $find(div, '[name=download-mud]').onclick = async evt => {
         evt.stopPropagation()
@@ -385,9 +395,10 @@ export async function editWorld(world: model.World) {
         evt.stopPropagation()
         deleted = !deleted
         div.classList.toggle('mud-deleted')
+        $find(div, '[name=save]').textContent = deleted ? 'Delete' : 'Save'
     }
     try {
-        await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]')
+        await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]', validate)
         await success()
     } catch (err) { // revoke URL on cancel
         for (const blobToRevoke of changes.blobsToRevoke as Set<string>) {
@@ -417,7 +428,7 @@ function userItem(world: model.World, user: any, processUsersFunc) {
     return div
 }
 
-export function okCancel(div, okSel, cancelSel, focusSel) {
+export function okCancel(div, okSel, cancelSel, focusSel, validate) {
     document.body.appendChild(div)
     focusSel && setTimeout(() => {
         console.log('focusing ', focusSel, $find(div, focusSel))
@@ -432,8 +443,10 @@ export function okCancel(div, okSel, cancelSel, focusSel) {
             }
         }
         $find(div, okSel).onclick = () => {
-            div.remove()
-            succeed()
+            if (validate()) {
+                div.remove()
+                succeed()
+            }
         }
         $find(div, cancelSel).onclick = () => {
             div.remove()

@@ -21,6 +21,7 @@ import {
     MudConnection,
     removeRemotes,
     myThing,
+    createConnection,
 } from './mudcontrol.js'
 
 const peerDbName = 'peer'
@@ -347,7 +348,7 @@ class HostStrategy extends Strategy {
     }
     async newPlayer(conID: proto.ConID, peerID: proto.PeerID, protocol: string) {
         const users = []
-        const mudcon = new MudConnection(activeWorld, text => this.sendObject(conID, {
+        const mudcon = createConnection(activeWorld, text => this.sendObject(conID, {
             name: 'output',
             hostID: peer.peerID,
             text,

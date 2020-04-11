@@ -9,7 +9,7 @@ import { natTracker, roleTracker, peerTracker, sectionTracker, mudTracker, relay
 import proto from './protocol-shim.js';
 import { promiseFor } from './model.js';
 import * as gui from './gui.js';
-import { activeWorld, MudConnection, removeRemotes, myThing, } from './mudcontrol.js';
+import { activeWorld, removeRemotes, myThing, createConnection, } from './mudcontrol.js';
 const peerDbName = 'peer';
 let app;
 export let peer;
@@ -299,7 +299,7 @@ class HostStrategy extends Strategy {
     }
     async newPlayer(conID, peerID, protocol) {
         const users = [];
-        const mudcon = new MudConnection(activeWorld, text => this.sendObject(conID, {
+        const mudcon = createConnection(activeWorld, text => this.sendObject(conID, {
             name: 'output',
             hostID: peer.peerID,
             text,

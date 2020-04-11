@@ -20,5 +20,6 @@ async function start() {
     Gui.start();
     return Mudproto.start(Model.storage);
 }
+window.textcraft = app;
 window.onload = start;
 //# sourceMappingURL=textcraft.js.map

@@ -4,7 +4,12 @@
         "removeComments": false,
         "preserveConstEnums": true,
         "sourceMap": true,
-        "target": "esnext"
+        "target": "esnext",
+        "module": "esnext",
+        "baseUrl": "html/",
+        "paths": {
+            "/js/*.js": ["js/*"],
+        },
     },
     "include": [
         "html/js/**/*"

@@ -1,11 +1,19 @@
+# priority property that determines which thing is chosen first out of several with the same name
+
+# Make create not actually create the MUD unless you save
+
 # Extensions:
 * Make quitting a MUD with an extension offer to reload the page
 
-# BUG: you can go into something you're holding -- limit go to your location and its links
+# Turn on a light when there are unread messages
 
-# copying objects (thing + contents + links + linked things)
-* _template flag to autocopy during move
-* @copy command
+# @handoff to hand mud service off to another user
+* Transfer the mud to the user
+* Transmit connect messages to everyone
+* User's MUD hosts
+* Everyone reconnects
+
+# private messages
 
 # after nat acquired, check textcraft.org for updates
 * send current and latest version numbers in ident() message

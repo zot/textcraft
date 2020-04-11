@@ -1,4 +1,10 @@
 import proto from './protocol-shim.js'
+import {
+    Constructor,
+    MudConnection,
+    connection,
+    activeWorld,
+} from './mudcontrol.js'
 
 export let storage: MudStorage
 
@@ -30,6 +36,8 @@ export class Extension {
     name: string // human-readable name
     text: string
     hash: string
+    succeed: () => void
+    onLoggedIn: (user: any, thing: Thing) => void
 
     constructor(obj: any) {
         Object.assign(this, obj)
@@ -39,7 +47,7 @@ export class Extension {
     }
     async populate(file: File) {
         this.name = file.name
-        this.text = await file.text()
+        this.text = await (file as any).text()
         return this.getHash()
     }
 }
@@ -231,6 +239,8 @@ export class World {
     userStore: IDBObjectStore
     extensionStore: IDBObjectStore
     defaultUser: string
+    activeExtensions = new Map<number, Extension>()
+    mudConnectionConstructor: Constructor<MudConnection>
     dirty: Set<thingId>
 
     constructor(name: string, stg: MudStorage) {
@@ -239,6 +249,18 @@ export class World {
         this.dirty = new Set()
         this.thingCache = new Map()
         this.nextId = 0
+    }
+    async start() {
+        for (const extension of await this.getExtensions()) {
+            await this.evalExtension(extension)
+        }
+    }
+    async loggedIn() {
+        const con = connection
+
+        for (const ext of this.activeExtensions.values()) {
+            ext.onLoggedIn(con.user, con.thing)
+        }
     }
     close() {
         this.storage.closeWorld(this.name)
@@ -449,27 +471,17 @@ export class World {
         })
     }
     async evalExtension(ext: Extension) {
-        try {
-            // tslint:disable-next-line:no-eval
-            const func = eval(ext.text)
+        const script = document.createElement('script')
 
-            if (func instanceof Function) {
-                func(this, app)
-            } else if (func instanceof Promise) {
-                return func.then(f => {
-                    if (f instanceof Function) {
-                        f(this, app)
-                    } else {
-                        throw new Error('Extension should be a function or Promise<Function> but it is not')
-                    }
-                })
-            } else {
-                throw new Error('Extension should be a function or Promise<Function> but it is not')
-            }
-        } catch (err) {
-            alert(`Error running extension ${ext.name} (see console for details): ${err.message}`)
-            console.error(err)
-        }
+        return new Promise((succeed, fail) => {
+            this.activeExtensions.set(ext.id, ext)
+            ext.succeed = succeed
+            document.head.appendChild(script)
+            script.setAttribute('type', 'module')
+            // this is necessary because we're not getting load events from module script elements
+            script.textContent = appendScriptText(ext.text, `window.textcraft.Model.registerExtension(${ext.id}, onStarted, onLoggedIn)`);
+            (script as any).loadSuccess = succeed
+        }).then(() => console.log('Loaded extension', ext))
     }
     store() {
         return promiseFor(this.thingStore.put(this.spec()))
@@ -819,9 +831,6 @@ export class MudStorage {
         }
         await world.initStdPrototypes()
         this.openWorlds.set(name, world)
-        for (const extension of await world.getExtensions()) {
-            await world.evalExtension(extension)
-        }
         return world
     }
     randomWorldName() {
@@ -1195,4 +1204,22 @@ export function fromHex(hex: string) {
         output[i / 2] = Number.parseInt(hex.substring(i, i + 2), 16)
     }
     return output
+}
+
+function appendScriptText(text: string, additional: string) {
+    const smIndex = text.lastIndexOf('//# sourceMa')
+
+    if (smIndex !== -1) {
+        return text.slice(0, smIndex) + '\n;' + additional + ';\n' + text.slice(smIndex)
+    }
+    return text + '\n;' + additional
+}
+
+export function registerExtension(id: number, onStarted: (world: World, con: MudConnection) => void, onLoggedIn: (user: any, thing: Thing) => void) {
+    const world = activeWorld
+    const ext = world.activeExtensions.get(id)
+
+    onStarted?.(activeWorld, connection)
+    ext.onLoggedIn = onLoggedIn
+    ext.succeed?.()
 }

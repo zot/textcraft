@@ -25,4 +25,6 @@ async function start() {
     return Mudproto.start(Model.storage)
 }
 
+(window as any).textcraft = app
+
 window.onload = start

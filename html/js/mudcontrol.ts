@@ -13,7 +13,7 @@ import * as gui from './gui.js'
 import * as mudproto from './mudproto.js'
 
 let app: any
-let connection: MudConnection
+export let connection: MudConnection
 // probably should move this into World
 const connectionMap = new Map<Thing, MudConnection>()
 export let activeWorld: World
@@ -118,23 +118,23 @@ The following are legal expressions:
    undefined
    THING
    THING.property
-   %any.property              -- returns the first value found on your thing or a thing your inventory
-                                 If property is a collection, it returns the union of all found
-   '(' expression ')'
-   expression1 + expression2
-   expression1 - expression2
-   expression1 * expression2
-   expression1 / expression2
-   expression1 < expression2
-   expression1 <= expression2
-   expression1 > expression2
-   expression1 >= expression2
-   expression1 == expression2
-   expression1 != expression2
-   expression1 && expression2
-   expression1 || expression2
-   !expression1
-   expression1 in expression2 -- expression2 must be a collection
+   %any.property   -- returns the first value found on you or thing in your inventory
+                      If property is a collection, it returns the union of all found
+   '(' expr ')'
+   expr1 + expr2
+   expr1 - expr2
+   expr1 * expr2
+   expr1 / expr2
+   expr1 < expr2
+   expr1 <= expr2
+   expr1 > expr2
+   expr1 >= expr2
+   expr1 == expr2
+   expr1 != expr2
+   !expr1
+   expr1 && expr2
+   expr1 || expr2
+   expr1 in expr2  -- returns whether expr1 is in expr2 (which must be a collection)
 `
 
 const valuePat = /^(".*"|([0-9]*\.)?[0-9]+|true|false|null)$/;
@@ -151,7 +151,7 @@ const tokPrecLevels = [
     ['||'],
 ]
 
-class Command {
+export class Command {
     help: string[]
     admin: boolean
     alt: string
@@ -167,7 +167,7 @@ class Command {
     }
 }
 
-const commands = new Map<string, Command>([
+export const commands = new Map([
     ['help', new Command({ help: ['', 'Show this message'] })],
     ['login', new Command({ help: ['user password', 'Login to the mud'] })],
     ['look', new Command({
@@ -237,28 +237,33 @@ Example:
 
 export function init(appObj) {
     app = appObj
-    for (const cmdName of commands.keys()) {
-        const command = commands.get(cmdName)
+}
 
-        if (command.minArgs === undefined) {
-            command.minArgs = 1000
-        }
-        command.name = cmdName
-        if (command.alt) {
-            const alt = commands.get(command.alt)
+export function initCommands(cmds: Map<string, Command>) {
+    cmds.forEach(initCommand)
+    return cmds
+}
 
-            if (!alt.alts) alt.alts = []
-            commands.get(command.alt).alts.push(command)
-        }
-        if (cmdName[0] === '@') {
-            command.admin = true
-            command.method = 'at' + capitalize(cmdName.substring(1))
-        } else {
-            command.method = command.name
-        }
-        for (let i = 0; i < command.help.length; i += 2) {
-            command.minArgs = Math.min(command.minArgs, command.help[i].split(/ +/).length)
-        }
+export function initCommand(command: Command, cmdName: string, cmds: Map<string, Command>) {
+    command.name = cmdName
+    if (command.minArgs === undefined) {
+        command.minArgs = 1000
+    }
+    command.name = cmdName
+    if (command.alt) {
+        const alt = cmds.get(command.alt)
+
+        if (!alt.alts) alt.alts = []
+        cmds.get(command.alt).alts.push(command)
+    }
+    if (cmdName[0] === '@') {
+        command.admin = true
+        command.method = 'at' + capitalize(cmdName.substring(1))
+    } else {
+        command.method = command.name
+    }
+    for (let i = 0; i < command.help.length; i += 2) {
+        command.minArgs = Math.min(command.minArgs, command.help[i].split(/ +/).length)
     }
 }
 
@@ -311,11 +316,14 @@ export class MudConnection {
     remote: boolean
     myName: string
     suppressOutput: boolean
+    commands: Map<string, Command>
 
-    constructor(world, outputHandler, remote = false) {
+    constructor() {
+        this.created = []
+    }
+    init(world, outputHandler, remote = false) {
         this.world = world
         this.outputHandler = outputHandler
-        this.created = []
         this.remote = remote
     }
     async close() {
@@ -348,7 +356,7 @@ export class MudConnection {
         }
         this.failed = false
     }
-    start() {
+    async start() {
         mudTracker.setValue(MudState.Playing)
         this.outputHandler(`Welcome to ${this.world.name}, use the "login" command to log in.
 <p>
@@ -356,6 +364,7 @@ export class MudConnection {
 <p>Help lists commands...
 <p>
 <p>Click on old commands to reuse them`)
+        await this.world.start()
     }
     formatMe(tip: thingId | Thing | Promise<Thing>, str: string, ...args: Thing[]) {
         const ctx = formatContexts(str)
@@ -576,16 +585,16 @@ export class MudConnection {
 
         if (!substituted) {
             this.output('<div class="input">&gt; <span class="input-text">' + escape(line) + '</span></div>')
-            if (!commands.has(commandName) && this.thing) {
+            if (!this.commands.has(commandName) && this.thing) {
                 const newCommands = await this.findCommand(words)
 
                 if (newCommands) return this.runCommands(newCommands)
             }
         }
-        if (this.thing ? commands.has(commandName) : commandName === 'login' || commandName === 'help') {
-            let command = commands.get(commandName)
+        if (this.thing ? this.commands.has(commandName) : commandName === 'login' || commandName === 'help') {
+            let command = this.commands.get(commandName)
 
-            if (command.alt) command = commands.get(command.alt)
+            if (command.alt) command = this.commands.get(command.alt)
             if (command?.admin && !this.admin && !substituted) {
                 return this.error('Unknown command: ' + words[0])
             }
@@ -858,7 +867,7 @@ export class MudConnection {
             return [undefined, toks.slice(1)]
         } else if (toks[0].match(thingPat)) {
             const match = toks[0].match(thingPat)
-            if (match[1] === '%any' && match[2]) {
+            if (match[1] === '%any' && match[2]) { // currently just you and your stuff's properties
                 const prop = `_${match[2]}`
                 const collection = new Set()
                 let pair: [any, any]
@@ -956,7 +965,17 @@ export class MudConnection {
         const oldLoc = await this.thing.getLocation()
         const direction = await this.find(directionStr, this.thing, 'direction')
         let location: Thing
+        const visited = new Set<Thing>()
+        let tmp = direction
 
+        while (tmp !== this.world.limbo) {
+            if (visited.has(tmp)) throw new Error(`${this.formatName(direction)} is in a circularity`)
+            visited.add(tmp)
+            if (tmp === this.thing) {
+                throw new Error('You cannot go into something you are holding')
+            }
+            tmp = await (tmp._linkOwner ? tmp.getLinkOwner() : tmp.getLocation())
+        }
         if (!direction._linkOwner) {
             this.thing.setLocation(direction)
             const output = await this.formatMe(direction, direction._contentsEnterFormat, this.thing)
@@ -1440,7 +1459,7 @@ Prototypes:
     }
     // COMMAND
     help(cmdInfo, cmd) {
-        let cmds = [...commands.keys()].filter(k => !commands.get(k).admin || this.admin)
+        let cmds = [...this.commands.keys()].filter(k => !this.commands.get(k).admin || this.admin)
         let result = ''
         let argLen = 0
 
@@ -1451,7 +1470,7 @@ Prototypes:
             return this.error(`Command not found: ${cmd}`)
         }
         for (const name of cmds) {
-            const help = commands.get(name).help
+            const help = this.commands.get(name).help
 
             for (let i = 0; i < help.length; i += 2) {
                 argLen = Math.max(argLen, name.length + 1 + help[i].length)
@@ -1459,7 +1478,7 @@ Prototypes:
         }
         cmds.sort()
         for (const name of cmds) {
-            const command = commands.get(name)
+            const command = this.commands.get(name)
 
             if (command.alt) continue
             if (result) result += '\n'
@@ -1470,6 +1489,8 @@ Prototypes:
 You can use <b>me</b> for yourself, <b>here</b> for your location, and <b>out</b> for your location's location (if you're in a container)${this.admin ? adminHelp : ''}</pre>`)
     }
 }
+MudConnection.prototype.commands = initCommands(commands)
+
 
 function exprTokens(cond: string[]) {
     const tokens = []
@@ -1656,8 +1677,9 @@ export async function executeCommand(text: string) {
 
 export async function runMud(world: World, handleOutput: (str: string) => void) {
     activeWorld = world
-    connection = new MudConnection(world, handleOutput)
-    connection.start()
+    world.mudConnectionConstructor = MudConnection
+    connection = createConnection(world, handleOutput)
+    await connection.start()
     if (world.defaultUser) {
         const user = world.defaultUser
 
@@ -1683,4 +1705,36 @@ export function removeRemotes() {
 
 export function myThing() {
     return connection?.thing
+}
+
+export async function updateUser(user) {
+    if (user.thing && connection) {
+        const thing = await connection.world.getThing(user.thing)
+        const con = connectionMap.get(thing)
+
+        if (con) con.admin = user.admin
+    }
+}
+
+export type Constructor<T> = (new () => T)
+
+export function spliceConnection<T extends MudConnection>(mudconnectionConstructor: Constructor<T>) {
+    const proto = activeWorld.mudConnectionConstructor.prototype;
+    mudconnectionConstructor.prototype.__proto__ = proto
+    if (mudconnectionConstructor.prototype.hasOwnProperty('commands')) {
+        const cmds = mudconnectionConstructor.prototype.commands
+
+        for (const [name, cmd] of activeWorld.mudConnectionConstructor.prototype.commands) {
+            cmds.set(name, cmd)
+        }
+    }
+    activeWorld.mudConnectionConstructor = mudconnectionConstructor;
+    (connection as any).__proto__ = mudconnectionConstructor.prototype
+}
+
+export function createConnection(world: World, outputHandler: (str: string) => void, remote = false) {
+    const con = new activeWorld.mudConnectionConstructor()
+
+    con.init(world, outputHandler, remote)
+    return con
 }
