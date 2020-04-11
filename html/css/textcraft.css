@@ -134,7 +134,7 @@ body:not(.connectionSection) .when-section-connection,
 body:not(.mudSection) .when-section-mud,
 body:not(.profileSection) .when-section-profile,
 body:not(.storageSection) .when-section-storage,
-body:not(.infoSection) .when-section-info,
+body:not(.aboutSection) .when-section-about,
 body.mudSection .when-not-section-mud,
 /* mud editor */
 .dialog:not(.mud-deleted) .when-mud-deleted
