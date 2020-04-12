@@ -515,6 +515,7 @@ export function setConnectString(cst: string) {
 
 export function setPeerId(id: string) {
     $('#peerID').textContent = id;
+    $('#profilePeerID').textContent = id;
 }
 
 export function noConnection() {
@@ -697,6 +698,14 @@ export function start() {
     }
     $('#host-with-relay').onclick = () => {
         mudproto.hostViaRelay($('#hosting-relay-connect-string').value)
+    }
+    $('#profilePeerID').value = model.storage.profile.peerID
+    $('#profileName').value = model.storage.profile.name
+    $('#profileName').onchange = async () => {
+        const prof = model.storage.profile
+
+        prof.name = $('#profileName').value
+        await prof.store()
     }
     showMuds()
 }

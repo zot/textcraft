@@ -47,6 +47,9 @@ body {
     bottom: 0;
     right: 0;
 }
+#profilePeerID {
+    user-select: all;
+}
 /* STATES
  * State classes are on the body, the lowercased state name suffixed with capitalized state type
  *   example: notstartedNat

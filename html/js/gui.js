@@ -477,6 +477,7 @@ export function setConnectString(cst) {
 }
 export function setPeerId(id) {
     $('#peerID').textContent = id;
+    $('#profilePeerID').textContent = id;
 }
 export function noConnection() {
     $('#connectStatus').textContent = '';
@@ -648,6 +649,13 @@ export function start() {
     };
     $('#host-with-relay').onclick = () => {
         mudproto.hostViaRelay($('#hosting-relay-connect-string').value);
+    };
+    $('#profilePeerID').value = model.storage.profile.peerID;
+    $('#profileName').value = model.storage.profile.name;
+    $('#profileName').onchange = async () => {
+        const prof = model.storage.profile;
+        prof.name = $('#profileName').value;
+        await prof.store();
     };
     showMuds();
 }

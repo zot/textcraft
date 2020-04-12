@@ -5,7 +5,7 @@ const floopCommands = new Map([
 class FloopConnection extends MudConnection {
     async floop(cmdInfo) {
         this.output('You floop around');
-        return this.commandDescripton('floops around');
+        return this.commandDescripton(null, 'floops around', 'floop', []);
     }
 }
 FloopConnection.prototype.commands = initCommands(floopCommands);

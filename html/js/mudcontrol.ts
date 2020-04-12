@@ -138,9 +138,10 @@ The following are legal expressions:
    !expr1
    expr1 && expr2
    expr1 || expr2
-   expr1 in expr2  -- returns whether expr1 is in expr2 (which must be a collection)
+   expr1 in expr2  -- returns whether expr1 is in expr2 (which must be a collection or a thing)
 `
 
+const quotePat = /("(?:[^"\\]|\\.)*")/
 const valuePat = /^("([^"\\]|\\.)*"|([0-9]*\.)?[0-9]+|true|false|null)$/;
 const namePat = /^[a-zA-Z][a-zA-Z0-9]*/;
 const thingPat = /^([a-zA-Z][a-zA-Z0-9]*|%[0-9]+|%[a-zA-Z]+|%[a-zA-z]+:[a-zA-Z]+)(?:\.([a-zA-Z][a-zA-Z0-9]*))?$/;
@@ -196,8 +197,10 @@ export const commands = new Map([
     ['@dump', new Command({ help: ['thing', 'See properties of a thing'] })],
     ['@move', new Command({ help: ['thing location', 'Move a thing'] })],
     ['@output', new Command({
-        help: ['contextThing arg..., words...', `Output text to the user and/or others using a format string on contextThing
-  DON'T FORGET THE COMMA!`]
+        help: ['contextThing "FORMAT" arg... @event actor EVENT arg...',
+            `Output text to the user and/or others using a format string on contextThing
+  if the format is for others, @output will issue a descripton using information after @event
+  actor can change output depending on who receives it`]
     })],
     ['@quiet', new Command({ help: ['', 'temporarily disable output'] })],
     ['@loud', new Command({ help: ['', 'enable output'] })],
@@ -276,13 +279,20 @@ export function initCommand(command: Command, cmdName: string, cmds: Map<string,
 
 export class Descripton {
     source: Thing
+    event: string
+    args: any
+    failed: boolean
     visitFunc: (thing: Thing, ton: Descripton) => void
     visitLinks: boolean
     ignoreClosed: boolean
-    done: boolean
     visited: Set<Thing>
+    done: boolean
 
-    constructor(visitFunc: (thing: Thing) => void, visitLinks = false) {
+    constructor(source: Thing, event: string, args: any, failed: boolean, visitFunc: (thing: Thing) => void, visitLinks = false) {
+        this.source = source
+        this.event = event
+        this.failed = failed
+        this.args = args
         this.visitFunc = visitFunc
         this.visitLinks = visitLinks
         this.visited = new Set()
@@ -448,11 +458,11 @@ export class MudConnection {
                         continue
                     }
                     case 'location': {
-                        result += capitalize((await thing.getLocation()).formatName(), format)
+                        result += capitalize(this.formatName(await thing.getLocation()), format)
                         continue
                     }
                     case 'owner': {
-                        result += capitalize((await thing.getLinkOwner()).formatName(), format)
+                        result += capitalize(this.formatName(await thing.getLinkOwner()), format)
                         continue
                     }
                     case 'link': {
@@ -720,9 +730,9 @@ export class MudConnection {
         }
         return [thing, lowerProp, realProp, value, propMap]
     }
-    async doLogin(user: string, password: string, noauthentication = false) {
+    async doLogin(user: string, password: string, name: string, noauthentication = false) {
         try {
-            const [thing, admin] = await this.world.authenticate(user, password, noauthentication)
+            const [thing, admin] = await this.world.authenticate(user, password, name, noauthentication)
 
             this.user = user
             this.thing = thing
@@ -733,22 +743,31 @@ export class MudConnection {
             this.output('Connected.')
             mudproto.userThingChanged(this.thing)
             thing.setLocation(this.world.lobby)
-            await this.commandDescripton('has arrived')
+            await this.commandDescripton(null, 'has arrived', 'go', [null])
             // tslint:disable-next-line:no-floating-promises
             await this.look(null, null)
         } catch (err) {
             this.error(err.message)
         }
     }
-    async commandDescripton(action: string, except = this.thing, startAt?: Thing, prefix = true) {
+    async commandDescripton(context: Thing, action: string, event: string, args: any[], succeeded = true, prefix = true, excludeActor = true, startAt?: Thing, actor = this.thing) {
+        return this.formatDescripton(context, action, [], event, args, succeeded, prefix, excludeActor, startAt, actor)
+    }
+    async formatDescripton(actionContext: Thing, action: string, actionArgs: any[], event: string, args: any[], succeeded = true, prefix = true, excludeActor = true, startAt?: Thing, actor = this.thing) {
         if (!this.suppressOutput) {
-            const text = prefix ? `${this.formatName(this.thing)} ${action}` : action
-            const desc = new Descripton(thing => {
-                connectionMap.get(thing)?.output(text)
+            const desc = new Descripton(actor, event, args, !succeeded, async thing => {
+                const con = connectionMap.get(thing)
+
+                if (con) {
+                    // run format in each connection so it can deal with admin and names
+                    const format = await con.basicFormat(actionContext, action, actionArgs)
+                    const text = prefix ? `${con.formatName(this.thing)} ${format}` : format
+                    con.output(text)
+                }
             })
 
             if (!startAt) startAt = await this.thing.getLocation()
-            if (except) desc.visited.add(except)
+            if (excludeActor) desc.visited.add(actor)
             return desc.propagate(startAt)
         }
     }
@@ -829,9 +848,12 @@ export class MudConnection {
             toks = nextToks
             switch (op) {
                 case 'in':
+                    if (typeof first === 'number') first = await this.world.getThing(first)
                     if (!(first instanceof Thing)) throw new Error(`in only works on things: ${origExpr}`)
                     if (!second) {
                         first = false
+                    } else if (second instanceof Thing) {
+                        first = first._location === second.id
                     } else if ('indexOf' in second) {
                         first = second.indexOf(first._id) !== -1
                     } else if ('has' in second) {
@@ -946,7 +968,7 @@ export class MudConnection {
     }
     // COMMAND
     login(cmdInfo, user, password) {
-        return this.doLogin(user, password)
+        return this.doLogin(user, password, user)
     }
     // COMMAND
     async look(cmdInfo, target?) {
@@ -954,36 +976,36 @@ export class MudConnection {
 
         if (!thing) {
             this.errorNoThing(target)
-            return this.commandDescripton(`looks for a ${target} but doesn't see any`)
+            return this.commandDescripton(null, `looks for a ${target} but doesn't see any`, 'look', [], false)
         } else if (thing === this.thing) {
             this.output(await this.examination(thing))
-            return this.commandDescripton(`looks at themself`)
+            return this.commandDescripton(null, `looks at themself`, 'examine', [thing])
         } else if (thing.id === this.thing._location) {
             this.output(await this.examination(await this.thing.getLocation()))
-            return this.commandDescripton(`looks around`)
+            return this.commandDescripton(null, `looks around`, 'examine', [thing])
         } else {
             this.output(await this.description(thing))
-            return this.commandDescripton(`looks at ${await this.description(thing)}`)
+            return this.formatDescripton(null, 'looks at $arg', [thing], 'look', [thing])
         }
     }
     // COMMAND
     async examine(cmdInfo, target?) {
         if (!target) {
-            this.error(`What do you want to examine?`)
+            this.error(`What do you want to examine ? `)
         } else {
             const thing = await this.find(target, this.thing)
 
             if (!thing) {
                 this.errorNoThing(target)
-                return this.commandDescripton(`tries to examine a ${target} but doesn't see any`)
+                return this.commandDescripton(null, `tries to examine a ${target} but doesn't see any`, 'examine', [], false)
             } else {
                 this.output(await this.examination(thing))
                 if (thing === this.thing) {
-                    return this.commandDescripton(`looks at themself`)
+                    return this.commandDescripton(null, `looks at themself`, 'examine', [thing])
                 } else if (thing.id === this.thing._location) {
-                    return this.commandDescripton(`looks around`)
+                    return this.commandDescripton(null, `looks around`, 'examine', [thing])
                 } else {
-                    return this.commandDescripton(`examines ${this.formatName(thing)}`)
+                    return this.formatDescripton(null, 'examines $arg', [thing], 'examine', [thing])
                 }
             }
         }
@@ -1010,10 +1032,11 @@ export class MudConnection {
         }
         if (!direction._linkOwner) {
             this.thing.setLocation(direction)
-            const output = await this.formatMe(direction, direction._contentsEnterFormat, this.thing)
-            output && this.output(output)
-            const descripton = await this.formatOthers(direction, direction._contentsEnterFormat, this.thing)
-            descripton && await this.commandDescripton(descripton, this.thing, oldLoc)
+            const ctx = formatContexts(direction._contentsEnterFormat)
+            ctx.me && this.output(await this.basicFormat(direction, ctx.me, [this.thing]))
+            if (ctx.others) {
+                await this.formatDescripton(direction, ctx.others, [this.thing], 'go', [oldLoc], true, true, true, this.thing)
+            }
         } else {
             const link = direction._otherLink && await direction.getOtherLink()
 
@@ -1023,12 +1046,13 @@ export class MudConnection {
                     return this.error(`${directionStr} does not lead anywhere`)
                 }
             }
-            this.thing.setLocation(location)
             const output = await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location)
+            const exitCtx = formatContexts(direction._linkExitFormat)
+            exitCtx.others && await this.formatDescripton(direction, exitCtx.others, [this.thing, oldLoc], 'go', [oldLoc], true, false)
+            this.thing.setLocation(location)
             output && this.output(output)
-            const descripton = await this.format(direction, direction._linkExitFormat, this.thing, oldLoc)
-            descripton && await this.commandDescripton(descripton, this.thing, oldLoc)
-            await this.commandDescripton(await this.format(link, link._linkEnterFormat, this.thing, location), this.thing, location)
+            const enterCtx = formatContexts(direction._linkEnterFormat)
+            await this.formatDescripton(link, enterCtx.others, [this.thing, location], 'go', [oldLoc], true, false)
         }
         await this.look(cmdInfo)
     }
@@ -1069,8 +1093,8 @@ export class MudConnection {
         if (thing === this.thing) return this.error(`You just don't get yourself. Some people are that way.`)
         if (thing === location) return this.error(`You just don't get this place. Some people are that way.`)
         thing.setLocation(this.thing)
-        this.output(`You pick up ${thing.formatName()}`)
-        return this.commandDescripton(`picks up ${this.formatName(thing)}`)
+        this.output(`You pick up ${this.formatName(thing)}`)
+        return this.commandDescripton(thing, 'picks up $this', 'get', [thing])
     }
     // COMMAND
     async drop(cmdInfo, thingStr) {
@@ -1081,14 +1105,14 @@ export class MudConnection {
         if (thing._location !== this.thing._id) return this.error(`You aren't holding ${thingStr}`)
         await thing.setLocation(loc)
         this.output(`You drop ${this.formatName(thing)}`)
-        return this.commandDescripton(`drops ${this.formatName(thing)}`)
+        return this.commandDescripton(thing, 'drops $this', 'drop', [thing])
     }
     // COMMAND
     async say(cmdInfo, ...words: string[]) {
         const text = escape(dropArgs(1, cmdInfo))
 
         this.output(`You say, "${text}"`)
-        return this.commandDescripton(`says, "${text}"`)
+        return this.commandDescripton(null, `says, "${text}"`, 'say', [text])
     }
     // COMMAND
     async whisper(cmdInfo, thingStr: string, ...words: string[]) {
@@ -1103,7 +1127,7 @@ export class MudConnection {
     async act(cmdInfo, ...words: string[]) {
         const text = escape(dropArgs(1, cmdInfo))
 
-        return this.commandDescripton(`<i>${this.formatName(this.thing)} ${text}</i>`, null, null, false)
+        return this.commandDescripton(this.thing, '<i>$this ${text}</i>', 'act', [text], true, false, false)
     }
     // COMMAND
     async gesture(cmdInfo, thingStr: string, ...words: string[]) {
@@ -1111,8 +1135,7 @@ export class MudConnection {
         const text = escape(dropArgs(2, cmdInfo))
 
         if (!thing) return this.errorNoThing(thingStr)
-        connectionMap.get(thing)?.output(`<i>${this.formatName(this.thing)} ${text} at you</i>`)
-        await this.commandDescripton(`<i>${this.formatName(this.thing)} ${text} at ${this.formatName(thing)}</i>`, thing, null, false)
+        await this.formatDescripton(this.thing, '<i>$this ${text} at $arg</i>', [thing], 'act', [text, thing], true, false, false)
     }
     // COMMAND
     async atCreate(cmdInfo, protoStr, name) {
@@ -1202,17 +1225,55 @@ Prototypes:
         this.output(result)
     }
     // COMMAND
-    async atOutput(cmdInfo: any /*, thingStr: string, ...words: string[]*/) {
-        const initialLine = dropArgs(1, cmdInfo).split(',')
-        const thingWords = initialLine[0].split(/\s+/)
-        const args = initialLine.length > 1 ? await this.findAll(thingWords.slice(1)) : []
-        const thing = await this.find(thingWords[0], undefined, 'thing')
-        const line = initialLine.length === 1 ? dropArgs(2, cmdInfo) : initialLine.slice(1).join(',')
-        const forMe = await this.formatMe(thing, line, ...args)
-        const forOthers = await this.formatOthers(thing, line, ...args)
+    async atOutput(cmdInfo: any /*, actor, text, arg..., @event, actor, event, arg...*/) {
+        const words = splitQuotedWords(dropArgs(1, cmdInfo))
+        // tslint:disable-next-line:prefer-const
+        let [contextStr, text] = words
+        if (text[0] === '"') text = JSON.parse(text)
+        const ctx = formatContexts(text)
+        const context = await this.find(contextStr, undefined, 'context')
+        const evtIndex = words.findIndex(w => w.toLowerCase() === '@event')
+        if (evtIndex === -1) throw new Error('@output needs @event')
+        // tslint:disable-next-line:prefer-const
+        let [actorStr, ...eventArgs] = words.slice(evtIndex + 1)
+        const actor = await this.find(actorStr, undefined, 'actor')
+        const formatWords = words.slice(2, evtIndex)
+        const formatArgs = formatWords.length ? await this.findAll(formatWords) : []
+        let output = false
 
-        forMe && this.output(forMe)
-        forOthers && this.commandDescripton(forOthers, undefined, undefined, false)
+        if (ctx.me) {
+            if (connection.thing === actor) {
+                const forMe = await connection.formatMe(context, text, ...formatArgs)
+                connection.output(forMe)
+                output = true
+            } else {
+                for (const [thing, con] of connectionMap) {
+                    if (thing === actor) {
+                        const forMe = await connection.formatMe(actor, text, ...formatArgs)
+                        con.output(forMe)
+                        output = true
+                        break
+                    }
+                }
+            }
+        }
+        if (ctx.others) {
+            let succeeded = true
+
+            if (eventArgs[0].toLowerCase() === 'false') {
+                eventArgs = eventArgs.slice(1)
+                succeeded = false
+            }
+            const event = eventArgs[0]
+            eventArgs = eventArgs.slice(1)
+            for (let i = 0; i < eventArgs.length; i++) {
+                const word = eventArgs[i]
+
+                eventArgs[i] = word[0] === '"' ? JSON.parse(word[0])
+                    : (await this.find(word)) || word
+            }
+            return this.formatDescripton(context, ctx.others, formatArgs, event, eventArgs, succeeded, false, output, null, actor)
+        }
     }
     // COMMAND
     async atMove(cmdInfo: any, thingStr: string, locStr: string) {
@@ -1251,7 +1312,9 @@ Prototypes:
         if (!addableProperties.has(prop)) {
             return this.error(`${property} is not a list`)
         }
-        if (thing[prop].indexOf(thing2._id) === -1) {
+        if (!thing[prop]) {
+            thing[prop] = [thing2._id]
+        } else if (thing[prop].indexOf(thing2._id) === -1) {
             if (!thing.hasOwnProperty(prop)) thing[prop] = thing[prop].slice()
             thing.markDirty()
             thing[prop].push(thing2._id)
@@ -1356,6 +1419,7 @@ Prototypes:
                 await thing.setPrototype(proto)
                 break
             default:
+                if (value instanceof Thing) value = value.id
                 thing.markDirty(thing[realProp] = value)
                 break
         }
@@ -1581,10 +1645,23 @@ function findCommands(toks: string[]) {
     return lines
 }
 
+function splitQuotedWords(line: string) {
+    const chunks = []
+
+    for (const part of line.split(quotePat).filter(x => x)) {
+        if (part[0] === '"' || part[0] === "'") {
+            chunks.push(part)
+        } else {
+            chunks.push(...part.split(/\s+/))
+        }
+    }
+    return chunks.filter(x => x) // discard empty strings
+}
+
 function splitIf(line: string) {
     const chunks = []
 
-    for (const part of line.split(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/).filter(x => x)) {
+    for (const part of line.split(quotePat).filter(x => x)) {
         if (part[0] === '"' || part[0] === "'") {
             chunks.push(part)
         } else {
@@ -1728,7 +1805,7 @@ export async function runMud(world: World, handleOutput: (str: string) => void) 
         const user = world.defaultUser
 
         if (user) {
-            await connection.doLogin(user, null, true)
+            await connection.doLogin(user, null, user, true)
         }
     }
 }

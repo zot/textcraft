@@ -89,6 +89,7 @@ export class Thing {
     _otherLink: thingId          // the other link (if this is a link)
     _keys: thingId[]
     _closed: boolean             // closed objects do not propagate descriptons to their locations
+    _priority: number            // whether something will be picked against other, same-named things
     world: World
 
     constructor(id: number, name: string, description?) {
@@ -157,6 +158,8 @@ export class Thing {
         return this.world.copyThing(this, location, connected)
     }
     async find(name: string, exclude = new Set([])) {
+        let found: Thing
+
         if (exclude.has(this)) {
             return null
         } else if (this.name.toLowerCase() === name.toLowerCase()) {
@@ -166,17 +169,19 @@ export class Thing {
         for (const item of await this.getContents()) {
             const result = await item.find(name, exclude)
 
-            if (result) {
-                return result
+            if (result && (!found || result._priority > found._priority)) {
+                found = result
             }
         }
+        if (found) return found
         for (const item of await this.getLinks()) {
             const result = await item.find(name, exclude)
 
-            if (result) {
-                return result
+            if (result && (!found || result._priority > found._priority)) {
+                found = result
             }
         }
+        if (found) return found
         const loc = await this.getLocation()
         if (loc) {
             const result = await loc.find(name, exclude)
@@ -349,11 +354,12 @@ export class World {
             thingProto.examineFormat = 'Exits: $links<br>Contents: $contents'
             thingProto.linkFormat = '$This leads to $link'
             thingProto._keys = []
+            thingProto._priority = 0
             linkProto.markDirty(linkProto._location = this.hallOfPrototypes.id)
             linkProto.article = '';
             (linkProto as any)._locked = false;
-            (linkProto as any)._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key';
-            (linkProto as any)._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key';
+            (linkProto as any)._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key" @event false go $0';
+            (linkProto as any)._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output "$0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key" @event false go $0';
             linkProto._linkEnterFormat = '$Arg1 enters $arg2'
             linkProto._linkMoveFormat = 'You went $name to $arg3'
             linkProto._linkExitFormat = '$Arg1 went $name to $arg2'
@@ -365,14 +371,15 @@ export class World {
             personProto._article = ''
             personProto.examineFormat = 'Carrying: $contents'
             generatorProto.markDirty(generatorProto._location = this.hallOfPrototypes.id)
-            generatorProto.setPrototype(thingProto);
+            generatorProto.setPrototype(thingProto)
+            generatorProto._priority = -1;
             (generatorProto as any)._get = `
 @quiet;
 @copy $0;
 @expr %-1 fullName "a " + $0.name;
 @reproto %-1 %proto:thing;
 @loud;
-@output %-1 $forme You pick up $this $forothers $Actor picks up %-1
+@output %-1 "$forme You pick up $this $forothers $Actor picks up $arg" %-1 @event get %-1
 `
         })
     }
@@ -634,7 +641,7 @@ export class World {
         }
         return this.doTransaction(async (store) => await this.cacheThingFor(await promiseFor(store.get(id))))
     }
-    authenticate(name: string, passwd: string, noauthentication = false) {
+    authenticate(name: string, passwd: string, thingName: string, noauthentication = false) {
         return this.doTransaction(async (store, users, txn) => {
             let user: any = await promiseFor(users.get(name))
 
@@ -649,7 +656,7 @@ export class World {
 
                 thing.markDirty(thing._location = this.lobby.id)
                 if (this.personProto) thing.setPrototype(this.personProto)
-                thing.article = ''
+                thing.fullName = thingName
                 user.thing = thing.id
                 await this.putUser(user)
                 return [thing, user.admin]
@@ -736,6 +743,7 @@ export class World {
         return connected
     }
     async cacheThingFor(thingSpec) {
+        if (!thingSpec) return null
         const thing = new Thing(null, '')
 
         thing.world = this
@@ -801,12 +809,25 @@ export class World {
 
 export class MudStorage {
     db: IDBDatabase
+    profile: Profile
     worlds: string[]
     openWorlds: Map<string, World>
     constructor(db) {
         this.db = db
         this.worlds = []
         this.openWorlds = new Map()
+    }
+    async setPeerID(id: string) {
+        if (this.profile.peerID !== id) {
+            this.profile.peerID = id
+            return this.store()
+        }
+    }
+    async setPeerKey(peerKey: string) {
+        if (this.profile.peerKey !== peerKey) {
+            this.profile.peerKey = peerKey
+            return this.store()
+        }
     }
     hasWorld(name: string) {
         return contains([...this.worlds], name)
@@ -849,7 +870,15 @@ export class MudStorage {
         return promiseFor(store.put(this.spec(), infoKey))
     }
     spec() {
-        return { worlds: this.worlds }
+        return {
+            worlds: this.worlds,
+            profile: this.profile.spec(),
+        }
+    }
+    useSpec(spec: any) {
+        this.worlds = spec.worlds
+        this.profile = new Profile(this, spec.profile)
+        return this
     }
     upgrade(then: (arg) => void) {
         let version = this.db.version
@@ -880,7 +909,9 @@ export class MudStorage {
                     this.openWorlds.delete(name)
                     txn.db.deleteObjectStore(mudDbName(name))
                     txn.db.deleteObjectStore(userDbName(name))
-                    txn.db.deleteObjectStore(extensionDbName(name))
+                    if (txn.db.objectStoreNames.contains(extensionDbName(name))) {
+                        txn.db.deleteObjectStore(extensionDbName(name))
+                    }
                 }
                 req.onerror = fail
             } else {
@@ -993,6 +1024,30 @@ export class MudStorage {
     }
 }
 
+export class Profile {
+    name: string
+    peerID: string
+    peerKey: string
+    storage: MudStorage
+
+    constructor(str: MudStorage, spec: any) {
+        this.storage = str
+        if (spec) {
+            Object.assign(this, spec)
+        }
+    }
+    store() {
+        return this.storage.store()
+    }
+    spec() {
+        return {
+            name: this.name,
+            peerID: this.peerID,
+            peerKey: this.peerKey,
+        }
+    }
+}
+
 export function blobForYamlObject(object) {
     return new Blob([jsyaml.dump(object, { flowLevel: 3 })], { type: 'text/yaml' })
 }
@@ -1063,7 +1118,7 @@ export function openStorage() {
             }
             const result = await promiseFor(store.get(infoKey))
             console.log('got storage spec', result)
-            succeed(Object.assign(storage, result))
+            succeed(storage.useSpec(result))
         }
     })
 }

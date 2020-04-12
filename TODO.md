@@ -1,4 +1,10 @@
-# priority property that determines which thing is chosen first out of several with the same name
+# ban command
+
+disallow thing's peer from connecting
+
+# lock command
+
+only allow the currently connected peers to connect again
 
 # Make create not actually create the MUD unless you save
 

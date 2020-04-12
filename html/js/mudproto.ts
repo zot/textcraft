@@ -36,12 +36,13 @@ export function init(appObj) {
 
 const mudCommands = Object.freeze({
     // to source
-    command: true,     // {text}
+    requestMudConnection: true, // {user}
+    command: true,              // {text}
     // to peer
-    output: true,      // {text}
-    welcome: true,     // {users: [{peerID, user}...]}
-    setUser: true,     // {peerID, user}
-    removeUser: true,  // {peerID}
+    output: true,               // {text}
+    welcome: true,              // {users: [{peerID, user}...]}
+    setUser: true,              // {peerID, user}
+    removeUser: true,           // {peerID}
 });
 
 export class UserInfo {
@@ -69,13 +70,11 @@ export class UserInfo {
 // Public-natted guests serve as relays for private-natted hosts
 //
 class Peer extends proto.DelegatingHandler<Strategy> {
-    peerID: proto.PeerID
     peerAddrs: string[]
     storage: MudStorage
     trackingHandler: proto.TrackingHandler<Peer>
     strategy: Strategy
     peerDb: IDBObjectStore
-    peerKey: string
     connections: any
     userMap: Map<proto.PeerID, UserInfo>
 
@@ -87,6 +86,14 @@ class Peer extends proto.DelegatingHandler<Strategy> {
         this.storage = storage
         this.trackingHandler = new proto.TrackingHandler<Peer>(this, this.connections);
         this.setStrategy(new Strategy())
+    }
+    get peerID() { return this.storage.profile.peerID }
+    setPeerID(id: proto.PeerID) {
+        return this.storage.setPeerID(id)
+    }
+    get peerKey() { return this.storage.profile.peerID }
+    setPeerKey(key: string) {
+        return this.storage.setPeerKey(key)
     }
     startHosting() {
         this.reset()
@@ -164,9 +171,6 @@ class Peer extends proto.DelegatingHandler<Strategy> {
     async start() {
         const url = "ws://" + document.location.host + "/";
 
-        if ([...this.db().objectStoreNames].indexOf(peerDbName) === -1) {
-            await this.createPeerDb()
-        }
         console.log("STARTING MUDPROTO");
         proto.startProtocol(url + "libp2p", new proto.LoggingHandler<any>(this.trackingHandler));
     }
@@ -195,31 +199,6 @@ class Peer extends proto.DelegatingHandler<Strategy> {
                 }
             })
         }
-    }
-    createPeerDb() {
-        return new Promise((succeed, fail) => {
-            const req = this.storage.upgrade(() => {
-                return this.doTransaction((peerDb) => {
-                    this.store()
-                })
-            })
-
-            req.onupgradeneeded = () => {
-                req.transaction.db.createObjectStore(peerDbName, { keyPath: 'id' })
-            }
-            req.onerror = fail
-        })
-    }
-    store() {
-        this.peerDb.put({
-            id: 'peerInfo',
-            peerKey: this.peerKey
-        })
-    }
-    async load() {
-        const info = (await promiseFor(this.peerDb.get('peerInfo'))) as any
-
-        this.peerKey = info.peerKey
     }
     reset() {
         if (peerTracker.value !== PeerState.disconnected || relayTracker.value > RelayState.Idle) {
@@ -253,20 +232,19 @@ class Peer extends proto.DelegatingHandler<Strategy> {
             console.log('Peer already started')
         } else {
             console.log('Starting peer...')
-            proto.start(this.peerKey || '')
+            proto.start(this.storage.profile.peerKey || '')
         }
     }
     // P2P API
     async ident(status, peerID, addresses, peerKey) {
         console.log('PEER CONNECTED')
-        this.peerID = peerID
-        this.peerKey = peerKey
+        await this.storage.setPeerID(peerID)
+        await this.storage.setPeerKey(peerKey)
         natTracker.setValueNamed(status)
         gui.setPeerId(peerID)
         console.log('IDENT: ', peerID, ' ', status)
         this.peerAddrs = addresses;
         this.reset();
-        await this.doTransaction(() => this.store())
         super.ident(status, peerID, addresses, peerKey)
     }
 }
@@ -362,10 +340,14 @@ class HostStrategy extends Strategy {
         if (myThing()) users.push({ peerID: peer.peerID, user: myThing().name })
         this.sendObject(conID, { name: 'welcome', users })
         this.mudConnections.set(peerID, mudcon)
-        // tslint:disable-next-line:no-floating-promises
-        await mudcon.doLogin(peerID, null, true)
-        peer.setUser(peerID, new UserInfo(peerID, mudcon.thing.name))
-        this.userChanged(peerID)
+    }
+    // mud API message
+    async requestMudConnection(info, { user }) {
+        const mudcon = this.mudConnections.get(info.peerID)
+
+        await mudcon.doLogin(info.peerID, null, user, true)
+        peer.setUser(info.peerID, new UserInfo(info.peerID, mudcon.thing.name))
+        this.userChanged(info.peerID)
     }
     // mud API message
     async command(info, { text }) {
@@ -556,6 +538,7 @@ class GuestStrategy extends Strategy {
     connectedToHost(conID, protocol, peerID) {
         roleTracker.setValue(RoleState.Guest)
         gui.connectedToHost(peerID)
+        this.sendObject(this.mudConnection, { name: 'requestMudConnection', user: peer.storage.profile.name })
     }
     // P2P API
     peerConnection(conID, peerID, protocol) {

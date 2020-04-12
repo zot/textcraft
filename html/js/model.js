@@ -118,6 +118,7 @@ export class Thing {
         return this.world.copyThing(this, location, connected);
     }
     async find(name, exclude = new Set([])) {
+        let found;
         if (exclude.has(this)) {
             return null;
         }
@@ -127,16 +128,20 @@ export class Thing {
         exclude.add(this);
         for (const item of await this.getContents()) {
             const result = await item.find(name, exclude);
-            if (result) {
-                return result;
+            if (result && (!found || result._priority > found._priority)) {
+                found = result;
             }
         }
+        if (found)
+            return found;
         for (const item of await this.getLinks()) {
             const result = await item.find(name, exclude);
-            if (result) {
-                return result;
+            if (result && (!found || result._priority > found._priority)) {
+                found = result;
             }
         }
+        if (found)
+            return found;
         const loc = await this.getLocation();
         if (loc) {
             const result = await loc.find(name, exclude);
@@ -281,11 +286,12 @@ export class World {
             thingProto.examineFormat = 'Exits: $links<br>Contents: $contents';
             thingProto.linkFormat = '$This leads to $link';
             thingProto._keys = [];
+            thingProto._priority = 0;
             linkProto.markDirty(linkProto._location = this.hallOfPrototypes.id);
             linkProto.article = '';
             linkProto._locked = false;
-            linkProto._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key';
-            linkProto._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key';
+            linkProto._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key" @event false go $0';
+            linkProto._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output "$0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key" @event false go $0';
             linkProto._linkEnterFormat = '$Arg1 enters $arg2';
             linkProto._linkMoveFormat = 'You went $name to $arg3';
             linkProto._linkExitFormat = '$Arg1 went $name to $arg2';
@@ -298,13 +304,14 @@ export class World {
             personProto.examineFormat = 'Carrying: $contents';
             generatorProto.markDirty(generatorProto._location = this.hallOfPrototypes.id);
             generatorProto.setPrototype(thingProto);
+            generatorProto._priority = -1;
             generatorProto._get = `
 @quiet;
 @copy $0;
 @expr %-1 fullName "a " + $0.name;
 @reproto %-1 %proto:thing;
 @loud;
-@output %-1 $forme You pick up $this $forothers $Actor picks up %-1
+@output %-1 "$forme You pick up $this $forothers $Actor picks up $arg" %-1 @event get %-1
 `;
         });
     }
@@ -555,7 +562,7 @@ export class World {
         }
         return this.doTransaction(async (store) => await this.cacheThingFor(await promiseFor(store.get(id))));
     }
-    authenticate(name, passwd, noauthentication = false) {
+    authenticate(name, passwd, thingName, noauthentication = false) {
         return this.doTransaction(async (store, users, txn) => {
             let user = await promiseFor(users.get(name));
             if (noauthentication && !user) { // auto-create a user
@@ -570,7 +577,7 @@ export class World {
                 thing.markDirty(thing._location = this.lobby.id);
                 if (this.personProto)
                     thing.setPrototype(this.personProto);
-                thing.article = '';
+                thing.fullName = thingName;
                 user.thing = thing.id;
                 await this.putUser(user);
                 return [thing, user.admin];
@@ -663,6 +670,8 @@ export class World {
         return connected;
     }
     async cacheThingFor(thingSpec) {
+        if (!thingSpec)
+            return null;
         const thing = new Thing(null, '');
         thing.world = this;
         await thing.useSpec(thingSpec);
@@ -728,6 +737,18 @@ export class MudStorage {
         this.worlds = [];
         this.openWorlds = new Map();
     }
+    async setPeerID(id) {
+        if (this.profile.peerID !== id) {
+            this.profile.peerID = id;
+            return this.store();
+        }
+    }
+    async setPeerKey(peerKey) {
+        if (this.profile.peerKey !== peerKey) {
+            this.profile.peerKey = peerKey;
+            return this.store();
+        }
+    }
     hasWorld(name) {
         return contains([...this.worlds], name);
     }
@@ -768,7 +789,15 @@ export class MudStorage {
         return promiseFor(store.put(this.spec(), infoKey));
     }
     spec() {
-        return { worlds: this.worlds };
+        return {
+            worlds: this.worlds,
+            profile: this.profile.spec(),
+        };
+    }
+    useSpec(spec) {
+        this.worlds = spec.worlds;
+        this.profile = new Profile(this, spec.profile);
+        return this;
     }
     upgrade(then) {
         let version = this.db.version;
@@ -795,7 +824,9 @@ export class MudStorage {
                     this.openWorlds.delete(name);
                     txn.db.deleteObjectStore(mudDbName(name));
                     txn.db.deleteObjectStore(userDbName(name));
-                    txn.db.deleteObjectStore(extensionDbName(name));
+                    if (txn.db.objectStoreNames.contains(extensionDbName(name))) {
+                        txn.db.deleteObjectStore(extensionDbName(name));
+                    }
                 };
                 req.onerror = fail;
             }
@@ -903,6 +934,24 @@ export class MudStorage {
             return world.replaceExtensions(data.extensions);
     }
 }
+export class Profile {
+    constructor(str, spec) {
+        this.storage = str;
+        if (spec) {
+            Object.assign(this, spec);
+        }
+    }
+    store() {
+        return this.storage.store();
+    }
+    spec() {
+        return {
+            name: this.name,
+            peerID: this.peerID,
+            peerKey: this.peerKey,
+        };
+    }
+}
 export function blobForYamlObject(object) {
     return new Blob([jsyaml.dump(object, { flowLevel: 3 })], { type: 'text/yaml' });
 }
@@ -965,7 +1014,7 @@ export function openStorage() {
             }
             const result = await promiseFor(store.get(infoKey));
             console.log('got storage spec', result);
-            succeed(Object.assign(storage, result));
+            succeed(storage.useSpec(result));
         };
     });
 }
