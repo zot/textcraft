@@ -133,8 +133,7 @@ objects:
     otherLink: null
     article: a
     prototype: 7
-    react_go: '@if %event.failed @then @output $0 "$This says, \"ha ha!\"" @event $0 say @else @output %event.source "$This went from $event.0 to $event.1" @event $0 say'
-    '@if': '%event.failed @then say ha ha! @else @say "$This went from $event.0 to $event.1"'
+    react_go: '@if %event.failed @then say ha ha! @else @say "$This went from $event.0 to $event.1"'
   - id: info
     nextId: 50
     name: Key Example
