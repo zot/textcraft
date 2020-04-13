@@ -1495,7 +1495,7 @@ otherLink: ${await this.dumpName(thing._otherLink)}`;
             con.world = this.world;
             con.remote = true;
         }
-        con.command(cmd, false, true);
+        return con.command(cmd, false, true);
     }
     // COMMAND
     async atAdmin(cmdInfo, thingStr, toggle) {
