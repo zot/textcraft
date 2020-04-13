@@ -105,10 +105,12 @@ class Peer extends proto.DelegatingHandler {
         this.delegate = this.strategy = strat;
     }
     userThingChanged(thing) {
-        const peerID = this.peerIdForThing(thing);
-        this.setUser(peerID, new UserInfo(peerID, thing.name));
         if (this.strategy instanceof HostStrategy) {
-            this.strategy.userChanged(peerID);
+            const peerID = this.peerIdForThing(thing);
+            if (peerID) {
+                this.setUser(peerID, new UserInfo(peerID, thing.name));
+                this.strategy.userChanged(peerID);
+            }
         }
     }
     peerIdForThing(thing) {

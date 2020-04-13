@@ -79,7 +79,8 @@ export class Thing {
     _description: string
     _examineFormat: string       // describes an item's contents and links
     _contentsFormat: string      // shown when someone goes into this thing
-    _contentsEnterFormat: string // describes an item in contents
+    _contentsEnterFormat: string // shown to occupants when you move to a container from its location
+    _contentsExitFormat: string  // shown to occupants when you move from a container to its location
     _linkFormat: string          // decribes how this item links to its other link
     _linkMoveFormat: string      // shown to someone when they move through a link
     _linkEnterFormat: string     // shown to occupants when someone enters through the link
@@ -291,6 +292,7 @@ export class World {
                     this.generatorProto = await this.createThing('generator', 'This is a thing')
                     this.personProto = await this.createThing('person', '$This $is only a dude')
                     this.limbo.setPrototype(this.roomProto)
+                    this.limbo._article = ''
                     this.lobby.setPrototype(this.roomProto)
                     this.generatorProto.setPrototype(this.thingProto)
                     this.hallOfPrototypes.setPrototype(this.roomProto)
@@ -353,7 +355,8 @@ export class World {
             thingProto.markDirty(thingProto._location = this.hallOfPrototypes.id)
             thingProto.article = 'the'
             thingProto.contentsFormat = '$This $is here'
-            thingProto._contentsEnterFormat = '$forme You go into $this $forothers $Arg goes into $this'
+            thingProto._contentsEnterFormat = '$forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2'
+            thingProto._contentsExitFormat = '$forme You leave $this to $arg3 $forothers $Arg leaves $this to $arg3'
             thingProto.examineFormat = 'Exits: $links<br>Contents: $contents'
             thingProto.linkFormat = '$This leads to $link'
             thingProto._keys = []
@@ -363,9 +366,9 @@ export class World {
             (linkProto as any)._locked = false;
             (linkProto as any)._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event $0 false go $0';
             (linkProto as any)._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event $0 false go $0';
-            linkProto._linkEnterFormat = '$Arg1 enters $arg2'
+            linkProto._linkEnterFormat = '$Arg1 entered $arg3'
             linkProto._linkMoveFormat = 'You went $name to $arg3'
-            linkProto._linkExitFormat = '$Arg1 went $name to $arg2'
+            linkProto._linkExitFormat = '$Arg1 went $name to $arg3'
             roomProto.markDirty(roomProto._location = this.hallOfPrototypes.id)
             roomProto._closed = true
             roomProto.setPrototype(thingProto)
@@ -415,22 +418,30 @@ export class World {
         if (this.txn) {
             return this.processTransaction(func)
         } else {
+            const oldDirty = this.dirty
+            const oldTxn = this.txn
+            const oldThingStore = this.thingStore
+            const oldUserStore = this.userStore
             const txn = this.db().transaction([this.storeName, this.users], 'readwrite')
             const oldId = this.nextId
 
+            this.dirty = new Set()
             this.txn = txn
             this.thingStore = txn.objectStore(this.storeName)
             this.userStore = txn.objectStore(this.users)
-            return this.processTransaction(func)
-                .finally(async () => {
-                    await Promise.allSettled([...this.dirty].map(dirty => this.thingCache.get(dirty).store()))
-                    this.dirty = new Set()
-                    if (oldId !== this.nextId && !allowIdChange) {
-                        await this.store()
-                    }
-                    this.txn = null
-                    this.thingStore = this.userStore = null
-                })
+            try {
+                const result = await this.processTransaction(func)
+                return result
+            } finally {
+                await Promise.allSettled([...this.dirty].map(dirty => this.thingCache.get(dirty).store()))
+                if (oldId !== this.nextId && !allowIdChange) {
+                    await this.store()
+                }
+                this.txn = oldTxn
+                this.dirty = oldDirty
+                this.thingStore = oldThingStore
+                this.userStore = oldUserStore
+            }
         }
     }
     async addExtension(ext: Extension) {
@@ -817,6 +828,19 @@ export class World {
         const newInfo: any = await promiseFor(newThings.get('info'))
         newInfo.name = newName
         return promiseFor(newThings.put(newInfo))
+    }
+    propertyProximity(obj: any, prop: string) {
+        let count = 1
+        let found = false
+
+        while (obj !== this.thingProto) {
+            if (found) {
+                count++
+            } else if (obj.hasOwnProperty(prop)) {
+                found = true
+            }
+        }
+        return found ? count : this.thingProto.hasOwnProperty(prop) ? 0 : -1
     }
 }
 

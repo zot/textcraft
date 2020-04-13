@@ -2,13 +2,12 @@ import { MudState, RoleState, PeerState, mudTracker, roleTracker, peerTracker, }
 import { Thing, findSimpleName, escape, } from './model.js';
 import * as mudproto from './mudproto.js';
 export let connection;
-// probably should move this into World
 const connectionMap = new Map();
 export let activeWorld;
-const quotePat = /("(?:[^"\\]|\\.)*")/;
+const wordAndQuotePat = /("(?:[^"\\]|\\.)*")|\s+/;
 const valuePat = /^("([^"\\]|\\.)*"|([0-9]*\.)?[0-9]+|true|false|null)$/;
 const thingPat = /^([a-zA-Z][a-zA-Z0-9]*|%[0-9]+|%[a-zA-Z]+|%[a-zA-z]+:[a-zA-Z]+)(?:\.([0-9]+|[a-zA-Z][a-zA-Z0-9]*))?$/;
-const ifPat = /(?:^|\s)(@if|@then|@else|@elseif|@end)\b/;
+const ifPat = /(?:^|\s)(@if|@then|@else|@elseif|@end|"(?:[^"\\]|\\.)*")\b/;
 const tokPrecLevels = [
     ['!'],
     ['in', 'match'],
@@ -91,6 +90,7 @@ You can use <b>%event.PROPERTY</b> to refer to a property of the current event (
 To make something into a prototype, move it to <b>%protos</b>
 
 FORMAT WORDS:
+  <b>\$quote</b>       -- turn off formatting for the rest of the text
   <b>\$this</b>        -- formatted string for this object or "you" if the user is the thing
   <b>\$name</b>        -- this object\'s name
   <b>\$is</b>          -- is or are, depending on the plurality of the thing
@@ -375,11 +375,27 @@ export class MudConnection {
     errorNoThing(thing) {
         this.error(`You don't see any ${thing} here`);
     }
+    async formatOutput(ctx, text, args) {
+        return this.formatOutput(ctx, text, args);
+    }
     output(text) {
         if (!this.suppressOutput && this.muted < 1) {
             this.outputHandler(text.match(/^</) ? text : `<div>${text}</div>`);
         }
         this.failed = false;
+    }
+    async withResults(otherCon, func) {
+        const oldEvent = this.currentEvent;
+        const oldCondition = this.conditionResult;
+        this.currentEvent = otherCon.currentEvent;
+        this.conditionResult = otherCon.conditionResult;
+        try {
+            await func();
+        }
+        finally {
+            this.currentEvent = oldEvent;
+            this.conditionResult = oldCondition;
+        }
     }
     async start() {
         if (!this.remote) {
@@ -418,11 +434,16 @@ export class MudConnection {
         const thing = await this.world.getThing(tip);
         const parts = str.split(/( *\$(?:result|event)(?:\.\w*)?| *\$\w*)/i);
         let result = '';
+        let enabled = true;
         for (const part of parts) {
             const match = part.match(/^( *)\$(.*)$/);
-            if (match) {
+            if (match && enabled) {
                 const [_, space, format] = match;
                 const argMatch = format.toLowerCase().match(/arg([0-9]*)/);
+                if (format === 'quote') {
+                    enabled = false;
+                    continue;
+                }
                 result += space;
                 if (argMatch) {
                     const arg = args[argMatch[1] ? Number(argMatch[1]) - 1 : 0];
@@ -431,12 +452,12 @@ export class MudConnection {
                 }
                 else if (format.match(/^result(?:\.\w+)?$/i)) {
                     const t = this.getResult(format, this.conditionResult);
-                    result += t instanceof Thing ? this.formatName(t) : t;
+                    result += capitalize(t instanceof Thing ? this.formatName(t) : t, format);
                     continue;
                 }
                 else if (format.match(/^event(?:\.\w+)?$/i)) {
                     const t = this.getResult(format, this.currentEvent);
-                    result += t instanceof Thing ? this.formatName(t) : t;
+                    result += capitalize(t instanceof Thing ? this.formatName(t) : t, format);
                     continue;
                 }
                 switch (format.toLowerCase()) {
@@ -601,7 +622,7 @@ export class MudConnection {
         else if (line[0] === ':') {
             line = `act ${line.substring(1)}`;
         }
-        const words = line.split(/\s+/);
+        const words = splitQuotedWords(line);
         const commandName = words[0].toLowerCase();
         if (!substituted) {
             this.output('<div class="input">&gt; <span class="input-text">' + escape(line) + '</span></div>');
@@ -652,7 +673,7 @@ export class MudConnection {
     }
     getResult(str, value) {
         const match = str.match(/^[^.]+(?:\.(\w+))?$/);
-        return match[1] ? value[match[1]] : value;
+        return match[1]?.length ? value[match[1]] : value;
     }
     async find(name, start = this.thing, errTag = '') {
         let result;
@@ -753,7 +774,7 @@ export class MudConnection {
             this.output('Connected.');
             mudproto.userThingChanged(this.thing);
             thing.setLocation(this.world.lobby);
-            await this.commandDescripton(null, 'has arrived', 'go', [null]);
+            await this.commandDescripton(this.thing, 'has arrived', 'go', [this.world.limbo, this.world.lobby]);
             // tslint:disable-next-line:no-floating-promises
             await this.look(null, null);
             if (!this.remote) {
@@ -773,10 +794,12 @@ export class MudConnection {
             const desc = new Descripton(actor, event, args, !succeeded, async (thing) => {
                 const con = connectionMap.get(thing);
                 if (con) {
-                    // run format in each connection so it can deal with admin and names
-                    const format = await con.basicFormat(actionContext, action, actionArgs);
-                    const text = prefix ? `${con.formatName(this.thing)} ${format}` : format;
-                    con.output(text);
+                    await con.withResults(this, async () => {
+                        // run format in each connection so it can deal with admin and names
+                        const format = await con.basicFormat(actionContext, action, actionArgs);
+                        const text = prefix ? `${con.formatName(this.thing)} ${format}` : format;
+                        con.output(text);
+                    });
                 }
                 else {
                     // process reactions in the main MudConnection
@@ -787,7 +810,7 @@ export class MudConnection {
                 startAt = await this.thing.getLocation();
             if (excludeActor)
                 desc.visited.add(actor);
-            return desc.propagate(startAt);
+            await desc.propagate(startAt);
         }
     }
     async react(thing, desc) {
@@ -1190,12 +1213,15 @@ export class MudConnection {
             tmp = await (tmp._linkOwner ? tmp.getLinkOwner() : tmp.getLocation());
         }
         if (!direction._linkOwner) {
-            this.thing.setLocation(direction);
-            const ctx = formatContexts(direction._contentsEnterFormat);
-            ctx.me && this.output(await this.basicFormat(direction, ctx.me, [this.thing]));
-            if (ctx.others) {
-                await this.formatDescripton(direction, ctx.others, [this.thing], 'go', [oldLoc], true, true, true, this.thing);
-            }
+            location = direction;
+            const oldPx = this.world.propertyProximity(oldLoc, '_contentsExitFormat');
+            const newPx = this.world.propertyProximity(location, '_contentsEnterFormat');
+            const emitter = newPx >= oldPx ? location : oldLoc;
+            const ctx = formatContexts(newPx >= oldPx ? location._contentsEnterFormat : oldLoc._contentsExitFormat);
+            await this.world.doTransaction(async () => { this.thing.setLocation(location); });
+            ctx.others && await this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing);
+            ctx.me && await this.formatOutput(emitter, ctx.me, [this.thing, oldLoc, location]);
+            ctx.others && await this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing);
         }
         else {
             const link = direction._otherLink && await direction.getOtherLink();
@@ -1207,11 +1233,11 @@ export class MudConnection {
             }
             const output = await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location);
             const exitCtx = formatContexts(direction._linkExitFormat);
-            exitCtx.others && await this.formatDescripton(direction, exitCtx.others, [this.thing, oldLoc], 'go', [oldLoc, location], true, false);
-            this.thing.setLocation(location);
+            await this.world.doTransaction(async () => { this.thing.setLocation(location); });
+            exitCtx.others && await this.formatDescripton(direction, exitCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false);
             output && this.output(output);
             const enterCtx = formatContexts(direction._linkEnterFormat);
-            await this.formatDescripton(link, enterCtx.others, [this.thing, location], 'go', [oldLoc, location], true, false);
+            await this.formatDescripton(link, enterCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false);
         }
         await this.look(cmdInfo);
     }
@@ -1301,15 +1327,17 @@ export class MudConnection {
     }
     // COMMAND
     async atSay(cmdInfo, text, ...args) {
+        if (text[0] === '"')
+            text = text.substring(1, text.length - 1);
         const ctx = formatContexts(text);
         ctx.me && this.output(`You say, "${await this.basicFormat(this.thing, ctx.me, args)}"`);
-        ctx.others && await this.formatDescripton(null, `says, "${ctx.others}"`, args, 'say', [text]);
+        ctx.others && await this.formatDescripton(this.thing, `says, "${ctx.others}"`, args, 'say', [text]);
     }
     // COMMAND
     async say(cmdInfo, ...words) {
         const text = escape(dropArgs(1, cmdInfo));
         this.output(`You say, "${text}"`);
-        return this.commandDescripton(null, `says, "${text}"`, 'say', [text]);
+        return this.commandDescripton(this.thing, `$quote says, "${text}"`, 'say', [text]);
     }
     // COMMAND
     async whisper(cmdInfo, thingStr, ...words) {
@@ -1317,13 +1345,13 @@ export class MudConnection {
         const text = escape(dropArgs(2, cmdInfo));
         if (!thing)
             return this.errorNoThing(thingStr);
-        connectionMap.get(thing)?.output(`${this.formatName(this.thing)} whispers, "${text}", to you`);
         this.output(`You whisper, "${text}", to ${this.formatName(thing)}`);
+        connectionMap.get(thing)?.output(`$quote ${this.formatName(this.thing)} whispers, "${text}", to you`);
     }
     // COMMAND
     async act(cmdInfo, ...words) {
         const text = escape(dropArgs(1, cmdInfo));
-        return this.commandDescripton(this.thing, '<i>$this ${text}</i>', 'act', [text], true, false, false);
+        return this.commandDescripton(this.thing, '$quote <i>$this ${text}</i>', 'act', [text], true, false, false);
     }
     // COMMAND
     async gesture(cmdInfo, thingStr, ...words) {
@@ -1331,7 +1359,7 @@ export class MudConnection {
         const text = escape(dropArgs(2, cmdInfo));
         if (!thing)
             return this.errorNoThing(thingStr);
-        await this.formatDescripton(this.thing, '<i>$this ${text} at $arg</i>', [thing], 'act', [text, thing], true, false, false);
+        await this.formatDescripton(this.thing, '$quote <i>$this ${text} at $arg</i>', [thing], 'act', [text, thing], true, false, false);
     }
     // COMMAND
     async atCreate(cmdInfo, protoStr, name) {
@@ -1865,28 +1893,10 @@ function findCommands(toks) {
     return lines;
 }
 function splitQuotedWords(line) {
-    const chunks = [];
-    for (const part of line.split(quotePat).filter(x => x)) {
-        if (part[0] === '"' || part[0] === "'") {
-            chunks.push(part);
-        }
-        else {
-            chunks.push(...part.split(/\s+/));
-        }
-    }
-    return chunks.filter(x => x); // discard empty strings
+    return line.split(wordAndQuotePat).filter(x => x); // discard empty strings
 }
 function splitIf(line) {
-    const chunks = [];
-    for (const part of line.split(quotePat).filter(x => x)) {
-        if (part[0] === '"' || part[0] === "'") {
-            chunks.push(part);
-        }
-        else {
-            chunks.push(...part.split(ifPat));
-        }
-    }
-    return chunks.filter(x => x); // discard empty strings
+    return line.split(ifPat).filter(x => x); // discard empty strings
 }
 function findIfClauses(toks) {
     let nesting = 0;

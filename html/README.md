@@ -202,6 +202,7 @@ You can use %event.PROPERTY to refer to a property of the current event (descrip
 To make something into a prototype, move it to %protos
 
 FORMAT WORDS:
+  $quote       -- turn off formatting for the rest of the text
   $this        -- formatted string for this object or "you" if the user is the thing
   $name        -- this object's name
   $is          -- is or are, depending on the plurality of the thing
