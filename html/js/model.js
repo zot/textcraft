@@ -922,28 +922,45 @@ export class MudStorage {
             succeed(blobForYamlObject(result));
         });
     }
-    async uploadWorld(world) {
-        await world.users ? this.uploadFullWorld(world) : this.uploadStrippedWorld(world);
-        this.closeWorld(world);
+    async uploadWorld(world, failSilently = false) {
+        const w = await (world.users ? this.uploadFullWorld(world, failSilently)
+            : this.uploadStrippedWorld(world, failSilently));
+        if (w)
+            this.closeWorld(w);
+        return w;
     }
-    async uploadFullWorld(worldAndUsers) {
+    async uploadFullWorld(worldAndUsers, failSilently) {
         const users = worldAndUsers.users;
         const objects = worldAndUsers.objects;
         const info = objects.find(i => i.id === 'info');
+        if (this.hasWorld(info.name)) {
+            if (failSilently)
+                return info.name;
+            alert(`There is already a world named ${info.name}, you must rename it or delete it to upload this`);
+            return null;
+        }
         const world = await this.openWorld(info.name);
         return world.doTransaction(async (thingStore, userStore, txn) => {
-            await this.uploadStrippedWorld(worldAndUsers, world);
+            await this.uploadStrippedWorld(worldAndUsers, failSilently, world);
             await world.replaceUsers(users);
+            return world.name;
         });
     }
-    async uploadStrippedWorld(data, world = null) {
+    async uploadStrippedWorld(data, failSilently, world = null) {
         if (!world) {
             const info = data.objects.find(i => i.id === 'info');
+            if (this.hasWorld(info.name)) {
+                if (failSilently)
+                    return info.name;
+                alert(`There is already a world named ${info.name}, you must rename it or delete it to upload this`);
+                return null;
+            }
             world = await this.openWorld(info.name);
         }
         await world.replaceThings(data.objects);
         if (data.extensions)
-            return world.replaceExtensions(data.extensions);
+            await world.replaceExtensions(data.extensions);
+        return world.name;
     }
 }
 export class Profile {

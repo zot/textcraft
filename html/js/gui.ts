@@ -169,19 +169,24 @@ export function showMuds() {
         $find(div, '[name=activate-mud]').onclick = async evt => {
             evt.stopPropagation()
             if (mudTracker.value === MudState.NotPlaying) {
-                $('#mud-output').innerHTML = ''
-                sectionTracker.setValue(SectionState.Mud)
-                roleTracker.setValue(RoleState.Solo)
-                await mudcontrol.runMud(await model.storage.openWorld(world), text => {
-                    addMudOutput('<div>' + text + '</div>')
-                })
-                $('#mud-name').textContent = world
+                return activateMud(await model.storage.openWorld(world))
             } else {
                 mudcontrol.quit()
             }
         }
         $find(div, '[name=activate-mud]').setAttribute('mud', world)
     }
+}
+
+async function activateMud(world: model.World) {
+    $('#mud-output').innerHTML = ''
+    sectionTracker.setValue(SectionState.Mud)
+    roleTracker.setValue(RoleState.Solo)
+
+    await mudcontrol.runMud(world, text => {
+        addMudOutput('<div>' + text + '</div>')
+    })
+    $('#mud-name').textContent = world.name
 }
 
 function worldCopyName(oldName: string) {
@@ -623,11 +628,13 @@ export function error(msg: string) {
     alert(`ERROR: ${msg}`)
 }
 
-export async function uploadMudFromURL(url: string) {
+export async function activateMudFromURL(url: string) {
     const response = await fetch(url)
-    await model.storage.uploadWorld(jsyaml.load(await response.text()))
-    showMuds()
-    sectionTracker.setValue(SectionState.Storage)
+    const world = await model.storage.uploadWorld(jsyaml.load(await response.text()), true)
+    if (world) {
+        showMuds()
+        return activateMud(await model.storage.openWorld(world))
+    }
 }
 
 export function start() {

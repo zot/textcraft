@@ -35,8 +35,8 @@ The MIT license is [here](LICENSE)
 
 Shift-click or right-click and choose "Save link as..." to save these to your disk
 
-* <a href='javascript:window.textcraft ? textcraft.Gui.uploadMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</a>
-* <a href='javascript:window.textcraft ? textcraft.Gui.uploadMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</a>
+* <a href='javascript:window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</a>
+* <a href='javascript:window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</a>
 
 ## Creating things
 
