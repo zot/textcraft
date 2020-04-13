@@ -40,6 +40,7 @@ objects:
     examineFormat: 'Exits: $links<br>Contents: $contents'
     linkFormat: $This leads to $link
     keys: []
+    priority: 0
   - id: 4
     name: link
     fullName: link
@@ -50,8 +51,8 @@ objects:
     prototype: 3
     article: ''
     locked: false
-    cmd: '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 $forme You don''t have the key $forothers $actor tries to go $this to $link but doesn''t have the key'
-    go: '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 $forme You don''t have the key $forothers $actor tries to go $this to $link but doesn''t have the key'
+    cmd: '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don''t have the key $forothers $Arg tries to go $this to $link but doesn''t have the key" me @event $0 false go $0'
+    go: '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don''t have the key $forothers $Arg tries to go $this to $link but doesn''t have the key" me @event $0 false go $0'
     linkEnterFormat: $Arg1 enters $arg2
     linkMoveFormat: You went $name to $arg3
     linkExitFormat: $Arg1 went $name to $arg2
@@ -72,7 +73,8 @@ objects:
     otherLink: null
     description: This is a thing
     prototype: 3
-    get: "\n@quiet;\n@copy $0;\n@expr %-1 fullName \"a \" + $0.name;\n@reproto %-1 %proto:thing;\n@loud;\n@output %-1 $forme You pick up $this $forothers $Actor picks up %-1\n"
+    get: "\n@quiet;\n@copy $0;\n@expr %-1 fullName \"a \" + $0.name;\n@reproto %-1 %proto:thing;\n@loud;\n@output %-1 \"$forme You pick up $this $forothers $Arg picks up $arg2\" me %-1 @event me get %-1\n"
+    priority: -1
   - id: 7
     name: person
     fullName: person
@@ -85,12 +87,12 @@ objects:
     examineFormat: 'Carrying: $contents'
   - id: 8
     name: a
-    fullName: a
-    location: 0
+    fullName: ''
+    location: 1
     linkOwner: null
     otherLink: null
     prototype: 7
-    article: ''
+    article: a
   - id: info
     nextId: 9
     name: Extension Example
@@ -101,7 +103,9 @@ objects:
     personProto: 7
     generatorProto: 6
     defaultUser: a
+    clockRate: 2
 extensions:
   - name: exampleExtension.js
-    text: "import { Command, initCommands, MudConnection, spliceConnection, } from \"/js/mudcontrol.js\";\nconst floopCommands = new Map([\n    ['floop', new Command({ help: ['', 'You floop around'] })]\n]);\nclass FloopConnection extends MudConnection {\n    async floop(cmdInfo) {\n        this.output('You floop around');\n        return this.commandDescripton('floops around');\n    }\n}\nFloopConnection.prototype.commands = initCommands(floopCommands);\nspliceConnection(FloopConnection);\nfunction onStarted(world, con) {\n    console.log('Mud started up', world, con);\n}\nfunction onLoggedIn(user, thing) {\n    console.log('Host logged in', user, thing);\n}\n//# sourceMappingURL=exampleExtension.js.map"
-    hash: 450a7c6906b5e9687247a57bacc040c0979df6a81cdf23ba901ddcac67399eba
+    text: "import { Command, initCommands, MudConnection, spliceConnection, } from \"/js/mudcontrol.js\";\nconst floopCommands = new Map([\n    ['floop', new Command({ help: ['', 'You floop around'] })]\n]);\nclass FloopConnection extends MudConnection {\n    async floop(cmdInfo) {\n        this.output('You floop around');\n        return this.commandDescripton(null, 'floops around', 'floop', []);\n    }\n}\nFloopConnection.prototype.commands = initCommands(floopCommands);\nspliceConnection(FloopConnection);\nfunction onStarted(world, con) {\n    console.log('Mud started up', world, con);\n}\nfunction onLoggedIn(user, thing) {\n    console.log('Host logged in', user, thing);\n}\n//# sourceMappingURL=exampleExtension.js.map"
+    hash: dadeaa2ae87efd5703276cd44cf4b950d71b1a8fed0533aa255d84bce28000d9
+    id: 1

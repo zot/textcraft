@@ -184,6 +184,7 @@ export class Thing {
 export class World {
     constructor(name, stg) {
         this.activeExtensions = new Map();
+        this.clockRate = 2; // seconds between ticks
         this.setName(name);
         this.storage = stg;
         this.dirty = new Set();
@@ -265,6 +266,7 @@ export class World {
         this.roomProto = (await this.getThing(info.roomProto)) || await this.findPrototype('room');
         this.linkProto = (await this.getThing(info.linkProto)) || await this.findPrototype('link');
         this.generatorProto = (await this.getThing(info.generatorProto)) || await this.findPrototype('generatorProto');
+        this.clockRate = info.clockRate || 2;
     }
     async findPrototype(name) {
         for (const aproto of await this.hallOfPrototypes.getContents()) {
@@ -290,8 +292,8 @@ export class World {
             linkProto.markDirty(linkProto._location = this.hallOfPrototypes.id);
             linkProto.article = '';
             linkProto._locked = false;
-            linkProto._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key" @event false go $0';
-            linkProto._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output "$0 $forme You don\'t have the key $forothers $actor tries to go $this to $link but doesn\'t have the key" @event false go $0';
+            linkProto._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event $0 false go $0';
+            linkProto._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event $0 false go $0';
             linkProto._linkEnterFormat = '$Arg1 enters $arg2';
             linkProto._linkMoveFormat = 'You went $name to $arg3';
             linkProto._linkExitFormat = '$Arg1 went $name to $arg2';
@@ -311,7 +313,7 @@ export class World {
 @expr %-1 fullName "a " + $0.name;
 @reproto %-1 %proto:thing;
 @loud;
-@output %-1 "$forme You pick up $this $forothers $Actor picks up $arg" %-1 @event get %-1
+@output %-1 "$forme You pick up $this $forothers $Arg picks up $arg2" me %-1 @event me get %-1
 `;
         });
     }
@@ -326,7 +328,8 @@ export class World {
             thingProto: this.thingProto.id,
             personProto: this.personProto.id,
             generatorProto: this.generatorProto.id,
-            defaultUser: this.defaultUser
+            defaultUser: this.defaultUser,
+            clockRate: this.clockRate,
         };
     }
     rename(newName) {
@@ -540,11 +543,14 @@ export class World {
             await Promise.all(newThings.map(t => promiseFor(this.thingStore.put(t))));
             this.thingCache = new Map();
             await this.useInfo(info);
+            await this.initStdPrototypes();
         });
     }
     async getThing(tip) {
         let id;
         if (typeof tip === 'number') {
+            if (isNaN(tip))
+                return null;
             id = tip;
         }
         else if (tip instanceof Thing) {
@@ -577,13 +583,17 @@ export class World {
                 thing.markDirty(thing._location = this.lobby.id);
                 if (this.personProto)
                     thing.setPrototype(this.personProto);
-                thing.fullName = thingName;
+                thing.fullName = thingName || name;
                 user.thing = thing.id;
                 await this.putUser(user);
                 return [thing, user.admin];
             }
             else {
-                return [await this.getThing(user.thing), user.admin];
+                const thing = await this.getThing(user.thing);
+                if (thing.name === name && thingName) {
+                    thing.markDirty(thing.fullName = thingName);
+                }
+                return [thing, user.admin];
             }
         });
     }
@@ -595,6 +605,7 @@ export class World {
         if (this.thingProto)
             t.setPrototype(this.thingProto);
         this.thingCache.set(t.id, t);
+        this.watcher?.(t);
         await this.doTransaction(async () => {
             return await this.putThing(t);
         });
@@ -676,6 +687,7 @@ export class World {
         thing.world = this;
         await thing.useSpec(thingSpec);
         this.thingCache.set(thing.id, thing);
+        this.watcher?.(thing);
         return thing;
     }
     async cacheThings(specs) {
@@ -791,7 +803,7 @@ export class MudStorage {
     spec() {
         return {
             worlds: this.worlds,
-            profile: this.profile.spec(),
+            profile: this.profile?.spec(),
         };
     }
     useSpec(spec) {
@@ -1100,6 +1112,11 @@ export function findSimpleName(str) {
     let tmp;
     str = str.replace(/[^a-zA-Z0-9_\s]/, ''); // scrape out noise characters
     tmp = str.toLowerCase();
+    const articleMatch = tmp.match(/^\s*\b(the|a|an)\b/);
+    if (articleMatch) {
+        article = articleMatch[1];
+        tmp = tmp.slice(articleMatch[0].length);
+    }
     const prepMatch = tmp.match(/^(.(.*?))\b(of|on|about|in|from|the)\b/);
     if (prepMatch) {
         // if it contains a preposition, discard from the first preposition on
@@ -1110,11 +1127,7 @@ export function findSimpleName(str) {
         str = prepMatch[1];
     }
     words = str.split(/\s+/);
-    if (words.length > 1 && words[0].toLowerCase().match(/\b(the|a|an)\b/)) { // scrape articles
-        article = words[0];
-        words = words.slice(1);
-    }
-    return [article, words[words.length - 1].toLowerCase()];
+    return [article, article ? words[words.length - 1].toLowerCase() : words[0]];
 }
 export function escape(text) {
     return typeof text === 'string' ? text.replace(/</g, '&lt;') : text;

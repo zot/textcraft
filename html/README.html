@@ -17,9 +17,11 @@
 <p>Textcraft is an oldskool text-based MUD with a twist -- it's peer-to-peer.</p>
 <p>There are no servers. YOU own your data.</p>
 <p>It relies on <a href="https://github.com/libp2p/go-libp2p">libp2p</a> for peer-to-peer networking and uses <a href="https://github.com/zot/libp2p-websocket">libp2p-websocket</a> to connect browsers to libp2p.</p>
+<h1>MIT LICENSE</h1>
+<p>The MIT license is <a href="LICENSE">here</a></p>
 <h1>Using the MUD</h1>
 <ol>
-<li>Start by creating or uploading a MUD</li>
+<li>Start by creating or uploading a MUD (using the Create or Upload buttons)</li>
 <li>Activate the MUD, your default user should have admin privileges</li>
 <li>A new MUD will start you in the lobby</li>
 <li>Create a room: <code>@create room The Dark Forest</code></li>
@@ -37,7 +39,11 @@
 <li>Try going north</li>
 </ol>
 <h2>Example MUDs</h2>
-<p>Here are some <a href="examples">example MUDS</a></p>
+<p>Shift-click or right-click and choose &quot;Save link as...&quot; to save these to your disk</p>
+<ul>
+<li><a href='javascript:window.textcraft ? textcraft.Gui.uploadMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</a></li>
+<li><a href='javascript:window.textcraft ? textcraft.Gui.uploadMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</a></li>
+</ul>
 <h2>Creating things</h2>
 <p>When you create something with @create, you need a prototype, like this: <code>@create thing stone</code></p>
 <p>You can see a list of prototypes with the <code>@info</code> command.</p>
@@ -86,6 +92,13 @@
 function onLoggedIn(user: any, thing: Thing)
 </code></pre>
 <p>They can import Textcraft modules by using the prefix <code>/js/</code> for module files (see example).</p>
+<h1>Four levels of building</h1>
+<ol>
+<li>Creating things and setting properties</li>
+<li>Using command templates</li>
+<li>Writing extensions (like for game mechanics)</li>
+<li>Changing the Textcraft executable</li>
+</ol>
 <h1>MUD Model</h1>
 <h2>The Thing class</h2>
 <p>The World is made of things, and only things. Each room is a thing. Exits between rooms are things. People are things. Items are things. Boxes are things.</p>
@@ -101,8 +114,6 @@ function onLoggedIn(user: any, thing: Thing)
 <li>linkOwner: the thing that owns this link, if this is a link</li>
 <li>otherLink: the companion to this link, if this is a link</li>
 </ul>
-<h1>MIT LICENSE</h1>
-<p>The MIT license is <a href="LICENSE">here</a></p>
 <h1>More later...</h1>
 <p>For the moment, there are basic instructions for developing the MUD, below.</p>
 <h1>Installing typescript</h1>

@@ -244,7 +244,6 @@ class Peer extends proto.DelegatingHandler<Strategy> {
         gui.setPeerId(peerID)
         console.log('IDENT: ', peerID, ' ', status)
         this.peerAddrs = addresses;
-        this.reset();
         super.ident(status, peerID, addresses, peerKey)
     }
 }

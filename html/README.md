@@ -8,9 +8,13 @@ There are no servers. YOU own your data.
 
 It relies on [libp2p](https://github.com/libp2p/go-libp2p) for peer-to-peer networking and uses [libp2p-websocket](https://github.com/zot/libp2p-websocket) to connect browsers to libp2p.
 
+# MIT LICENSE
+
+The MIT license is [here](LICENSE)
+
 # Using the MUD
 
-1. Start by creating or uploading a MUD
+1. Start by creating or uploading a MUD (using the Create or Upload buttons)
 1. Activate the MUD, your default user should have admin privileges
 1. A new MUD will start you in the lobby
 1. Create a room: `@create room The Dark Forest`
@@ -29,7 +33,10 @@ It relies on [libp2p](https://github.com/libp2p/go-libp2p) for peer-to-peer netw
 
 ## Example MUDs
 
-Here are some [example MUDS](examples)
+Shift-click or right-click and choose "Save link as..." to save these to your disk
+
+* <a href='javascript:window.textcraft ? textcraft.Gui.uploadMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</a>
+* <a href='javascript:window.textcraft ? textcraft.Gui.uploadMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</a>
 
 ## Creating things
 
@@ -121,10 +128,6 @@ The Thing class has these properties:
 * links: links (which are things) attached to this thing
 * linkOwner: the thing that owns this link, if this is a link
 * otherLink: the companion to this link, if this is a link
-
-# MIT LICENSE
-
-The MIT license is [here](LICENSE)
 
 # More later...
 

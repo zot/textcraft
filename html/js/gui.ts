@@ -568,7 +568,7 @@ function showPeerState(state) {
 }
 
 function showRoleState(state: RoleState) {
-    if (state === RoleState.Guest || state === RoleState.Host) {
+    if (state === RoleState.Guest) {
         $('#mud-section').classList.add('show-users')
         sectionTracker.setValue(SectionState.Mud)
     } else {
@@ -623,6 +623,13 @@ export function error(msg: string) {
     alert(`ERROR: ${msg}`)
 }
 
+export async function uploadMudFromURL(url: string) {
+    const response = await fetch(url)
+    await model.storage.uploadWorld(jsyaml.load(await response.text()))
+    showMuds()
+    sectionTracker.setValue(SectionState.Storage)
+}
+
 export function start() {
     radioTracker(natTracker, 'Nat')
     radioTracker(peerTracker, 'Peer')
@@ -635,11 +642,11 @@ export function start() {
             $('#mud-command').focus()
         }
     })
-    sectionTracker.setValue(SectionState.Storage)
     peerTracker.observe(showPeerState)
     mudTracker.observe(showMudState)
     relayTracker.observe(showRelayState)
     roleTracker.observe(showRoleState)
+    sectionTracker.setValue(SectionState.About)
     $('#user').onblur = () => setUser($('#user').value)
     $('#user').onkeydown = evt => {
         if (evt.key === 'Enter') {
@@ -691,6 +698,7 @@ export function start() {
     $('#mud-select-join').onclick = () => {
         roleTracker.setValue(RoleState.Guest)
         sectionTracker.setValue(SectionState.Connection)
+        $('#toHostID').focus()
     }
     $('#mud-request-relay').onclick = () => {
         roleTracker.setValue(RoleState.Host)
@@ -707,5 +715,6 @@ export function start() {
         prof.name = $('#profileName').value
         await prof.store()
     }
+    $('#about-frame').contentWindow.textcraft = (window as any).textcraft
     showMuds()
 }

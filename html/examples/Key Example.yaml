@@ -126,14 +126,14 @@ objects:
     otherLink: 25
     prototype: 4
   - id: 33
-    article: a
     name: jester
     fullName: Jolly Jester
     location: 1
     linkOwner: null
     otherLink: null
+    article: a
     prototype: 7
-    react_go: '@if %event.failed @then @output $0 "$This says, \"ha ha!\"" @event $0 say @else @output %event.source "$This went from $event.0 to $event.1" @event $0 say'
+    react_go: '@if %event.failed @then say ha ha! @else @output %event.source "$This went from $event.0 to $event.1" @event $0 say'
   - id: info
     nextId: 50
     name: Key Example

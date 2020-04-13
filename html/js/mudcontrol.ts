@@ -9,15 +9,25 @@ import {
     findSimpleName,
     escape,
 } from './model.js'
-import * as gui from './gui.js'
 import * as mudproto from './mudproto.js'
 
-let app: any
 export let connection: MudConnection
 // probably should move this into World
 const connectionMap = new Map<Thing, MudConnection>()
 export let activeWorld: World
-
+const quotePat = /("(?:[^"\\]|\\.)*")/
+const valuePat = /^("([^"\\]|\\.)*"|([0-9]*\.)?[0-9]+|true|false|null)$/;
+const thingPat = /^([a-zA-Z][a-zA-Z0-9]*|%[0-9]+|%[a-zA-Z]+|%[a-zA-z]+:[a-zA-Z]+)(?:\.([0-9]+|[a-zA-Z][a-zA-Z0-9]*))?$/;
+const ifPat = /(?:^|\s)(@if|@then|@else|@elseif|@end)\b/
+const tokPrecLevels = [
+    ['!'],
+    ['in', 'match'],
+    ['*', '/'],
+    ['+', '-'],
+    ['<', '<=', '==', '>=', '>'],
+    ['&&'],
+    ['||'],
+]
 const reservedProperties = new Set([
     '_id',
     '_prototype',
@@ -43,7 +53,6 @@ const properties = [
     'linkOwner',
     'otherLink',
 ]
-const lowercaseProperties = properties.map(p => p.toLowerCase())
 const setHelp = ['thing property value', `Set one of these properties on a thing:
   prototype   -- see the @info command
   article     -- the article for a thing's name
@@ -52,7 +61,7 @@ const setHelp = ['thing property value', `Set one of these properties on a thing
   location    -- move the thing to another location
   linkowner   -- set the thing's linkOwner
   otherlink   -- set the thing's otherLink
-  description -- the thing's description, you can use format words in a description (see format words).
+  description -- the thing's description, you can use format words in a description (see FORMAT WORDS).
                  If you capitalize a format word, the substitution will be capitalized.
 
   Here are the fields you can set:
@@ -78,6 +87,7 @@ const setHelp = ['thing property value', `Set one of these properties on a thing
     get_WORD        -- command template for when someone tries to get WORD
     go              -- command template for when someone tries to go into in object or through a link
     go_WORD         -- command template for when someone tries to go into WORD (virtual directions)
+    react_EVENT     -- react to an event (or descripton), see EVENTS
 `
 ]
 
@@ -88,12 +98,13 @@ You can use <b>%NUMBER</b> for an object by its ID (try <b>@dump me</b> for an e
 You can use <b>%-NUMBER</b> for an item you created recently (<b>%-1</b> is the last item, <b>%-2</b> is the next to last, etc.)
 You can use <b>%result</b> to refer to the result of the active successful if-condition
 You can use <b>%result.PROPERTY</b> to refer to a property of the result (including numeric indexes)
+You can use <b>%event</b> to refer to the current event (descripton)
+You can use <b>%event.PROPERTY</b> to refer to a property of the current event (descripton)
 
 To make something into a prototype, move it to <b>%protos</b>
 
-Format words:
+FORMAT WORDS:
   <b>\$this</b>        -- formatted string for this object or "you" if the user is the thing
-  <b>\$actor</b>       -- formatted string for the thing that is currently running a command
   <b>\$name</b>        -- this object\'s name
   <b>\$is</b>          -- is or are, depending on the plurality of the thing
   <b>\$s</b>           -- optional "s" depending on the plurality of the thing (or "es" if it\'s after go)
@@ -108,11 +119,19 @@ Format words:
   <b>\$argN</b>        -- Nth argument (if there is one)
   <b>\$result</b>      -- The result of the active successful if-condition
   <b>\$result.PROP</b> -- A property of the current result (including numeric indexes)
+  <b>\$event</b>       -- The current event (descripton)
+  <b>\$event.PROP</b>  -- A property of the current event (descripton)
+
+
+COMMAND TEMPLATES:
 
 Command templates are string properties on objects to implement custom commands.
 Example command template properties are get_key, cmd, and cmd_whistle -- see the help for @set.
 Templates replace the original command with different commands, separated by semicolons.
 Templates can contain $0..$N to refer to the command arguments. $0 refers to the thing itself.
+
+
+EXPRESSIONS:
 
 The following are legal expressions:
    number
@@ -133,28 +152,47 @@ The following are legal expressions:
    expr1 <= expr2
    expr1 > expr2
    expr1 >= expr2
-   expr1 == expr2
+   Expr1 == expr2
    expr1 != expr2
    !expr1
    expr1 && expr2
    expr1 || expr2
    expr1 in expr2  -- returns whether expr1 is in expr2 (which must be a collection or a thing)
-`
 
-const quotePat = /("(?:[^"\\]|\\.)*")/
-const valuePat = /^("([^"\\]|\\.)*"|([0-9]*\.)?[0-9]+|true|false|null)$/;
-const namePat = /^[a-zA-Z][a-zA-Z0-9]*/;
-const thingPat = /^([a-zA-Z][a-zA-Z0-9]*|%[0-9]+|%[a-zA-Z]+|%[a-zA-z]+:[a-zA-Z]+)(?:\.([a-zA-Z][a-zA-Z0-9]*))?$/;
-const ifPat = /(?:^|\s)(@if|@then|@else|@elseif|@end)\b/
-const tokPrecLevels = [
-    ['!'],
-    ['in', 'match'],
-    ['*', '/'],
-    ['+', '-'],
-    ['<', '<=', '==', '>=', '>'],
-    ['&&'],
-    ['||'],
-]
+
+EVENTS:
+
+When a thing executes a command, it emits an event which propagates to nearby things. Objects can react
+to a type of event by setting a property called react_EVENT to a command template (see COMMAND TEMPLATES).
+Events have properties which you can access in command templates with %event.PROPERTY and in format
+strings with $event.PROPERTY.
+
+Example, this will make a box react to people arriving in its location:
+
+@set box react_go @if %event.1 == $0.location @then say Hello %event.source!
+
+
+EVENT PROPERTIES:
+
+   failed  -- whether the event is from a failed command
+   source  -- the thing that emitted the event
+   tick    -- the current tick number
+   N       -- %event.0 ... %event.N and $event.0 ... $event.N refer to parameters in the event
+
+
+EVENT TYPES:
+
+These are the standard event types, listed with their standard parameters:
+
+   get 0:thing
+   drop 0:thing
+   go 0:oldLocation 1:newLocation
+   look 0:thing
+   examine 0:thing
+   tick
+   say 0:text
+   act 0:text 1:thing(opt)
+`
 
 export class Command {
     help: string[]
@@ -202,8 +240,10 @@ export const commands = new Map([
   if the format is for others, @output will issue a descripton using information after @event
   actor can change output depending on who receives it`]
     })],
-    ['@quiet', new Command({ help: ['', 'temporarily disable output'] })],
-    ['@loud', new Command({ help: ['', 'enable output'] })],
+    ['@mute', new Command({ help: ['', 'temporarily silence all output commands that are not yours'] })],
+    ['@unmute', new Command({ help: ['', 'enable output from other commands'] })],
+    ['@quiet', new Command({ help: ['', 'disable all output for this command'] })],
+    ['@loud', new Command({ help: ['', 'enable all output for this command'] })],
     ['@admin', new Command({ help: ['thing boolean', 'Change a thing\'s admin privileges'] })],
     ['@create', new Command({ help: ['proto name [description words...]', 'Create a thing'] })],
     ['@toast', new Command({ help: ['thing...', 'Toast things and everything they\'re connected to'] })],
@@ -217,11 +257,15 @@ export const commands = new Map([
     })],
     ['@link', new Command({ help: ['loc1 link1 link2 loc2', 'create links between two things'] })],
     ['@info', new Command({ help: ['', 'List important information'] })],
+    ['@as', new Command({ help: ['thing command...', 'Make a thing execute a command'] })],
     ['@add', new Command({
         help: ['thing property thing2', `Add thing2 to the list or set in property
   If there is no property, create a set
   thing2 is optional`], admin: true
     })],
+    ['@stop', new Command({ help: ['', `Stop the clock`], admin: true })],
+    ['@start', new Command({ help: ['', `Start the clock`], admin: true })],
+    ['@clock', new Command({ help: ['seconds', `Change the clock rate`], admin: true })],
     ['@remove', new Command({ help: ['thing property thing2', `Remove thing2 from the list in property`], admin: true })],
     ['@setNum', new Command({ help: ['thing property number'], admin: true, alt: '@set' })],
     ['@setBigint', new Command({ help: ['thing property bigint'], admin: true, alt: '@set' })],
@@ -245,9 +289,7 @@ Example:
     })],
 ])
 
-export function init(appObj) {
-    app = appObj
-}
+export function init() { }
 
 export function initCommands(cmds: Map<string, Command>) {
     cmds.forEach(initCommand)
@@ -279,6 +321,7 @@ export function initCommand(command: Command, cmdName: string, cmds: Map<string,
 
 export class Descripton {
     source: Thing
+    tick: number
     event: string
     args: any
     failed: boolean
@@ -289,6 +332,7 @@ export class Descripton {
     done: boolean
 
     constructor(source: Thing, event: string, args: any, failed: boolean, visitFunc: (thing: Thing) => void, visitLinks = false) {
+        this.tick = connection.tickCount
         this.source = source
         this.event = event
         this.failed = failed
@@ -296,6 +340,9 @@ export class Descripton {
         this.visitFunc = visitFunc
         this.visitLinks = visitLinks
         this.visited = new Set()
+        for (let i = 0; i < args.length; i++) {
+            this[i] = args[i]
+        }
     }
     /**
      * Propagate to a thing and its contents
@@ -333,11 +380,21 @@ export class MudConnection {
     remote: boolean
     myName: string
     suppressOutput: boolean
+    muted = 0
     commands: Map<string, Command>
     conditionResult: any
+    currentEvent: Descripton
+    acted = new Set<Thing>()
+    pendingReactions = new Map<Thing, () => void>()
+    tickCount = 0
+    ticking = false
+    stopClock = true
+    tickers = new Set<Thing>()
 
-    constructor() {
+    constructor(thing?: Thing) {
         this.created = []
+        this.thing = thing
+        this.outputHandler = () => { }
     }
     init(world, outputHandler, remote = false) {
         this.world = world
@@ -353,7 +410,7 @@ export class MudConnection {
         this.thing = null
         this.outputHandler = null
         this.created = null
-        if (this === connection) {
+        if (!this.remote) {
             mudTracker.setValue(MudState.NotPlaying)
             roleTracker.setValue(RoleState.None)
         }
@@ -369,12 +426,18 @@ export class MudConnection {
         this.error(`You don't see any ${thing} here`)
     }
     output(text: string) {
-        if (!this.suppressOutput) {
+        if (!this.suppressOutput && this.muted < 1) {
             this.outputHandler(text.match(/^</) ? text : `<div>${text}</div>`)
         }
         this.failed = false
     }
     async start() {
+        if (!this.remote) {
+            this.world.watcher = t => this.checkTicker(t)
+            for (const thing of this.world.thingCache.values()) {
+                this.checkTicker(thing)
+            }
+        }
         mudTracker.setValue(MudState.Playing)
         this.outputHandler(`Welcome to ${this.world.name}, use the "login" command to log in.
 <p>
@@ -404,7 +467,7 @@ export class MudConnection {
     async basicFormat(tip: thingId | Thing | Promise<Thing>, str: string, args: Thing[]) {
         if (!str) return str
         const thing = await this.world.getThing(tip)
-        const parts = str.split(/( *\$result(?:\.\w*)?| *\$\w*)/)
+        const parts = str.split(/( *\$(?:result|event)(?:\.\w*)?| *\$\w*)/i)
         let result = ''
 
         for (const part of parts) {
@@ -420,8 +483,15 @@ export class MudConnection {
 
                     result += capitalize(this.formatName(arg), format)
                     continue
-                } else if (format.match(/^result(\.[0-9]+)?$/)) {
-                    result += this.getResult(format)
+                } else if (format.match(/^result(?:\.\w+)?$/i)) {
+                    const t = this.getResult(format, this.conditionResult)
+
+                    result += t instanceof Thing ? this.formatName(t) : t
+                    continue
+                } else if (format.match(/^event(?:\.\w+)?$/i)) {
+                    const t = this.getResult(format, this.currentEvent)
+
+                    result += t instanceof Thing ? this.formatName(t) : t
                     continue
                 }
                 switch (format.toLowerCase()) {
@@ -448,13 +518,6 @@ export class MudConnection {
                         if (!thing || thing !== this.thing) {
                             result += (result.match(/\sgo$/) ? 'es' : 's')
                         }
-                        continue
-                    }
-                    case 'actor': {
-                        let name: string
-
-                        name = this.formatName(this.thing)
-                        result += capitalize(name, format)
                         continue
                     }
                     case 'location': {
@@ -564,8 +627,9 @@ export class MudConnection {
             }
         }
     }
-    substituteCommand(template: string, words: string[]) {
+    substituteCommand(template: string, args: any[]) {
         const lines = []
+        const words = args.map(a => a instanceof Thing ? `%${a.id}` : a)
 
         for (const line of template.split(/;/)) {
             const parts = line.split(/( *\$\w*)/)
@@ -595,7 +659,7 @@ export class MudConnection {
             }
         }
     }
-    async command(line: string, substituted = false) {
+    async command(line: string, substituted = false, user = false) {
         if (line[0] === '"' || line[0] === "'") {
             line = `say ${line.substring(1)}`
         } else if (line[0] === ':') {
@@ -621,8 +685,15 @@ export class MudConnection {
             }
             // execute command inside a transaction so it will automatically store any dirty objects
             await this.world.doTransaction(async () => {
-                await this[command.method]({ command, line, substituted }, ...words.slice(1))
-                if (!substituted) this.suppressOutput = false
+                const muted = this.muted
+
+                try {
+                    if (!substituted && user) this.muted = 0
+                    await this[command.method]({ command, line, substituted }, ...words.slice(1))
+                } finally {
+                    if (this.muted === 0) this.muted = muted
+                    if (!substituted) this.suppressOutput = false
+                }
             })
                 .catch(err => this.error(err.message))
         } else {
@@ -641,10 +712,10 @@ export class MudConnection {
         }
         return result
     }
-    getResult(resultExpr: string) {
-        const match = resultExpr.match(/^result(?:\.(.+))?$/)
+    getResult(str: string, value: any) {
+        const match = str.match(/^[^.]+(?:\.(\w+))?$/)
 
-        return match[1] ? this.conditionResult[match[1]] : this.conditionResult
+        return match[1] ? value[match[1]] : value
     }
     async find(name: string, start: Thing = this.thing, errTag: string = ''): Promise<Thing> {
         let result: Thing
@@ -665,11 +736,12 @@ export class MudConnection {
                         : name === '%limbo' ? this.world.limbo
                             : name === '%lobby' ? this.world.lobby
                                 : name === '%protos' ? this.world.hallOfPrototypes
-                                    : name.match(/^%result(\.[0-9]+)?$/) ? this.getResult(name.slice(1))
-                                        : name.match(/^%proto:/) ? await this.world.hallOfPrototypes.find(name.replace(/^%proto:/, ''))
-                                            : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
-                                                : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
-                                                    : await start.find(name, this.thing._location === this.world.limbo.id ? new Set() : new Set([this.world.limbo]))
+                                    : name.match(/^%result(\.\w+)?$/) ? this.getResult(name, this.conditionResult)
+                                        : name.match(/^%event(\.\w+)?$/) ? this.getResult(name, this.currentEvent)
+                                            : name.match(/^%proto:/) ? await this.world.hallOfPrototypes.find(name.replace(/^%proto:/, ''))
+                                                : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
+                                                    : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
+                                                        : await start.find(name, this.thing._location === this.world.limbo.id ? new Set() : new Set([this.world.limbo]))
             }
         }
         if (!result && errTag) {
@@ -746,6 +818,10 @@ export class MudConnection {
             await this.commandDescripton(null, 'has arrived', 'go', [null])
             // tslint:disable-next-line:no-floating-promises
             await this.look(null, null)
+            if (!this.remote) {
+                this.stopClock = false
+                this.queueTick()
+            }
         } catch (err) {
             this.error(err.message)
         }
@@ -763,12 +839,116 @@ export class MudConnection {
                     const format = await con.basicFormat(actionContext, action, actionArgs)
                     const text = prefix ? `${con.formatName(this.thing)} ${format}` : format
                     con.output(text)
+                } else {
+                    // process reactions in the main MudConnection
+                    await connection.react(thing, desc)
                 }
             })
 
             if (!startAt) startAt = await this.thing.getLocation()
             if (excludeActor) desc.visited.add(actor)
             return desc.propagate(startAt)
+        }
+    }
+    async react(thing: Thing, desc: Descripton) {
+        if (this.remote) throw new Error(`Attempt to react in a remote connection`)
+        const reactProp = `_react_${desc.event.toLowerCase()}`
+        let reacted = false
+
+        for (const key in thing) {
+            if (key.toLowerCase() === reactProp) {
+                await this.doReaction(thing, desc, thing[key])
+                reacted = true
+                break
+            }
+        }
+        if (!reacted && (thing as any)._react) {
+            await connection.doReaction(thing, desc, (thing as any)._react)
+        }
+    }
+    async doReaction(thing: Thing, desc: Descripton, reaction: string) {
+        if (this.remote) throw new Error(`Attempt to react in a remote connection`)
+        if (this.acted.has(thing) && !this.pendingReactions.has(thing)) {
+            this.pendingReactions.set(thing, () => this.doReaction(thing, desc, reaction))
+            this.queueTick()
+        } else {
+            const oldEvent = this.currentEvent
+
+            try {
+                this.currentEvent = desc
+                this.acted.add(thing)
+                await this.connectionFor(thing).runCommands(this.substituteCommand(reaction, [thing, ...desc.args]))
+            } finally {
+                this.currentEvent = oldEvent
+            }
+        }
+    }
+    connectionFor(thing: Thing) {
+        let con = connectionMap.get(thing)
+
+        if (!con) {
+            con = new MudConnection(thing)
+            con.admin = true
+            con.world = this.world
+            con.remote = true
+            con.currentEvent = this.currentEvent
+            con.conditionResult = this.conditionResult
+            con.suppressOutput = this.suppressOutput
+        }
+        return con
+    }
+    checkTicker(thing: Thing) {
+        if (this.remote) throw new Error(`Attempt to tick in a remote connection`)
+        if ((thing as any)._react_tick) {
+            this.tickers.add(thing)
+            this.queueTick()
+        } else {
+            this.tickers.delete(thing)
+        }
+    }
+    queueTick(delay = this.world.clockRate, force = false) {
+        if (this.shouldTick() && (force || !this.ticking)) {
+            this.ticking = true
+            setTimeout((() => this.tick()), Math.max(100, delay))
+        }
+    }
+    shouldTick() {
+        if (this.remote) throw new Error(`Attempt to tick in a remote connection`)
+        return !this.stopClock && this.world
+    }
+    async tick() {
+        if (this.shouldTick()) {
+            const ticked = this.pendingReactions.size || this.tickers.size
+            const targetTime = Date.now() + Math.round(this.world.clockRate * 1000)
+
+            this.ticking = true
+            this.tickCount++
+            this.acted = new Set()
+            if (this.pendingReactions.size) {
+                const reactions = this.pendingReactions
+
+                this.pendingReactions = new Map()
+                for (const reaction of reactions.values()) {
+                    reaction()
+                }
+            }
+            if (this.tickers.size) {
+                const tick = new Descripton(null, 'tick', [], false, () => { })
+
+                for (const ticker of this.tickers) {
+                    const reaction = (ticker as any)._react_tick
+
+                    if (reaction) {
+                        tick.source = ticker
+                        await this.doReaction(ticker, tick, reaction)
+                    }
+                }
+            }
+            if (ticked) {
+                this.queueTick(targetTime - Date.now(), true)
+            } else {
+                this.ticking = false
+            }
         }
     }
     async hasKey(lock: Thing, start: Thing) {
@@ -884,9 +1064,17 @@ export class MudConnection {
                     first = first <= second
                     break
                 case '==':
+                    if ((first instanceof Thing) !== (second instanceof Thing)) {
+                        first = first instanceof Thing ? first.id : first
+                        second = second instanceof Thing ? second.id : second
+                    }
                     first = first === second
                     break
                 case '!=':
+                    if ((first instanceof Thing) !== (second instanceof Thing)) {
+                        first = first instanceof Thing ? first.id : first
+                        second = second instanceof Thing ? second.id : second
+                    }
                     first = first !== second
                     break
                 case '>=':
@@ -949,7 +1137,12 @@ export class MudConnection {
             const thing = await this.find(match[1])
 
             if (!thing) throw new Error(`Could not find thing ${match[1]}`)
-            return [match[2] ? thing['_' + match[2]] : thing, toks.slice(1)]
+            if (match[2]) {
+                if (thing instanceof Thing) return [thing['_' + match[2]], toks.slice(1)]
+                return [thing[match[2]], toks.slice(1)]
+            } else {
+                return [thing, toks.slice(1)]
+            }
         } else {
             throw new Error(`Could not parse ${toks[0]}`)
         }
@@ -1048,11 +1241,11 @@ export class MudConnection {
             }
             const output = await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location)
             const exitCtx = formatContexts(direction._linkExitFormat)
-            exitCtx.others && await this.formatDescripton(direction, exitCtx.others, [this.thing, oldLoc], 'go', [oldLoc], true, false)
+            exitCtx.others && await this.formatDescripton(direction, exitCtx.others, [this.thing, oldLoc], 'go', [oldLoc, location], true, false)
             this.thing.setLocation(location)
             output && this.output(output)
             const enterCtx = formatContexts(direction._linkEnterFormat)
-            await this.formatDescripton(link, enterCtx.others, [this.thing, location], 'go', [oldLoc], true, false)
+            await this.formatDescripton(link, enterCtx.others, [this.thing, location], 'go', [oldLoc, location], true, false)
         }
         await this.look(cmdInfo)
     }
@@ -1067,6 +1260,34 @@ export class MudConnection {
     // COMMAND
     atLoud() {
         this.suppressOutput = false
+    }
+    // COMMAND
+    atStart() {
+        this.stopClock = false
+        this.output('Clock started')
+        this.queueTick(undefined, true)
+    }
+    // COMMAND
+    async atClock(cmdInfo, rate) {
+        if (rate.match(/^[0-9]+$/)) {
+            this.world.clockRate = Number(rate)
+            await this.world.store()
+        }
+    }
+    // COMMAND
+    atStop() {
+        this.stopClock = true
+        this.output('Clock stopped')
+    }
+    // COMMAND
+    atMute() {
+        this.output('Muted')
+        this.muted = 1
+    }
+    // COMMAND
+    atUnmute() {
+        this.muted = -1
+        this.output('Unmuted')
     }
     // COMMAND
     async get(cmdInfo, thingStr, ...args: Thing[]) {
@@ -1150,7 +1371,7 @@ export class MudConnection {
             }
             this.error(`<pre>Could not find prototype ${protoStr}
 Prototypes:
-  ${protos.join('\n  ')}`)
+${protos.join('\n  ')}`)
         } else {
             const fullname = dropArgs(2, cmdInfo)
             const thing = await this.world.createThing(fullname)
@@ -1200,12 +1421,12 @@ Prototypes:
         const myKeys = new Set(Object.keys(thing).filter(k => !reservedProperties.has(k) && k[0] === '_'))
         const allKeys = []
         let result = `<pre>${await this.dumpName(thing)}
-   prototype: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
-   location:  ${await this.dumpName(thing._location)}
-   contents:  ${await this.dumpThingNames(await thing.getContents())}
-   links:     ${await this.dumpThingNames(await thing.getLinks())}
-   linkOwner: ${await this.dumpName(thing._linkOwner)}
-   otherLink: ${await this.dumpName(thing._otherLink)}`
+prototype: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
+location:  ${await this.dumpName(thing._location)}
+contents:  ${await this.dumpThingNames(await thing.getContents())}
+links:     ${await this.dumpThingNames(await thing.getLinks())}
+linkOwner: ${await this.dumpName(thing._linkOwner)}
+otherLink: ${await this.dumpName(thing._otherLink)}`
 
         for (const prop in thing) {
             if (prop[0] === '_' && !reservedProperties.has(prop)) {
@@ -1233,7 +1454,9 @@ Prototypes:
         const ctx = formatContexts(text)
         const context = await this.find(contextStr, undefined, 'context')
         const evtIndex = words.findIndex(w => w.toLowerCase() === '@event')
-        if (evtIndex === -1) throw new Error('@output needs @event')
+        if (evtIndex === -1 || words.length - evtIndex < 3) {
+            throw new Error('@output needs @event actor eventType')
+        }
         // tslint:disable-next-line:prefer-const
         let [actorStr, ...eventArgs] = words.slice(evtIndex + 1)
         const actor = await this.find(actorStr, undefined, 'actor')
@@ -1284,6 +1507,21 @@ Prototypes:
         if (!loc) return this.error(`Could not find ${locStr}`)
         thing.setLocation(loc)
         this.output(`You moved ${thingStr} to ${locStr}`)
+    }
+    // COMMAND
+    async atAs(cmdInfo: any, thingStr: string) {
+        const thing = await this.find(thingStr, this.thing, 'actor')
+        let con = connectionMap.get(thing)
+        const cmd = dropArgs(2, cmdInfo)
+
+        if (!cmd.trim()) throw new Error(`@as expects a command`)
+        if (!con) {
+            con = new MudConnection(thing)
+            con.admin = true
+            con.world = this.world
+            con.remote = true
+        }
+        con.command(cmd, false, true)
     }
     // COMMAND
     async atAdmin(cmdInfo: any, thingStr: string, toggle: string) {
@@ -1373,7 +1611,12 @@ Prototypes:
         value = val
         if (!thing) return
         if (addableProperties.has(realProp)) return this.error(`Cannot set ${property}`)
+        thing.markDirty(null)
         switch (lowerProp) {
+            case 'react_tick':
+                thing._react_tick = String(value)
+                this.checkTicker(thing)
+                break
             case 'count':
                 thing.count = Number(value)
                 break
@@ -1517,6 +1760,7 @@ Prototypes:
         }
         delete thing[realProp]
         thing.markDirty()
+        this.checkTicker(thing)
         this.output(`deleted ${property} from ${thing.name}`)
     }
     // COMMAND
@@ -1542,9 +1786,12 @@ You: ${await this.dumpName(this.thing)}
 lobby: ${await this.dumpName(this.world.lobby)}
 limbo: ${await this.dumpName(this.world.limbo)}
 hall of prototypes: ${await this.dumpName(this.world.hallOfPrototypes)}
+clock rate: ${this.world.clockRate}
+the clock is ${this.stopClock ? 'stopped' : 'running'}
+there ${this.tickers.size === 1 ? 'is 1 ticker' : 'are ' + this.tickers.size + ' tickers'}
 
 Prototypes:
-  ${protos.join('<br>  ')}
+${protos.join('<br>  ')}
 </pre>`)
     }
     // COMMAND
@@ -1790,7 +2037,7 @@ function formatContexts(format: string): any {
  */
 export async function executeCommand(text: string) {
     if (roleTracker.value === RoleState.Solo || roleTracker.value === RoleState.Host) {
-        await connection.command(text)
+        await connection.command(text, false, true)
     } else if (peerTracker.value !== PeerState.disconnected && mudTracker.value === MudState.Playing) {
         mudproto.command(text)
     }
@@ -1800,6 +2047,7 @@ export async function runMud(world: World, handleOutput: (str: string) => void) 
     activeWorld = world
     world.mudConnectionConstructor = MudConnection
     connection = createConnection(world, handleOutput)
+    console.log(connection)
     await connection.start()
     if (world.defaultUser) {
         const user = world.defaultUser
