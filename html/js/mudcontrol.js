@@ -202,6 +202,7 @@ export const commands = new Map([
     ['invent', new Command({ help: [''], alt: 'inventory' })],
     ['inventory', new Command({ help: ['', `list what you are carrying`] })],
     ['say', new Command({ help: ['words...', `Say something`] })],
+    ['@say', new Command({ help: ['"words..." arg...', `Formatted say`] })],
     ['whisper', new Command({ help: ['thing words...', `Say something to thing`] })],
     ['act', new Command({ help: ['words...', `Do something`] })],
     ['gesture', new Command({ help: ['thing words...', `Do something towards thing`] })],
@@ -1297,6 +1298,12 @@ export class MudConnection {
         await thing.setLocation(loc);
         this.output(`You drop ${this.formatName(thing)}`);
         return this.commandDescripton(thing, 'drops $this', 'drop', [thing]);
+    }
+    // COMMAND
+    async atSay(cmdInfo, text, ...args) {
+        const ctx = formatContexts(text);
+        ctx.me && this.output(`You say, "${await this.basicFormat(this.thing, ctx.me, args)}"`);
+        ctx.others && await this.formatDescripton(null, `says, "${ctx.others}"`, args, 'say', [text]);
     }
     // COMMAND
     async say(cmdInfo, ...words) {
