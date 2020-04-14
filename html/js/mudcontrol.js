@@ -108,6 +108,7 @@ FORMAT WORDS:
   <b>\$result.PROP</b> -- A property of the current result (including numeric indexes)
   <b>\$event</b>       -- The current event (descripton)
   <b>\$event.PROP</b>  -- A property of the current event (descripton)
+  <b>\$admin ....</b>  -- If the user is an admin, use everything after $admin instead
 
 
 COMMAND TEMPLATES:
@@ -213,10 +214,12 @@ export const commands = new Map([
     ['@dump', new Command({ help: ['thing', 'See properties of a thing'] })],
     ['@move', new Command({ help: ['thing location', 'Move a thing'] })],
     ['@output', new Command({
-            help: ['contextThing "FORMAT" arg... @event actor EVENT arg...',
+            help: ['contextThing "FORMAT" arg... @event actor EVENT arg...', '',
+                'contextThing "FORMAT" arg... @event actor false EVENT arg...',
                 `Output text to the user and/or others using a format string on contextThing
   if the format is for others, @output will issue a descripton using information after @event
-  actor can change output depending on who receives it`]
+  actor can change output depending on who receives it.
+  Adding false before EVENT indicates that the event failed.`]
         })],
     ['@mute', new Command({ help: ['', 'temporarily silence all output commands that are not yours'] })],
     ['@unmute', new Command({ help: ['', 'enable output from other commands'] })],
@@ -432,6 +435,8 @@ export class MudConnection {
         if (!str)
             return str;
         const thing = await this.world.getThing(tip);
+        const adminParts = str.split(/(\s*\$admin\b\s*)/i);
+        str = adminParts.length > 1 ? (this.admin && adminParts[2]) || adminParts[0] : str;
         const parts = str.split(/( *\$(?:result|event)(?:\.\w*)?| *\$\w*)/i);
         let result = '';
         let enabled = true;
@@ -542,8 +547,8 @@ export class MudConnection {
     async describe(thing) {
         this.output(await this.description(thing));
     }
-    checkCommand(prefix, cmd, thing) {
-        return (cmd === thing.name && thing[prefix]) || thing[`${prefix}_${cmd}`];
+    checkCommand(prefix, cmd, thing, checkLocal = cmd === thing.name) {
+        return (checkLocal && thing[prefix]) || thing[`${prefix}_${cmd}`];
     }
     async findCommand(words, prefix = '_cmd') {
         const result = await this.findTemplate(words, prefix);
@@ -771,7 +776,9 @@ export class MudConnection {
             //this.myName = thing.name
             this.admin = admin;
             connectionMap.set(this.thing, this);
-            this.output('Connected.');
+            this.output(`Connected, you are logged in as ${user}.
+<br>You can use the login command to change users...
+<br><br>`);
             mudproto.userThingChanged(this.thing);
             thing.setLocation(this.world.lobby);
             await this.commandDescripton(this.thing, 'has arrived', 'go', [this.world.limbo, this.world.lobby]);
@@ -1294,7 +1301,7 @@ export class MudConnection {
         }
         const thing = await this.find(thingStr, loc);
         if (thing) {
-            const cmd = this.checkCommand('_get', thingStr, thing);
+            const cmd = this.checkCommand('_get', thingStr, thing, true);
             if (cmd)
                 newCommands = this.substituteCommand(cmd, [`%${thing._id}`, ...dropArgs(1, cmdInfo).split(/\s+/)]);
         }
@@ -1994,12 +2001,16 @@ function check(test, msg) {
         throw new Error(msg);
 }
 function formatContexts(format) {
-    const contexts = format.split(/(\s*\$forme\b\s*|\s*\$forothers\b\s*)/);
+    const contexts = format.split(/(\s*\$forme\b\s*|\s*\$forothers\b\s*)/i);
     const tmp = {};
     if (contexts.length > 1) {
         for (let i = 1; i < contexts.length; i += 2) {
             tmp[contexts[i].trim().substring(1).toLowerCase()] = contexts[i + 1];
         }
+        if (tmp.forme || !tmp.forothers)
+            tmp.forme = contexts[0];
+        if (!tmp.forme || tmp.forothers)
+            tmp.forothers = contexts[0];
         return {
             me: tmp.forme,
             others: tmp.forothers,

@@ -368,14 +368,20 @@ export class World {
             (linkProto as any)._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event $0 false go $0';
             linkProto._linkEnterFormat = '$Arg1 entered $arg3'
             linkProto._linkMoveFormat = 'You went $name to $arg3'
-            linkProto._linkExitFormat = '$Arg1 went $name to $arg3'
+            linkProto._linkExitFormat = '$Arg1 went $name to $arg3';
+            (linkProto as any)._get = `
+@output $0 "$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means..." me @event me false get $0
+`
             roomProto.markDirty(roomProto._location = this.hallOfPrototypes.id)
             roomProto._closed = true
             roomProto.setPrototype(thingProto)
             personProto.markDirty(personProto._location = this.hallOfPrototypes.id)
             personProto.setPrototype(thingProto)
             personProto._article = ''
-            personProto.examineFormat = 'Carrying: $contents'
+            personProto.examineFormat = 'Carrying: $contents';
+            (personProto as any)._get = `
+@output $0 "$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't" me @event me false get $0
+`
             generatorProto.markDirty(generatorProto._location = this.hallOfPrototypes.id)
             generatorProto.setPrototype(thingProto)
             generatorProto._priority = -1;

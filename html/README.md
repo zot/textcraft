@@ -12,6 +12,13 @@ It relies on [libp2p](https://github.com/libp2p/go-libp2p) for peer-to-peer netw
 
 The MIT license is [here](LICENSE)
 
+## Example MUDs
+
+Shift-click or right-click and choose "Save link as..." to save these to your disk
+
+* <a href='javascript:window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</a>
+* <a href='javascript:window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</a>
+
 # Using the MUD
 
 1. Start by creating or uploading a MUD (using the Create or Upload buttons)
@@ -30,13 +37,6 @@ The MIT license is [here](LICENSE)
 1. Toast your key copy: `@toast key`
 1. Go south (south isn't locked -- you could lock it and add it to the key generator)
 1. Try going north
-
-## Example MUDs
-
-Shift-click or right-click and choose "Save link as..." to save these to your disk
-
-* <a href='javascript:window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</a>
-* <a href='javascript:window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</a>
 
 ## Creating things
 
@@ -93,21 +93,21 @@ Use the help command for more details
 Here are all of the current commands and the current help documentation:
 
 ```
-@add thing property thing2                                      --  Add thing2 to the list or set in property
+@add thing property thing2                                            --  Add thing2 to the list or set in property
   If there is no property, create a set
   thing2 is optional
-@admin thing boolean                                            --  Change a thing's admin privileges
-@as thing command...                                            --  Make a thing execute a command
-@clock seconds                                                  --  Change the clock rate
+@admin thing boolean                                                  --  Change a thing's admin privileges
+@as thing command...                                                  --  Make a thing execute a command
+@clock seconds                                                        --  Change the clock rate
 @copy thing
-@copy thing force                                               --  Copy a thing to your inventory (force allows copying the entire world -- can be dangerous)
-@create proto name [description words...]                       --  Create a thing
-@del thing property                                             --  Delete a properties from a thing so it will inherit from its prototype
-@dump thing                                                     --  See properties of a thing
-@expr thing property expr                                       --  Set a property to the value of an expression
-@find thing                                                     --  Find a thing
-@find thing location                                            --  Find a thing from a location
-@if condition CLAUSES @end                                      --  conditionally run commands
+@copy thing force                                                     --  Copy a thing to your inventory (force allows copying the entire world -- can be dangerous)
+@create proto name [description words...]                             --  Create a thing
+@del thing property                                                   --  Delete a properties from a thing so it will inherit from its prototype
+@dump thing                                                           --  See properties of a thing
+@expr thing property expr                                             --  Set a property to the value of an expression
+@find thing                                                           --  Find a thing
+@find thing location                                                  --  Find a thing from a location
+@if condition CLAUSES @end                                            --  conditionally run commands
 @if condition @then commands... @elseif condition @then commands ... @else commands... @end
 
 @else and @end are optional, use @end if you nest @ifs
@@ -117,22 +117,24 @@ Conditions can contain expressions -- see expressions
 Example:
   @if me.x == 1 @then say one; @if true @then say derp @end @elseif me.x == 2 @then say two @else say other
 
-@info                                                           --  List important information
-@link loc1 link1 link2 loc2                                     --  create links between two things
-@loud                                                           --  enable all output for this command
-@move thing location                                            --  Move a thing
-@mute                                                           --  temporarily silence all output commands that are not yours
-@output contextThing "FORMAT" arg... @event actor EVENT arg...  --  Output text to the user and/or others using a format string on contextThing
+@info                                                                 --  List important information
+@link loc1 link1 link2 loc2                                           --  create links between two things
+@loud                                                                 --  enable all output for this command
+@move thing location                                                  --  Move a thing
+@mute                                                                 --  temporarily silence all output commands that are not yours
+@output contextThing "FORMAT" arg... @event actor EVENT arg...
+@output contextThing "FORMAT" arg... @event actor false EVENT arg...  --  Output text to the user and/or others using a format string on contextThing
   if the format is for others, @output will issue a descripton using information after @event
-  actor can change output depending on who receives it
-@quiet                                                          --  disable all output for this command
-@remove thing property thing2                                   --  Remove thing2 from the list in property
-@reproto thing proto                                            --  Change the prototype of a thing
-@say "words..." arg...                                          --  Formatted say
+  actor can change output depending on who receives it.
+  Adding false before EVENT indicates that the event failed.
+@quiet                                                                --  disable all output for this command
+@remove thing property thing2                                         --  Remove thing2 from the list in property
+@reproto thing proto                                                  --  Change the prototype of a thing
+@say "words..." arg...                                                --  Formatted say
 @setNum thing property number
 @setBigint thing property bigint
 @setBool thing property boolean
-@set thing property value                                       --  Set one of these properties on a thing:
+@set thing property value                                             --  Set one of these properties on a thing:
   prototype   -- see the @info command
   article     -- the article for a thing's name
   name        -- the thing's fullName (the name will be set to the first word)
@@ -168,26 +170,26 @@ Example:
     go_WORD         -- command template for when someone tries to go into WORD (virtual directions)
     react_EVENT     -- react to an event (or descripton), see EVENTS
 
-@start                                                          --  Start the clock
-@stop                                                           --  Stop the clock
-@toast thing...                                                 --  Toast things and everything they're connected to
-@unmute                                                         --  enable output from other commands
-act words...                                                    --  Do something
-drop thing                                                      --  drop something you are carrying
-examine thing                                                   --  See a detailed description of a thing
-gesture thing words...                                          --  Do something towards thing
-get thing                                                       --  grab a thing
-get thing [from] location                                       --  grab a thing from a location
-go location                                                     --  move to another location (may be a direction)
-help                                                            --  Show this message
+@start                                                                --  Start the clock
+@stop                                                                 --  Stop the clock
+@toast thing...                                                       --  Toast things and everything they're connected to
+@unmute                                                               --  enable output from other commands
+act words...                                                          --  Do something
+drop thing                                                            --  drop something you are carrying
+examine thing                                                         --  See a detailed description of a thing
+gesture thing words...                                                --  Do something towards thing
+get thing                                                             --  grab a thing
+get thing [from] location                                             --  grab a thing from a location
+go location                                                           --  move to another location (may be a direction)
+help                                                                  --  Show this message
 i 
 invent 
-inventory                                                       --  list what you are carrying
-login user password                                             --  Login to the mud
-look                                                            --  See a description of your current location
-look thing                                                      --  See a description of a thing
-say words...                                                    --  Say something
-whisper thing words...                                          --  Say something to thing
+inventory                                                             --  list what you are carrying
+login user password                                                   --  Login to the mud
+look                                                                  --  See a description of your current location
+look thing                                                            --  See a description of a thing
+say words...                                                          --  Say something
+whisper thing words...                                                --  Say something to thing
 
 You can use me for yourself, here for your location, and out for your location's location (if you're in a container)
 You can use %lobby, %limbo, and %protos for the standard rooms

@@ -1,8 +1,12 @@
 users:
-  - name: a
-    password: a
+  - name: admin
+    password: admin
     admin: true
     thing: 8
+  - name: player1
+    password: player1
+    admin: false
+    thing: 50
 objects:
   - id: 0
     name: limbo
@@ -12,13 +16,14 @@ objects:
     linkOwner: null
     otherLink: null
     prototype: 5
+    article: ''
   - id: 1
     name: lobby
     fullName: Lobby
     location: 0
     linkOwner: null
     otherLink: null
-    description: 'You are in the $this.<br>@dump north to see the lock code (cmd and go properties) <br>Use a generator prototype to make a generator (@dump key, see get property)<br>New commands: @copy, @toast, @reproto, @quiet, and @loud'
+    description: '<br>You are in the $this. <br>Use <b>login admin admin</b> to login as the admin user.<br>$admin <br>You are in the $this.<br>@dump north to see the lock code (cmd and go properties) <br>Use a generator prototype to make a generator (@dump key, see get property)<br>New commands: @copy, @toast, @reproto, @quiet, and @loud'
     prototype: 5
   - id: 2
     name: ''
@@ -36,11 +41,12 @@ objects:
     description: This is $this
     article: the
     contentsFormat: $This $is here
-    contentsEnterFormat: $forme You go into $this $forothers $Arg goes into $this
+    contentsEnterFormat: $forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2
     examineFormat: 'Exits: $links<br>Contents: $contents'
     linkFormat: $This leads to $link
     keys: []
     priority: 0
+    contentsExitFormat: $forme You leave $this to $arg3 $forothers $Arg leaves $this to $arg3
   - id: 4
     name: link
     fullName: link
@@ -53,9 +59,10 @@ objects:
     locked: false
     cmd: '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don''t have the key $forothers $Arg tries to go $this to $link but doesn''t have the key" me @event $0 false go $0'
     go: '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don''t have the key $forothers $Arg tries to go $this to $link but doesn''t have the key" me @event $0 false go $0'
-    linkEnterFormat: $Arg1 enters $arg2
+    linkEnterFormat: $Arg1 entered $arg3
     linkMoveFormat: You went $name to $arg3
-    linkExitFormat: $Arg1 went $name to $arg2
+    linkExitFormat: $Arg1 went $name to $arg3
+    get: "\n@output $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me @event me false get $0\n"
   - id: 5
     name: room
     fullName: room
@@ -85,10 +92,11 @@ objects:
     prototype: 3
     article: ''
     examineFormat: 'Carrying: $contents'
+    get: "\n@output $0 \"$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't\" me @event me false get $0\n"
   - id: 8
-    name: a
+    name: Admin
     fullName: ''
-    location: 1
+    location: 0
     linkOwner: null
     otherLink: null
     prototype: 7
@@ -134,8 +142,15 @@ objects:
     article: a
     prototype: 7
     react_go: '@if %event.failed @then say ha ha! @else @say "$Event.source went from $event.0 to $event.1"'
+  - id: 50
+    name: Player
+    fullName: Player One
+    location: 1
+    linkOwner: null
+    otherLink: null
+    prototype: 7
   - id: info
-    nextId: 50
+    nextId: 51
     name: Key Example
     lobby: 1
     limbo: 0
@@ -143,5 +158,5 @@ objects:
     thingProto: 3
     personProto: 7
     generatorProto: 6
-    defaultUser: a
+    defaultUser: player1
     clockRate: 2
