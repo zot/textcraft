@@ -435,6 +435,17 @@ export function addMudOutput(html) {
                 $('#mud-command').focus();
             };
         }
+        for (const node of $findAll(el, '.thing')) {
+            node.onclick = () => {
+                const field = $('#mud-command');
+                const cmd = field.value;
+                const start = field.selectionStart;
+                const txt = node.textContent.match(/\((.*)\)/)[1] + ' ';
+                field.value = cmd.substring(0, start) + txt + cmd.substring(field.selectionEnd);
+                field.setSelectionRange(start + txt.length, start + txt.length);
+                field.focus();
+            };
+        }
     });
     $('#mud-output').scrollTo(0, $('#mud-output').scrollHeight);
 }

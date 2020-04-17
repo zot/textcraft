@@ -306,6 +306,7 @@ body:not(.emulation) #toggleStateButtons {
     font-weight: bold;
     color: cyan;
 }
+.thing,
 .input {
     color: orange;
     font-style: italic;

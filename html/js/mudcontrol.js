@@ -258,6 +258,19 @@ export const commands = new Map([
     ['@del', new Command({ help: ['thing property', `Delete a properties from a thing so it will inherit from its prototype`] })],
     ['@reproto', new Command({ help: ['thing proto', `Change the prototype of a thing`] })],
     ['@expr', new Command({ help: ['thing property expr', `Set a property to the value of an expression`], admin: true })],
+    ['@bluepill', new Command({
+            help: [
+                '', '',
+                'thing', `Turn off verbose names for thing (or yourself if there is no argument`
+            ]
+        })],
+    ['@redpill', new Command({
+            help: [
+                '', '',
+                'thing', `Turn on verbose names for thing (or yourself if there is no argument`
+            ]
+        })],
+    ['@delay', new Command({ help: ['command...', `Delay a command until after the current ones finish`] })],
     ['@if', new Command({
             minArgs: 2,
             help: ['condition CLAUSES @end', `conditionally run commands
@@ -434,7 +447,11 @@ export class MudConnection {
         return ctx.others ? this.basicFormat(tip, formatContexts(str).others, args) : '';
     }
     formatName(thing) {
-        return `${thing.formatName()}${this.admin ? '(%' + thing._id + ')' : ''}`;
+        let output = thing.formatName();
+        if (this.verboseNames) {
+            output += `<span class='thing'>(%${thing._id})</span>`;
+        }
+        return output;
     }
     async basicFormat(tip, str, args) {
         if (!str)
@@ -780,28 +797,31 @@ export class MudConnection {
     }
     async doLogin(user, password, name, noauthentication = false) {
         try {
-            const oldThing = this.thing;
-            const [thing, admin] = await this.world.authenticate(user, password, name, noauthentication);
-            this.user = user;
-            this.thing = thing;
-            this.myName = thing.name;
-            //this.myName = thing.name
-            this.admin = admin;
-            connectionMap.set(this.thing, this);
-            if (oldThing && oldThing !== this.thing)
-                connectionMap.delete(oldThing);
-            this.output(`Connected, you are logged in as ${user}.
+            await this.world.doTransaction(async () => {
+                const oldThing = this.thing;
+                const [thing, admin] = await this.world.authenticate(user, password, name, noauthentication);
+                this.user = user;
+                this.thing = thing;
+                this.myName = thing.name;
+                //this.myName = thing.name
+                this.admin = admin;
+                this.verboseNames = admin;
+                connectionMap.set(this.thing, this);
+                if (oldThing && oldThing !== this.thing)
+                    connectionMap.delete(oldThing);
+                this.output(`Connected, you are logged in as ${user}.
 <br>You can use the login command to change users...
 <br><br>`);
-            mudproto.userThingChanged(this.thing);
-            thing.setLocation(this.world.lobby);
-            await this.commandDescripton(this.thing, 'has arrived', 'go', [this.world.limbo, this.world.lobby]);
-            // tslint:disable-next-line:no-floating-promises
-            await this.look(null, null);
-            if (!this.remote) {
-                this.stopClock = false;
-                this.queueTick();
-            }
+                mudproto.userThingChanged(this.thing);
+                thing.setLocation(this.world.lobby);
+                await this.commandDescripton(this.thing, 'has arrived', 'go', [this.world.limbo, this.world.lobby]);
+                // tslint:disable-next-line:no-floating-promises
+                await this.look(null, null);
+                if (!this.remote) {
+                    this.stopClock = false;
+                    this.queueTick();
+                }
+            });
         }
         catch (err) {
             this.error(err.message);
@@ -818,7 +838,7 @@ export class MudConnection {
                     await con.withResults(this, async () => {
                         // run format in each connection so it can deal with admin and names
                         const format = await con.basicFormat(actionContext, action, actionArgs);
-                        const text = prefix ? `${con.formatName(this.thing)} ${format}` : format;
+                        const text = prefix ? `${capitalize(con.formatName(this.thing))} ${format}` : format;
                         con.output(text);
                     });
                 }
@@ -1778,6 +1798,36 @@ otherLink: ${await this.dumpName(thing._otherLink)}`;
         return this.runIfs(splitIf(cmdInfo.line));
     }
     // COMMAND
+    atDelay(cmdInfo) {
+        setTimeout(() => this.command(dropArgs(1, cmdInfo)));
+    }
+    // COMMAND
+    async atBluepill(cmdInfo) {
+        const thingStr = dropArgs(1, cmdInfo);
+        const thing = thingStr ? (await this.find(thingStr, this.thing)) : this.thing;
+        const con = thing && connectionMap.get(thing);
+        if (con) {
+            con.verboseNames = false;
+            this.output(`You take the blue pill. You feel normal`);
+        }
+        else {
+            this.error(`Could not find ${thingStr}`);
+        }
+    }
+    // COMMAND
+    async atRedpill(cmdInfo) {
+        const thingStr = dropArgs(1, cmdInfo);
+        const thing = thingStr ? (await this.find(thingStr, this.thing)) : this.thing;
+        const con = thing && connectionMap.get(thing);
+        if (con) {
+            con.verboseNames = true;
+            this.output(`You take the red pill. You feel abnormal. Don't you wish you had taken the blue pill?`);
+        }
+        else {
+            this.error(`Could not find ${thingStr}`);
+        }
+    }
+    // COMMAND
     async atDel(cmdInfo, thingStr, property) {
         checkArgs(cmdInfo, arguments);
         const [thing, lowerProp, realProp, value, propMap] = await this.thingProps(thingStr, property, null, cmdInfo);
@@ -2002,7 +2052,7 @@ function indent(spaceCount, str) {
 function dropArgs(count, cmdInfo) {
     return cmdInfo.line.split(/( +)/).slice(count * 2).join('');
 }
-export function capitalize(str, templateWord = '') {
+export function capitalize(str, templateWord = 'A') {
     return !templateWord || templateWord[0].toUpperCase() === templateWord[0]
         ? str[0].toUpperCase() + str.substring(1)
         : str;
