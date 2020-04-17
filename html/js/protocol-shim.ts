@@ -13,7 +13,7 @@ namespace proto {
     export declare function listen(protocol: string, frames: boolean)
     export declare function close(conID: ConID, callback?: () => void)
     export declare function stop(protocol: string, retainConnections: boolean)
-    export declare function start(peerKey: string)
+    export declare function start(port: number, peerKey: string)
     export declare function startProtocol(url: string, handler: P2pHandler)
     export declare function encode_ascii85(str: string): string
     export declare function decode_ascii85(str: string): string
@@ -30,8 +30,8 @@ namespace proto {
         constructor(conID: ConID, peerID: PeerID, protocol: string)
     }
     export interface P2pHandler {
-        hello(running: boolean)
-        ident(status, peerID, addresses: string[], peerKey)
+        hello(running: boolean, thisVersion: string, currentVersion: string)
+        ident(status, peerID, addresses: string[], peerKey: string, currentVersion: string)
         listenerConnection(conID: ConID, peerID: PeerID, protocol: string)
         connectionClosed(conID, msg)
         data(conID, data, obj)        // obj is optionally a JSON obj
@@ -49,8 +49,8 @@ namespace proto {
         delegate: H
 
         constructor(delegate: H)
-        hello(running: boolean)
-        ident(status, peerID, addresses, peerKey)
+        hello(running: boolean, thisVersion: string, currentVersion: string)
+        ident(status, peerID, addresses, peerKey: string, currentVersion: string)
         listenerConnection(conID: ConID, peerID: PeerID, protocol: string)
         connectionClosed(conID, msg)
         data(conID, data, obj)        // obj is optionally a JSON obj

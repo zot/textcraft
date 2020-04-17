@@ -69,9 +69,9 @@
                 </b>
                 &nbsp;
                 <img class='when-nat-notstarted' id='onlineIndicator' src='images/Gray_Light_Icon.svg'>
-                <span class='when-nat-unknown'><b>NEED SWIRLY LIGHT<i class="fas fa-arrow-right"></i></b><img class='when-nat-unknown' id='onlineIndicator' src='images/Gray_Light_Icon.svg'></span>
-                <img class='when-nat-public' id='onlineIndicator' src='images/Green_Light_Icon.svg'>
-                <span class='when-nat-private'><img class='when-nat-private' id='onlineIndicator' src='images/Orange_Light_Icon.svg'></span>
+                <span title='Detecting Your Connection' class='when-nat-unknown'><b>NEED SWIRLY LIGHT<i class="fas fa-arrow-right"></i></b><img class='when-nat-unknown' id='onlineIndicator' src='images/Gray_Light_Icon.svg'></span>
+                <img title='You Have a Public Connection' class='when-nat-public' id='onlineIndicator' src='images/Green_Light_Icon.svg'>
+                <span title='You Have a Private Connection' class='when-nat-private'><img class='when-nat-private' id='onlineIndicator' src='images/Orange_Light_Icon.svg'></span>
             </div>
         </div>
         <div id='stateButtons'>
@@ -162,7 +162,7 @@
                     &nbsp;
                     <div class='tab'><input type="radio" id="connectionSection" name="sectionSelection"> <label for="connectionSection">Connection</label></div>
                     &nbsp;
-                    <div class='tab'><input type="radio" id="profileSection" name="sectionSelection"> <label for="profileSection">Profile</label></div>
+                    <div class='tab'><input type="radio" id="profileSection" name="sectionSelection"> <label for="profileSection">Settings</label></div>
                     &nbsp;
                     <div class='tab'><input type="radio" id="aboutSection" name="sectionSelection"> <label for="aboutSection">About</label></div>
                     <span class='fgrow'></span>
@@ -250,8 +250,9 @@
             </div>
             <div class='when-section-profile section'>
                 <div id='profileView' class='view'>
-                    <div><span>Peer ID:&nbsp;</span><span id='profilePeerID'></span></div>
                     <div class='field'><span>Name:&nbsp;</span><input id='profileName'></div>
+                    <div><span>Peer Port:&nbsp;</span><input id='profilePeerPort' style='width: 10ex'></div>
+                    <div><span>Peer ID:&nbsp;</span><span id='profilePeerID'></span></div>
                 </div>
             </div>
             <div class='when-section-storage section'>

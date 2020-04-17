@@ -47,6 +47,10 @@ body {
     bottom: 0;
     right: 0;
 }
+button {
+    border-right-width: 3px;
+    border-left-width: 3px;
+}
 #profilePeerID {
     user-select: all;
 }

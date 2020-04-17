@@ -1,12 +1,20 @@
-# ban command
+# store input history in each mud
+
+# @edit PROPERTY -- put an @set command in the input area for the given property
+
+# JSON output to flag errors and whatnot (and for @edit)
+
+# ownership -- only an owner can change settings on an object
+
+# ban peer command
 
 disallow thing's peer from connecting
 
-# lock command
+# lock peers command -- exclude any other peers from connecting
 
 only allow the currently connected peers to connect again
 
-# Make create not actually create the MUD unless you save
+# Make the create button wait until you save to actually create the MUD
 
 # Extensions:
 * Make quitting a MUD with an extension offer to reload the page
@@ -20,10 +28,6 @@ only allow the currently connected peers to connect again
 * Everyone reconnects
 
 # private messages
-
-# check textcraft.org for updates
-* send current and latest version numbers in hello() message
-* provide peerID when checking for updates
 
 # use JSON for commands output (or encode it) so we can put exits in the GUI
 

@@ -148,8 +148,8 @@ function close(conID, cb) {
     ws.send(buf, cb);
 }
 
-function start(peerKey) {
-    ws.send(Uint8Array.from([cmsg.start, ...utfEncoder.encode(peerKey || '')]));
+function start(port, peerKey) {
+    ws.send(Uint8Array.from([cmsg.start, port >> 8, port & 0xFF, ...utfEncoder.encode(peerKey || '')]));
 }
 
 function listen(protocol, frames) {
@@ -183,8 +183,8 @@ function discoveryConnect(peerID, prot, frames) {
 
 // methods mimic the parameter order of the protocol
 class BlankHandler {
-    hello(running) {}
-    ident(status, peerID, addresses, peerKey) {}
+    hello(running, thisVersion) {}
+    ident(status, peerID, addresses, peerKey, currentVersion) {}
     listenerConnection(conID, peerID, prot) {}
     connectionClosed(conID, msg) {}
     data(conID, data, obj) {}  // obj is optionally a JSON object
@@ -203,10 +203,10 @@ class DelegatingHandler {
     constructor(delegate) {
         this.delegate = delegate;
     }
-    hello(running) {
+    hello(running, thisVersion) {
         tryDelegate(this.delegate, 'hello', arguments);
     }
-    ident(status, peerID, addresses, peerKey) {
+    ident(status, peerID, addresses, peerKey, currentVersion) {
         tryDelegate(this.delegate, 'ident', arguments);
     }
     listenerConnection(conID, peerID, prot) {
@@ -341,9 +341,9 @@ class LoggingHandler extends DelegatingHandler {
     constructor(delegate) {
         super(delegate);
     }
-    ident(status, peerID, addresses, peerKey) {
+    ident(status, peerID, addresses, peerKey, currentVersion) {
         receivedMessageArgs('ident', arguments);
-        super.ident(status, peerID, addresses, peerKey);
+        super.ident(status, peerID, addresses, peerKey, currentVersion);
     }
     listenerConnection(conID, peerID, prot) {
         receivedMessageArgs('listenerConnection', arguments);
@@ -438,10 +438,10 @@ class TrackingHandler extends DelegatingHandler {
         connections.listeningTo = new Set();
         //connections.awaitingCallbacks = new Set();
     }
-    ident(status, peerID, addresses, peerKey) {
+    ident(status, peerID, addresses, peerKey, currentVersion) {
         this.connections.peerID = peerID;
         this.connections.natStatus = status;
-        super.ident(status, peerID, addresses, peerKey);
+        super.ident(status, peerID, addresses, peerKey, currentVersion);
     }
     listenerConnection(conID, peerID, prot) {
         var con = new ConnectionInfo(conID, peerID, prot, true);
@@ -894,16 +894,18 @@ function startProtocol(urlStr, handler) {
             console.log("TYPE: ", enumFor(smsg, data[0]));
             switch (data[0]) {
             case smsg.hello: {
-                handler.hello(data[1] != 0);
+                let thisVersion = getString(data.slice(2))
+                handler.hello(data[1] != 0, thisVersion)
                 break;
             }
             case smsg.ident: {
                 var publicPeer = data[1]
-                var peerID = getCountedString(dv, 2);
-                var addressesStr = getCountedString(dv, 4 + peerID.length);
+                var [peerID, pidNxt] = getCountedStringNext(dv, 2);
+                var [addressesStr, addrNxt] = getCountedStringNext(dv, pidNxt);
+                var [peerKey, pkNxt] = getCountedStringNext(dv, addrNxt);
+                var currentVersion = getString(data.slice(pkNxt));
                 var addresses = JSON.parse(addressesStr);
-                var peerKey = getString(data.slice(6 + peerID.length + addressesStr.length));
-                handler.ident(publicPeer ? natStatus.public : natStatus.private, peerID, addresses, peerKey);
+                handler.ident(publicPeer ? natStatus.public : natStatus.private, peerID, addresses, peerKey, currentVersion);
                 break;
             }
             case smsg.listenerConnection: {
@@ -940,10 +942,9 @@ function startProtocol(urlStr, handler) {
                 handler.peerConnection(conID, peerID, prot)
                 break;
             case smsg.peerConnectionRefused: {
-                var prot = getCountedString(dv, 1);
-                var peerIDStart = prot.length + 2 + 1;
-                var peerID = getCountedString(dv, peerIDStart);
-                var msg = getString(data.slice(peerIDStart + peerID.length + 2));
+                var [peerID, peerNext] = getCountedStringNext(dv, 1)
+                var [prot, protNext] = getCountedStringNext(dv, peerNext)
+                var msg = getString(data.slice(protNext));
 
                 handler.peerConnectionRefused(peerID, prot, msg);
                 break;
@@ -974,6 +975,12 @@ function startProtocol(urlStr, handler) {
             }
         });
     }
+}
+
+function getCountedStringNext(dv, offset) {
+    let str = getCountedString(dv, offset);
+
+    return [str, offset + 2 + str.length];
 }
 
 function getCountedString(dv, offset) {

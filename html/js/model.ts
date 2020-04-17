@@ -364,8 +364,8 @@ export class World {
             linkProto.markDirty(linkProto._location = this.hallOfPrototypes.id)
             linkProto.article = '';
             (linkProto as any)._locked = false;
-            (linkProto as any)._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event $0 false go $0';
-            (linkProto as any)._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event $0 false go $0';
+            (linkProto as any)._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event me false go $0';
+            (linkProto as any)._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event me false go $0';
             linkProto._linkEnterFormat = '$Arg1 entered $arg3'
             linkProto._linkMoveFormat = 'You went $name to $arg3'
             linkProto._linkExitFormat = '$Arg1 went $name to $arg3';
@@ -1086,6 +1086,7 @@ export class Profile {
     name: string
     peerID: string
     peerKey: string
+    port: number
     storage: MudStorage
 
     constructor(str: MudStorage, spec: any) {
@@ -1102,6 +1103,7 @@ export class Profile {
             name: this.name,
             peerID: this.peerID,
             peerKey: this.peerKey,
+            port: this.port,
         }
     }
 }

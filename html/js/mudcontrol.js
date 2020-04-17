@@ -214,11 +214,14 @@ export const commands = new Map([
     ['@dump', new Command({ help: ['thing', 'See properties of a thing'] })],
     ['@move', new Command({ help: ['thing location', 'Move a thing'] })],
     ['@output', new Command({
-            help: ['contextThing "FORMAT" arg... @event actor EVENT arg...', '',
-                'contextThing "FORMAT" arg... @event actor false EVENT arg...',
-                `Output text to the user and/or others using a format string on contextThing
-  if the format is for others, @output will issue a descripton using information after @event
-  actor can change output depending on who receives it.
+            help: ['contextThing FORMAT-AND-EVENT-ARGS...',
+                ` Output text to the user and/or others using a format string on contextThing
+
+  @output contextThing "FORMAT" arg... @event actor EVENT arg...
+  @output contextThing "FORMAT" arg... @event actor false EVENT arg...
+
+  if the format is for others, @output will emit a descripton using information after @event
+  actor specifies who emits the descripton.
   Adding false before EVENT indicates that the event failed.`]
         })],
     ['@mute', new Command({ help: ['', 'temporarily silence all output commands that are not yours'] })],
@@ -345,6 +348,8 @@ export class MudConnection {
         this.ticking = false;
         this.stopClock = true;
         this.tickers = new Set();
+        this.history = [];
+        this.historyPos = 0;
         this.created = [];
         this.thing = thing;
         this.outputHandler = () => { };
@@ -631,6 +636,12 @@ export class MudConnection {
         const commandName = words[0].toLowerCase();
         if (!substituted) {
             this.output('<div class="input">&gt; <span class="input-text">' + escape(line) + '</span></div>');
+            if (this.history[this.historyPos - 1] !== line) {
+                this.history[this.historyPos++] = line;
+                if (this.historyPos < this.history.length) {
+                    this.history = this.history.slice(this.historyPos - 1);
+                }
+            }
             if (!this.commands.has(commandName) && this.thing) {
                 const newCommands = await this.findCommand(words);
                 if (newCommands)
@@ -769,6 +780,7 @@ export class MudConnection {
     }
     async doLogin(user, password, name, noauthentication = false) {
         try {
+            const oldThing = this.thing;
             const [thing, admin] = await this.world.authenticate(user, password, name, noauthentication);
             this.user = user;
             this.thing = thing;
@@ -776,6 +788,8 @@ export class MudConnection {
             //this.myName = thing.name
             this.admin = admin;
             connectionMap.set(this.thing, this);
+            if (oldThing && oldThing !== this.thing)
+                connectionMap.delete(oldThing);
             this.output(`Connected, you are logged in as ${user}.
 <br>You can use the login command to change users...
 <br><br>`);
@@ -2007,10 +2021,10 @@ function formatContexts(format) {
         for (let i = 1; i < contexts.length; i += 2) {
             tmp[contexts[i].trim().substring(1).toLowerCase()] = contexts[i + 1];
         }
-        if (tmp.forme || !tmp.forothers)
-            tmp.forme = contexts[0];
-        if (!tmp.forme || tmp.forothers)
+        if (tmp.forme && !tmp.forothers)
             tmp.forothers = contexts[0];
+        if (!tmp.forme && tmp.forothers)
+            tmp.forme = contexts[0];
         return {
             me: tmp.forme,
             others: tmp.forothers,

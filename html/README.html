@@ -13,6 +13,14 @@
 <body>
 
 <p><img src="images/textcraft.png" alt="Textcraft MUD" title="Textcraft MUD"></p>
+<p><b>Version <span id='versionID'></span></b></p>
+<script>
+    setTimeout((()=> {
+        if (window.textcraft) {
+            window.textcraft.Gui.displayVersion()
+        }
+    }), 3000)
+</script>
 <h1>TEXTCRAFT</h1>
 <p>Textcraft is an oldskool text-based MUD with a twist -- it's peer-to-peer.</p>
 <p>There are no servers. YOU own your data.</p>
@@ -21,9 +29,16 @@
 <p>The MIT license is <a href="LICENSE">here</a></p>
 <h2>Example MUDs</h2>
 <p>Shift-click or right-click and choose &quot;Save link as...&quot; to save these to your disk</p>
+<style>
+.link {
+    color: blue;
+    text-decoration: underline;
+    cursor: pointer;
+}
+</style>
 <ul>
-<li><a href='javascript:window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</a></li>
-<li><a href='javascript:window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</a></li>
+<li><span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</span></li>
+<li><span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</span></li>
 </ul>
 <h1>Using the MUD</h1>
 <ol>

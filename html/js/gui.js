@@ -14,13 +14,15 @@ function $all(sel) {
 }
 function $find(el, sel) {
     let res;
+    if (!el)
+        return null;
     if (typeof el === 'string') {
         res = [...$all(el)];
     }
     else if (el instanceof NodeList) {
         res = [...el];
     }
-    else if (el instanceof Node) {
+    else if ('nodeName' in el) {
         res = [el];
     }
     if (res.length === 0) {
@@ -47,7 +49,7 @@ function $findAll(el, sel) {
         }
         return results;
     }
-    else if (el instanceof HTMLElement) {
+    else if ('onclick' in el) {
         return [...$(el).querySelectorAll(sel)];
     }
     else {
@@ -577,11 +579,22 @@ export function error(msg) {
     alert(`ERROR: ${msg}`);
 }
 export async function activateMudFromURL(url) {
-    const response = await fetch(url);
-    const world = await model.storage.uploadWorld(jsyaml.load(await response.text()), true);
-    if (world) {
-        showMuds();
-        return activateMud(await model.storage.openWorld(world));
+    setTimeout(async () => {
+        const response = await fetch(url);
+        const world = await model.storage.uploadWorld(jsyaml.load(await response.text()), true);
+        if (world) {
+            showMuds();
+            return activateMud(await model.storage.openWorld(world));
+        }
+    }, 1);
+}
+export function displayVersion() {
+    const pending = !mudproto.currentVersionID;
+    const needsUpdate = mudproto.versionID !== mudproto.currentVersionID;
+    const readme = $('iframe');
+    const versionEl = $find(readme?.contentDocument?.body, '#versionID');
+    if (versionEl) {
+        versionEl.innerHTML = `${mudproto.versionID} <b>[${pending ? '...' : needsUpdate ? 'NEWER VERSION AVAILABLE' : 'UP TO DATE'}]</b>`;
     }
 }
 export function start() {
@@ -613,9 +626,21 @@ export function start() {
         return storagecontrol.addMud();
     };
     $('#mud-command').onkeydown = async (evt) => {
-        if (evt.key === 'Enter') {
-            await mudcontrol.executeCommand($('#mud-command').value);
-            $('#mud-command').value = '';
+        const con = mudcontrol.connection;
+        const field = evt.target;
+        if (mudTracker.value === MudState.Playing) {
+            if (evt.key === 'ArrowUp' && con.historyPos > 0) {
+                field.value = con.history[--con.historyPos];
+                setTimeout(() => field.select(), 1);
+            }
+            else if (evt.key === 'ArrowDown' && con.historyPos < con.history.length) {
+                field.value = con.history[++con.historyPos] || '';
+                setTimeout(() => field.select(), 1);
+            }
+            else if (evt.key === 'Enter') {
+                await mudcontrol.executeCommand($('#mud-command').value);
+                $('#mud-command').value = '';
+            }
         }
     };
     $('#upload-mud').onchange = uploadMud;
@@ -664,10 +689,21 @@ export function start() {
     };
     $('#profilePeerID').value = model.storage.profile.peerID;
     $('#profileName').value = model.storage.profile.name;
+    $('#profilePeerPort').value = model.storage.profile.port || 0;
     $('#profileName').onchange = async () => {
         const prof = model.storage.profile;
         prof.name = $('#profileName').value;
         await prof.store();
+    };
+    $('#profilePeerPort').onchange = async () => {
+        const prof = model.storage.profile;
+        const newPort = $('#profilePeerPort').value;
+        if (newPort !== prof.port) {
+            prof.port = newPort;
+            await prof.store();
+            alert(`You must restart the program for port changes to take effect
+(not just refresh the page)`);
+        }
     };
     $('#about-frame').contentWindow.textcraft = window.textcraft;
     showMuds();

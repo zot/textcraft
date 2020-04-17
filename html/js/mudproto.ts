@@ -28,6 +28,8 @@ const peerDbName = 'peer'
 
 let app: any
 export let peer: Peer
+export let versionID: string
+export let currentVersionID: string
 
 export function init(appObj) {
     app = appObj
@@ -228,17 +230,19 @@ class Peer extends proto.DelegatingHandler<Strategy> {
         }
     }
     // P2P API
-    hello(started) {
-        console.log('RECEIVED HELLO')
+    hello(started, thisVersion) {
+        versionID = thisVersion
+        console.log('RECEIVED HELLO, VERSION: ', thisVersion)
+        gui.displayVersion()
         if (started) {
             console.log('Peer already started')
         } else {
             console.log('Starting peer...')
-            proto.start(this.storage.profile.peerKey || '')
+            proto.start(this.storage.profile.port || 0, this.storage.profile.peerKey || '')
         }
     }
     // P2P API
-    async ident(status, peerID, addresses, peerKey) {
+    async ident(status, peerID, addresses, peerKey, currentVersion) {
         console.log('PEER CONNECTED')
         await this.storage.setPeerID(peerID)
         await this.storage.setPeerKey(peerKey)
@@ -246,7 +250,9 @@ class Peer extends proto.DelegatingHandler<Strategy> {
         gui.setPeerId(peerID)
         console.log('IDENT: ', peerID, ' ', status)
         this.peerAddrs = addresses;
-        super.ident(status, peerID, addresses, peerKey)
+        currentVersionID = currentVersion
+        super.ident(status, peerID, addresses, peerKey, currentVersion)
+        gui.displayVersion()
     }
 }
 
@@ -562,7 +568,7 @@ class GuestStrategy extends Strategy {
     }
     // mud API message
     output(info, { text }) {
-        gui.addMudOutput(text)
+        gui.addMudOutput('<div>' + text + '</div>')
     }
     // mud API message
     welcome(info, { users }) {

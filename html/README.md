@@ -1,5 +1,14 @@
 ![Textcraft MUD](images/textcraft.png "Textcraft MUD")
 
+<b>Version <span id='versionID'></span></b>
+<script>
+    setTimeout((()=> {
+        if (window.textcraft) {
+            window.textcraft.Gui.displayVersion()
+        }
+    }), 3000)
+</script>
+
 # TEXTCRAFT
 
 Textcraft is an oldskool text-based MUD with a twist -- it's peer-to-peer.
@@ -16,8 +25,16 @@ The MIT license is [here](LICENSE)
 
 Shift-click or right-click and choose "Save link as..." to save these to your disk
 
-* <a href='javascript:window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</a>
-* <a href='javascript:window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</a>
+<style>
+.link {
+    color: blue;
+    text-decoration: underline;
+    cursor: pointer;
+}
+</style>
+
+* <span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</span>
+* <span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</span>
 
 # Using the MUD
 

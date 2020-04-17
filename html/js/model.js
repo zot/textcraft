@@ -294,8 +294,8 @@ export class World {
             linkProto.markDirty(linkProto._location = this.hallOfPrototypes.id);
             linkProto.article = '';
             linkProto._locked = false;
-            linkProto._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event $0 false go $0';
-            linkProto._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event $0 false go $0';
+            linkProto._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event me false go $0';
+            linkProto._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event me false go $0';
             linkProto._linkEnterFormat = '$Arg1 entered $arg3';
             linkProto._linkMoveFormat = 'You went $name to $arg3';
             linkProto._linkExitFormat = '$Arg1 went $name to $arg3';
@@ -1008,6 +1008,7 @@ export class Profile {
             name: this.name,
             peerID: this.peerID,
             peerKey: this.peerKey,
+            port: this.port,
         };
     }
 }
