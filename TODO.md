@@ -1,3 +1,8 @@
+# QuestItem prototype
+* Generator makes only one per person, recording the generator id in a 'personal' prop
+* Items are invisible to others
+* Generator sets the 'owner' prop to the creator
+
 # store input history in each mud
 
 # @edit PROPERTY -- put an @set command in the input area for the given property

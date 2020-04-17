@@ -428,7 +428,7 @@ export function setMudOutput(html) {
 }
 export function addMudOutput(html) {
     parseHtml(html, $('#mud-output'), (el) => {
-        for (const node of $findAll(el, '.input')) {
+        for (const node of $findAll(el, '.input, .property')) {
             node.onclick = () => {
                 $('#mud-command').value = $find(node, '.input-text').textContent;
                 $('#mud-command').select();
@@ -439,10 +439,14 @@ export function addMudOutput(html) {
             node.onclick = () => {
                 const field = $('#mud-command');
                 const cmd = field.value;
-                const start = field.selectionStart;
-                const txt = node.textContent.match(/\((.*)\)/)[1] + ' ';
-                field.value = cmd.substring(0, start) + txt + cmd.substring(field.selectionEnd);
-                field.setSelectionRange(start + txt.length, start + txt.length);
+                const st = field.selectionStart;
+                const txt = node.textContent.match(/^\(?(%[^()]*)\)?$/)[1] + ' ';
+                let leading = cmd.substring(0, st);
+                if (leading.match(/[^\s$]$/)) {
+                    leading += ' ';
+                }
+                field.value = leading + txt + cmd.substring(field.selectionEnd);
+                field.setSelectionRange(st + txt.length, st + txt.length);
                 field.focus();
             };
         }

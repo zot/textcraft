@@ -500,13 +500,24 @@ export class MudConnection {
 
         return ctx.others ? this.basicFormat(tip, formatContexts(str).others, args) : ''
     }
-    formatName(thing: Thing) {
+    async dumpName(tip: thingId | Thing | Promise<Thing>) {
+        const thing = await this.world.getThing(tip)
+
+        return thing ? this.formatName(thing, true, true) : 'null'
+    }
+    formatName(thing: Thing, esc = false, verbose = this.verboseNames) {
         let output = thing.formatName()
 
-        if (this.verboseNames) {
+        if (esc) output = escape(output)
+        if (verbose) {
             output += `<span class='thing'>(%${thing._id})</span>`
         }
         return output
+    }
+    formatDumpProperty(thing: Thing, prop: string) {
+        const inherited = !thing.hasOwnProperty('_' + prop)
+
+        return `<span class='property${inherited ? ' inherited' : ''}'><span class='hidden input-text'>@set %${thing.id} ${prop} ${escape(thing['_' + prop])}</span>${prop}</span>`
     }
     async basicFormat(tip: thingId | Thing | Promise<Thing>, str: string, args: Thing[]) {
         if (!str) return str
@@ -616,11 +627,6 @@ export class MudConnection {
         }
         return result
     }
-    async dumpName(tip: thingId | Thing | Promise<Thing>) {
-        const thing = await this.world.getThing(tip)
-
-        return escape(thing ? `%${thing._id} ${this.formatName(thing)}` : 'null')
-    }
     description(thing: Thing) {
         return this.format(thing, thing.description)
     }
@@ -715,6 +721,8 @@ export class MudConnection {
             line = `say ${line.substring(1)}`
         } else if (line[0] === ':') {
             line = `act ${line.substring(1)}`
+        } else if (line[0] === '%' && this.admin) {
+            line = `@dump ${line}`
         }
         const words = splitQuotedWords(line)
         const commandName = words[0].toLowerCase()
@@ -1321,7 +1329,7 @@ export class MudConnection {
     }
     // COMMAND
     async inventory(cmdInfo) {
-        this.output(`<pre>You are carrying\n${indent(3, (await this.thing.getContents()).map(item => this.formatName(item)).join('\n'))}</pre>`)
+        this.output(`<code>You are carrying\n${indent(3, (await this.thing.getContents()).map(item => this.formatName(item)).join('\n'))}</code>`)
     }
     // COMMAND
     atQuiet() {
@@ -1498,13 +1506,14 @@ ${protos.join('\n  ')}`)
         const spec = thing.spec()
         const myKeys = new Set(Object.keys(thing).filter(k => !reservedProperties.has(k) && k[0] === '_'))
         const allKeys = []
-        let result = `<pre>${await this.dumpName(thing)}
-prototype: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
-location:  ${await this.dumpName(thing._location)}
-contents:  ${await this.dumpThingNames(await thing.getContents())}
-links:     ${await this.dumpThingNames(await thing.getLinks())}
-linkOwner: ${await this.dumpName(thing._linkOwner)}
-otherLink: ${await this.dumpName(thing._otherLink)}`
+        const fp = (prop) => this.formatDumpProperty(thing, prop)
+        let result = `<span class='code'>${await this.dumpName(thing)}
+${fp('prototype')}: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
+${fp('location')}:  ${await this.dumpName(thing._location)}
+${fp('contents')}:  ${await this.dumpThingNames(await thing.getContents())}
+${fp('links')}:     ${await this.dumpThingNames(await thing.getLinks())}
+${fp('linkOwner')}: ${await this.dumpName(thing._linkOwner)}
+${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
 
         for (const prop in thing) {
             if (prop[0] === '_' && !reservedProperties.has(prop)) {
@@ -1513,14 +1522,11 @@ otherLink: ${await this.dumpName(thing._otherLink)}`
         }
         allKeys.sort()
         for (const prop of allKeys) {
-            let propName = prop.substring(1)
+            const propName = prop.substring(1)
 
-            if (!myKeys.has(prop)) {
-                propName = `(${propName})`
-            }
-            result += `\n   ${propName}: ${escape(JSON.stringify(thing[prop]))}`
+            result += `\n   ${fp(propName)}: ${escape(JSON.stringify(thing[prop]))}`
         }
-        result += '</pre>'
+        result += '</span>'
         this.output(result)
     }
     // COMMAND

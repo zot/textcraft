@@ -306,10 +306,29 @@ body:not(.emulation) #toggleStateButtons {
     font-weight: bold;
     color: cyan;
 }
+.code {
+    font-family: monospace;
+    white-space: pre;
+}
+.inherited {
+    color: darkorchid !important;
+    font-style: italic;
+}
+.inherited::before {
+    content: '(';
+}
+.inherited::after {
+    content: ')';
+}
+.property {
+    color: orange;
+    cursor: pointer;
+}
 .thing,
 .input {
     color: orange;
     font-style: italic;
+    cursor: pointer;
 }
 .error {
     color: red;

@@ -19,7 +19,7 @@ objects:
     location: 0
     linkOwner: null
     otherLink: null
-    description: You are in $this. Many apply for entrance here but few are chosen and many of the chosen perish. <br><br>Are you here by mistake?<br>
+    description: You are in $this. Many apply for entrance here but few are chosen... <i>and many of the chosen perish</i>. <br><br>Are you here by mistake?<br>
     prototype: 5
     article: the
     react_go: '@if %event.1 == me @then @delay @output %event.source "The gong sounds as $this enter$s the chamber" @event me act'
