@@ -1,60 +1,74 @@
 #!/bin/sh
 set -x
-if [ "$1" = test ]; then
-    TEST=true
-fi
-versionDate=$(date -Ins)
-versionID=$(date +%s.%N -d "$versionDate")
 target=$(pwd)
-godir=$(readlink -f ../ipfs-p2p-websocket/src)
-cd $target
-if [ ! -e textcraft.version ]; then echo 2020-04-15T15:00:00+03:00 > textcraft.version; fi
-oldID=$(cat textcraft.version)
-OLDFLAGS="-X main.defaultPage=textcraft.html -X main.versionID=$oldID -X main.versionCheckURL=https://lambdamechanics.com/textcraft/download.php?file=version&peer=%s&version=%s%s"
-LDFLAGS="-X main.defaultPage=textcraft.html -X main.versionID=$versionID -X main.versionCheckURL=https://lambdamechanics.com/textcraft/download.php?file=version&peer=%s&version=%s%s"
-cp -a html html.prev
-(tsc && tslint -p tsconfig.json) || exit 1
-if diff -qr html html.prev > /dev/null 2>&1; then
-    echo 'NO DIFFERENCES IN HTML'
-    rm -rf html
-    mv html.prev html
-else
-    rm -rf html.prev
-fi
-cd $target
-tmpdir=$target/work
-mkdir -p $tmpdir
-output=$tmpdir/files.go
-rsync $godir/* $tmpdir
-cd $target/html
-find * -type f \( -name '#*' -prune -o -print0 \) | xargs -0 esc -o $output
-cd $tmpdir
-cp $target/textcraft $target/.textcraft.prev
-echo Building version $versionID, checking build for differences...
-if go build -ldflags "$OLDFLAGS" -o $target/textcraft libp2p-websocket.go protocol.go files.go; then
-    if cmp $target/.textcraft.prev $target/textcraft; then
-        mv $target/.textcraft.prev $target/.textcraft
-        echo "\n\nTextcraft has not changed: $(cat $target/textcraft.versionDate)\n\n"
-        exit
-    fi
-    echo Program has changed, continuing with build
-    echo -e "\n\nVERSION: $versionDate\n\n"
-    if [ -n "$TEST" ]; then
-        echo Exiting because of test mode
-        exit
-    fi
-    echo $versionID > $target/textcraft.version
-    echo $versionDate > $target/textcraft.versionDate
-    env GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32 libp2p-websocket.go protocol.go files.go
-    env GOOS=windows GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft.exe libp2p-websocket.go protocol.go files.go
-    env GOOS=darwin GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32.app libp2p-websocket.go protocol.go files.go
-    env GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/textcraft-64.app libp2p-websocket.go protocol.go files.go
+while [ $# != 0 ]; do
+    case "$1" in
+        test)
+            TEST=true
+            ;;
+        push)
+            PUSH=true
+            ;;
+    esac
+    shift
+done
+if [ -z "$PUSH" ]; then
+    versionDate=$(date -Ins)
+    versionID=$(date +%s.%N -d "$versionDate")
+    godir=$(readlink -f ../ipfs-p2p-websocket/src)
     cd $target
-    if [ "$(hostname)" = lambdamechanics ]; then
-        for file in "" -32 -32.app -64.app .exe; do
-            cp textcraft$file ~/Dropbox/Textcraft
-        done
-        scp textcraft-32 textcraft:/bin
-        scp textcraft.version lambdamechanics:lambdamechanics.com/textcraft
+    if [ ! -e textcraft.version ]; then echo 0.0 > textcraft.version; fi
+    oldID=$(cat textcraft.version)
+    OLDFLAGS="-X main.defaultPage=textcraft.html -X main.versionID=$oldID -X main.versionCheckURL=https://lambdamechanics.com/textcraft/download.php?file=version&peer=%s&version=%s%s"
+    LDFLAGS="-X main.defaultPage=textcraft.html -X main.versionID=$versionID -X main.versionCheckURL=https://lambdamechanics.com/textcraft/download.php?file=version&peer=%s&version=%s%s"
+    cp -a html html.prev
+    (tsc && tslint -p tsconfig.json) || exit 1
+    if diff -qr html html.prev > /dev/null 2>&1; then
+        echo 'NO DIFFERENCES IN HTML'
+        rm -rf html
+        mv html.prev html
+    else
+        rm -rf html.prev
     fi
+    cd $target
+    tmpdir=$target/work
+    mkdir -p $tmpdir
+    output=$tmpdir/files.go
+    rsync $godir/* $tmpdir
+    cd $target/html
+    find * -type f \( -name '#*' -prune -o -print \) | sort | xargs -d '\n' esc -o $output
+    cd $tmpdir
+    cp $target/textcraft $target/.textcraft.prev
+    echo Building version $versionDate, checking build for differences...
+    if go build -ldflags "$OLDFLAGS" -o $target/textcraft libp2p-websocket.go protocol.go files.go; then
+        if cmp $target/.textcraft.prev $target/textcraft; then
+            rm $target/.textcraft.prev
+            echo "\n\nTextcraft has not changed: $(cat $target/textcraft.versionDate)\n\n"
+            exit
+        fi
+        rm $target/.textcraft.prev
+        BUILT=true
+        echo -e "\n\nNEW VERSION: $versionDate\n\n"
+        if [ -z "$TEST" ]; then
+            PUSH=true
+            echo $versionID > $target/textcraft.version
+            echo $versionDate > $target/textcraft.versionDate
+            go build -ldflags "$LDFLAGS" -o $target/textcraft libp2p-websocket.go protocol.go files.go
+            env GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32 libp2p-websocket.go protocol.go files.go
+            env GOOS=windows GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft.exe libp2p-websocket.go protocol.go files.go
+            env GOOS=darwin GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32.app libp2p-websocket.go protocol.go files.go
+            env GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/textcraft-64.app libp2p-websocket.go protocol.go files.go
+        else
+            echo Exiting because of test mode
+            exit
+        fi
+    fi
+fi
+if [ -n "$PUSH" -a "$(hostname)" = lambdamechanics ]; then
+    cd $target
+    for file in "" -32 -32.app -64.app .exe; do
+        cp textcraft$file ~/Dropbox/Textcraft
+    done
+    scp textcraft.version lambdamechanics:lambdamechanics.com/textcraft
+    scp textcraft-32 textcraft:bin
 fi

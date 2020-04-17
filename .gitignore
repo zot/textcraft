@@ -2,4 +2,6 @@
 /textcraft
 /textcraft-32
 /textcraft.exe
-/textcraft-mac
+/textcraft*.app
+/textcraft.version*
+/personal
