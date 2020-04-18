@@ -77,6 +77,7 @@ You can use <b>%result</b> to refer to the result of the active successful if-co
 You can use <b>%result.PROPERTY</b> to refer to a property of the result (including numeric indexes)
 You can use <b>%event</b> to refer to the current event (descripton)
 You can use <b>%event.PROPERTY</b> to refer to a property of the current event (descripton)
+You can use <b>%NAME</b> as a synonym of NAME for convenience, this helps when using %thing as a command
 
 To make something into a prototype, move it to <b>%protos</b>
 
@@ -196,8 +197,9 @@ export const commands = new Map([
     ['drop', new Command({ help: ['thing', `drop something you are carrying`] })],
     ['@call', new Command({ help: ['thing.property arg...', `Call a method on a thing`] })],
     ['@js', new Command({
-        help: ['var1 var2 = value2 var3... ; code...', `Run JavaScript code with optional variable bindings
+        help: ['var1, var2 = value2 var3... ; code...', `Run JavaScript code with optional variable bindings
 
+   Note that commas between variable bindings are optional
    You can use ! as a synonym for @js if it's the first character of a command
 
    In this code you can use cmd(...) and cmdf(template, ...) to create a CommandContext
@@ -1448,19 +1450,19 @@ ${protos.join('\n  ')}`)
     // COMMAND
     async atJs(cmdInfo) {
         const line = dropArgs(1, cmdInfo)
-        const [, varSection, codeSection] = line.match(/^((?:\s*[a-zA-Z]+\s*(?:=\s*[^\s]+\s*)?)+,)?\s*(.*)\s*$/)
+        const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?[^\s]+)+[\s,]*;)?\s*(.*)\s*$/)
         const vars = []
         const values = []
         const code = codeSection.match(/;/) ? codeSection : 'return ' + codeSection
 
         if (varSection) {
-            for (const [, varname, value] of varSection.matchAll(/\s*([a-zA-Z]+)\s*(?:=\s*([^\s,]+))?\s*/g)) {
+            for (const [, varname, value] of varSection.matchAll(/[,\s]*([a-zA-Z]+)(?:\s*=\s*([^\s;,]+))?/g)) {
                 vars.push(varname)
                 values.push(value || varname)
             }
         }
         // tslint:disable-next-line:only-arrow-functions, no-eval
-        const result = (eval(`(async function(${vars.join(', ')}){
+        const result = await (eval(`(async function(${vars.join(', ')}){
 const cmd = this.cmd.bind(this);
 const cmdf = this.cmdf.bind(this);
 ${code}
