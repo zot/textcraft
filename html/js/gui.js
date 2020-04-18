@@ -428,9 +428,9 @@ export function setMudOutput(html) {
 }
 export function addMudOutput(html) {
     parseHtml(html, $('#mud-output'), (el) => {
-        for (const node of $findAll(el, '.input, .property')) {
+        for (const node of $findAll(el, '.input, .property, .method')) {
             node.onclick = () => {
-                $('#mud-command').value = $find(node, '.input-text').textContent;
+                $('#mud-command').value = $find(node, '.input-text').textContent.trim();
                 $('#mud-command').select();
                 $('#mud-command').focus();
             };
@@ -612,6 +612,14 @@ export function displayVersion() {
         versionEl.innerHTML = `${mudproto.versionID} <b>[${pending ? '...' : needsUpdate ? 'NEWER VERSION AVAILABLE' : 'UP TO DATE'}]</b>`;
     }
 }
+async function runMudCommand() {
+    await mudcontrol.executeCommand($('#mud-command').value);
+    setTimeout(() => {
+        $('#mud-view').classList.remove('large-output');
+        $('#mud-command').value = '';
+        $('#mud-command').focus();
+    });
+}
 export function start() {
     radioTracker(natTracker, 'Nat');
     radioTracker(peerTracker, 'Peer');
@@ -643,21 +651,26 @@ export function start() {
     $('#mud-command').onkeydown = async (evt) => {
         const con = mudcontrol.connection;
         const field = evt.target;
+        const livinLarge = $('#mud-view').classList.contains('large-output');
+        const modified = evt.shiftKey || evt.ctrlKey || evt.metaKey;
         if (mudTracker.value === MudState.Playing) {
-            if (evt.key === 'ArrowUp' && con.historyPos > 0) {
+            if (evt.key === 'ArrowUp' && con.historyPos > 0 && !livinLarge) {
                 field.value = con.history[--con.historyPos];
                 setTimeout(() => field.select(), 1);
             }
-            else if (evt.key === 'ArrowDown' && con.historyPos < con.history.length) {
+            else if (evt.key === 'ArrowDown' && con.historyPos < con.history.length && !livinLarge) {
                 field.value = con.history[++con.historyPos] || '';
                 setTimeout(() => field.select(), 1);
             }
-            else if (evt.key === 'Enter') {
-                await mudcontrol.executeCommand($('#mud-command').value);
-                $('#mud-command').value = '';
+            else if (evt.key === 'Enter' && modified) {
+                $('#mud-view').classList.toggle('large-output');
+            }
+            else if (evt.key === 'Enter' && !livinLarge) {
+                await runMudCommand();
             }
         }
     };
+    $('#mud-run-command').onclick = runMudCommand;
     $('#upload-mud').onchange = uploadMud;
     $('#upload-mud').onclick = () => sectionTracker.setValue(SectionState.Storage);
     //$('#upload-mud-extension').onchange = uploadMudExtension

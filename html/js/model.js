@@ -64,12 +64,11 @@ export class Thing {
     get article() { return this._article; }
     set article(a) { this._article = a; }
     get name() { return this._name; }
-    set name(n) { this.markDirty(this._name = n); }
+    set name(n) { this._name = n; }
     get fullName() { return this._fullName; }
     set fullName(n) {
         n = n.trim();
         const [article, name] = findSimpleName(n);
-        this.markDirty(null);
         if (article && n.substring(0, article.length).toLowerCase() === article.toLowerCase()) {
             n = n.substring(article.length).trim();
         }
@@ -79,17 +78,16 @@ export class Thing {
         this._fullName = escape(n);
     }
     get description() { return this._description; }
-    set description(d) { this.markDirty(this._description = d); }
+    set description(d) { this._description = d; }
     get contentsFormat() { return this._contentsFormat; }
-    set contentsFormat(f) { this.markDirty(this._contentsFormat = f); }
+    set contentsFormat(f) { this._contentsFormat = f; }
     get examineFormat() { return this._examineFormat; }
-    set examineFormat(f) { this.markDirty(this._examineFormat = f); }
+    set examineFormat(f) { this._examineFormat = f; }
     get linkFormat() { return this._linkFormat; }
-    set linkFormat(f) { this.markDirty(this._linkFormat = f); }
+    set linkFormat(f) { this._linkFormat = f; }
     getContents() { return this.world.getContents(this); }
     getPrototype() { return this.world.getThing(this._prototype); }
     setPrototype(t) {
-        this.markDirty(null);
         if (t) {
             this._prototype = t.id;
             this.__proto__ = t;
@@ -99,17 +97,14 @@ export class Thing {
         }
     }
     getLocation() { return this.world.getThing(this._location); }
-    setLocation(t) { this.markDirty(this._location = idFor(t)); }
+    setLocation(t) { this._location = idFor(t); }
     getLinks() { return this.world.getLinks(this); }
     getLinkOwner() { return this.world.getThing(this._linkOwner); }
-    setLinkOwner(t) { this.markDirty(this._linkOwner = t && t.id); }
+    setLinkOwner(t) { this._linkOwner = t && t.id; }
     getOtherLink() { return this.world.getThing(this._otherLink); }
-    setOtherLink(t) { this.markDirty(this._otherLink = t && t.id); }
+    setOtherLink(t) { this._otherLink = t && t.id; }
     formatName() {
         return (this.article ? this.article + ' ' : '') + this.fullName;
-    }
-    markDirty(sideEffect) {
-        this.world?.markDirty(this);
     }
     async findConnected() {
         return await this.world.findConnected(this, new Set());
@@ -159,18 +154,57 @@ export class Thing {
     store() {
         return this.world.putThing(this);
     }
+    setMethod(prop, args, code) {
+        const realCode = code.match(/[;{}]/) ? code : 'return ' + code;
+        // tslint:disable-next-line:only-arrow-functions, no-eval
+        const method = eval(`(async function ${args} {
+const cmd = this.cmd.bind(this);
+const cmdf = this.cmdf.bind(this);
+${realCode};
+})`);
+        method._code = [args, code];
+        this[prop] = method;
+    }
+    isDirty(spec) {
+        const keys = new Set(Object.keys(spec));
+        for (let prop of Object.keys(this)) {
+            if (prop[0] === '!' || prop[0] === '_') {
+                if (prop[0] === '_')
+                    prop = prop.slice(1);
+                if (this[prop] === spec[prop]) {
+                    keys.delete(prop);
+                }
+                else {
+                    return true;
+                }
+            }
+        }
+        return keys.size > 0;
+    }
     spec() {
         const spec = {};
         for (const prop of Object.keys(this)) {
             if (prop[0] === '_') {
                 spec[prop.substring(1)] = this[prop];
             }
+            else if (prop[0] === '!') {
+                spec[prop] = this[prop]._code;
+            }
         }
         return spec;
     }
     async useSpec(spec) {
+        this.originalSpec = spec;
         for (const prop of Object.keys(spec)) {
-            this['_' + prop] = spec[prop];
+            if (prop[0] === '!') {
+                if (Array.isArray(spec[prop])) {
+                    const [args, code] = spec[prop];
+                    this.setMethod(prop, args, code);
+                }
+            }
+            else {
+                this['_' + prop] = spec[prop];
+            }
         }
         if (spec.prototype) {
             const prototype = await this.world.getThing(spec.prototype);
@@ -187,8 +221,8 @@ export class World {
         this.clockRate = 2; // seconds between ticks
         this.setName(name);
         this.storage = stg;
-        this.dirty = new Set();
         this.thingCache = new Map();
+        this.transactionThings = new Set();
         this.nextId = 0;
     }
     async start() {
@@ -257,7 +291,6 @@ export class World {
     }
     async useInfo(info) {
         this.nextId = info.nextId;
-        this.name = info.name;
         this.defaultUser = info.defaultUser;
         this.lobby = await this.getThing(info.lobby);
         this.limbo = await this.getThing(info.limbo);
@@ -282,7 +315,7 @@ export class World {
             const roomProto = this.roomProto;
             const linkProto = this.linkProto;
             const generatorProto = this.generatorProto;
-            thingProto.markDirty(thingProto._location = this.hallOfPrototypes.id);
+            thingProto._location = this.hallOfPrototypes.id;
             thingProto.article = 'the';
             thingProto.contentsFormat = '$This $is here';
             thingProto._contentsEnterFormat = '$forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2';
@@ -291,34 +324,42 @@ export class World {
             thingProto.linkFormat = '$This leads to $link';
             thingProto._keys = [];
             thingProto._priority = 0;
-            linkProto.markDirty(linkProto._location = this.hallOfPrototypes.id);
+            linkProto._location = this.hallOfPrototypes.id;
             linkProto.article = '';
             linkProto._locked = false;
-            linkProto._cmd = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event me false go $0';
-            linkProto._go = '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don\'t have the key $forothers $Arg tries to go $this to $link but doesn\'t have the key" me @event me false go $0';
+            linkProto.setMethod('!cmd', '(dir, dest)', `
+                if (!dir._locked || await this.inAny(dir, '_keys')) {
+                    return this.cmd('go', dir);
+                } else {
+                    return this.cmdf('@output $0 "$forme You don\\'t have the key $forothers $Arg tries to go $this to $link but doesn\\'t have the key" me @event me false go $0', dir);
+                }
+`);
+            linkProto['!go'] = linkProto['!cmd'];
+            delete linkProto._cmd;
+            delete linkProto._go;
             linkProto._linkEnterFormat = '$Arg1 entered $arg3';
             linkProto._linkMoveFormat = 'You went $name to $arg3';
             linkProto._linkExitFormat = '$Arg1 went $name to $arg3';
             linkProto._get = `
 @output $0 "$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means..." me @event me false get $0
 `;
-            roomProto.markDirty(roomProto._location = this.hallOfPrototypes.id);
+            roomProto._location = this.hallOfPrototypes.id;
             roomProto._closed = true;
             roomProto.setPrototype(thingProto);
-            personProto.markDirty(personProto._location = this.hallOfPrototypes.id);
+            personProto._location = this.hallOfPrototypes.id;
             personProto.setPrototype(thingProto);
             personProto._article = '';
             personProto.examineFormat = 'Carrying: $contents';
             personProto._get = `
 @output $0 "$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't" me @event me false get $0
 `;
-            generatorProto.markDirty(generatorProto._location = this.hallOfPrototypes.id);
+            generatorProto._location = this.hallOfPrototypes.id;
             generatorProto.setPrototype(thingProto);
             generatorProto._priority = -1;
             generatorProto._get = `
 @quiet;
 @copy $0;
-@expr %-1 fullName "a " + $0.name;
+@js obj = %-1, obj.fullName  = "a " + obj._name;
 @reproto %-1 %proto:thing;
 @loud;
 @output %-1 "$forme You pick up $this $forothers $Arg picks up $arg2" me %-1 @event me get %-1
@@ -355,30 +396,48 @@ export class World {
             return this.processTransaction(func);
         }
         else {
-            const oldDirty = this.dirty;
             const oldTxn = this.txn;
             const oldThingStore = this.thingStore;
             const oldUserStore = this.userStore;
             const txn = this.db().transaction([this.storeName, this.users], 'readwrite');
+            const txnPromise = promiseFor(txn);
             const oldId = this.nextId;
-            this.dirty = new Set();
+            const oldThings = this.transactionThings;
+            const oldTxnPromise = this.transactionPromise;
+            let result = null;
             this.txn = txn;
+            this.transactionPromise = txnPromise;
             this.thingStore = txn.objectStore(this.storeName);
             this.userStore = txn.objectStore(this.users);
             try {
-                const result = await this.processTransaction(func);
-                return result;
+                result = await this.processTransaction(func);
             }
             finally {
-                await Promise.allSettled([...this.dirty].map(dirty => this.thingCache.get(dirty).store()));
+                if (this.transactionThings.size > 0) {
+                    let count = 0;
+                    for (const thing of this.transactionThings) {
+                        if (!thing.toasted) {
+                            const spec = thing.spec();
+                            if (thing.isDirty(spec)) {
+                                thing.originalSpec = spec;
+                                await promiseFor(this.thingStore.put(spec));
+                            }
+                            count++;
+                        }
+                    }
+                    console.log(`Wrote ${count} things`);
+                }
                 if (oldId !== this.nextId && !allowIdChange) {
                     await this.store();
                 }
+                await txnPromise;
                 this.txn = oldTxn;
-                this.dirty = oldDirty;
                 this.thingStore = oldThingStore;
                 this.userStore = oldUserStore;
+                this.transactionThings = oldThings;
+                this.transactionPromise = oldTxnPromise;
             }
+            return result;
         }
     }
     async addExtension(ext) {
@@ -522,7 +581,9 @@ export class World {
         return promiseFor(this.userStore.put(user));
     }
     putThing(thing) {
-        return promiseFor(this.thingStore.put(thing.spec()));
+        const spec = thing.spec();
+        thing.originalSpec = spec;
+        return promiseFor(this.thingStore.put(spec));
     }
     async replaceUsers(newUsers) {
         await this.doTransaction(async (store, users, txn) => deleteAll(users));
@@ -549,18 +610,21 @@ export class World {
         return promiseFor(txn);
     }
     async replaceThings(newThings) {
-        let info;
+        const index = newThings.findIndex(t => t.id === 'info');
+        const info = newThings[index];
+        newThings.splice(index, 1);
         await this.doTransaction(async (store, users, txn) => {
-            const index = newThings.findIndex(t => t.id === 'info');
-            info = newThings[index];
-            newThings.splice(index, 1);
             return deleteAll(store);
         });
-        return this.doTransaction(async (store, users, txn) => {
-            await Promise.all(newThings.map(t => promiseFor(this.thingStore.put(t))));
+        await this.doTransaction(async (store, users, txn) => {
+            for (const thing of newThings) {
+                await promiseFor(this.thingStore.put(thing));
+            }
             this.thingCache = new Map();
+            this.transactionThings = new Set();
             await this.useInfo(info);
             await this.initStdPrototypes();
+            await this.store();
         });
     }
     async getThing(tip) {
@@ -583,7 +647,10 @@ export class World {
         if (cached) {
             return Promise.resolve(cached);
         }
-        return this.doTransaction(async (store) => await this.cacheThingFor(await promiseFor(store.get(id))));
+        const things = this.transactionThings;
+        return this.doTransaction(async (store) => {
+            return await this.cacheThingFor(await promiseFor(store.get(id)), things);
+        });
     }
     authenticate(name, passwd, thingName, noauthentication = false) {
         return this.doTransaction(async (store, users, txn) => {
@@ -597,7 +664,7 @@ export class World {
             }
             if (!user.thing) {
                 const thing = await this.createThing(name);
-                thing.markDirty(thing._location = this.lobby.id);
+                thing._location = this.lobby.id;
                 if (this.personProto)
                     thing.setPrototype(this.personProto);
                 thing.fullName = thingName || name;
@@ -608,7 +675,7 @@ export class World {
             else {
                 const thing = await this.getThing(user.thing);
                 if (thing.name === name && thingName) {
-                    thing.markDirty(thing.fullName = thingName);
+                    thing.fullName = thingName;
                 }
                 return [thing, user.admin];
             }
@@ -633,16 +700,17 @@ export class World {
             for (const thing of toasted) {
                 things.delete(thing.id);
                 this.thingCache.delete(thing.id);
+                thing.toasted = true;
             }
             for (const thing of toasted) {
                 for (const guts of await thing.getContents()) {
                     guts.setLocation(this.limbo);
                 }
                 for (const link of await thing.getLinks()) {
-                    link.markDirty(delete link._linkOwner);
+                    delete link._linkOwner;
                 }
                 for (const other of await this.getOthers(thing)) {
-                    other.markDirty(delete other._otherLink);
+                    delete other._otherLink;
                 }
             }
         });
@@ -659,6 +727,7 @@ export class World {
                 const id = cpy._id;
                 cpy.__proto__ = conThing.__proto__;
                 cpy._id = id;
+                this.transactionThings.add(cpy);
             }
             for (const [id, cpy] of copies) {
                 const original = originals.get(id);
@@ -679,6 +748,7 @@ export class World {
                         cpy[prop] = original[prop];
                     }
                 }
+                cpy.originalSpec = {};
             }
             const thingCopy = copies.get(thing.id);
             thingCopy.setLocation(location.id);
@@ -697,7 +767,7 @@ export class World {
         }
         return connected;
     }
-    async cacheThingFor(thingSpec) {
+    async cacheThingFor(thingSpec, things) {
         if (!thingSpec)
             return null;
         const thing = new Thing(null, '');
@@ -705,30 +775,34 @@ export class World {
         await thing.useSpec(thingSpec);
         this.thingCache.set(thing.id, thing);
         this.watcher?.(thing);
+        things?.add(thing);
         return thing;
     }
-    async cacheThings(specs) {
+    async cacheThings(specs, things) {
         for (let i = 0; i < specs.length; i++) {
             const thing = this.thingCache.get(specs[i].id);
-            specs[i] = thing || await this.cacheThingFor(specs[i]);
+            specs[i] = thing || await this.cacheThingFor(specs[i], things);
         }
         return specs;
     }
     getContents(thing) {
         const id = typeof thing === 'number' ? thing : thing.id;
+        const thingSet = this.transactionThings;
         return this.doTransaction(async (things) => {
-            return this.cacheThings(await promiseFor(things.index(locationIndex).getAll(IDBKeyRange.only(id))));
+            return this.cacheThings(await promiseFor(things.index(locationIndex).getAll(IDBKeyRange.only(id))), thingSet);
         });
     }
     getOthers(thing) {
         const id = typeof thing === 'number' ? thing : thing.id;
+        const thingSet = this.transactionThings;
         return this.doTransaction(async (things) => {
-            return this.cacheThings(await promiseFor(things.index(otherLinkIndex).getAll(IDBKeyRange.only(id))));
+            return this.cacheThings(await promiseFor(things.index(otherLinkIndex).getAll(IDBKeyRange.only(id))), thingSet);
         });
     }
     getLinks(thing) {
+        const thingSet = this.transactionThings;
         return this.doTransaction(async (things) => {
-            return this.cacheThings(await promiseFor(this.thingStore.index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id))));
+            return this.cacheThings(await promiseFor(things.index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id))), thingSet);
         });
     }
     async getAncestors(thing, ancestors = []) {
@@ -743,9 +817,6 @@ export class World {
             return ancestors;
         }
     }
-    markDirty(thing) {
-        this.dirty.add(thing.id);
-    }
     async copyWorld(newName) {
         if (this.storage.hasWorld(newName)) {
             throw new Error('there is already a world named "' + newName + '"');
@@ -755,9 +826,10 @@ export class World {
         const newThings = txn.objectStore(newWorld.storeName);
         await copyAll(txn.objectStore(this.users), txn.objectStore(newWorld.users));
         await copyAll(txn.objectStore(this.storeName), newThings);
-        const newInfo = await promiseFor(newThings.get('info'));
+        const newInfo = this.spec();
         newInfo.name = newName;
-        return promiseFor(newThings.put(newInfo));
+        await promiseFor(newThings.put(newInfo));
+        this.storage.closeWorld(newName);
     }
     propertyProximity(obj, prop) {
         let count = 1;
@@ -769,6 +841,7 @@ export class World {
             else if (obj.hasOwnProperty(prop)) {
                 found = true;
             }
+            obj = obj.__proto__;
         }
         return found ? count : this.thingProto.hasOwnProperty(prop) ? 0 : -1;
     }

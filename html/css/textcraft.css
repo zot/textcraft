@@ -209,7 +209,21 @@ body:not(.emulation) #toggleStateButtons {
     overflow-y: scroll;
     user-select: text;
 }
-#mud-command {}
+#mud-command {
+    min-height: 2em;
+    resize: none;
+    flex-grow: 0;
+}
+#mud-view.large-output #mud-command {
+    min-height: 20em;
+}
+#mud-run-command {
+    display: none;
+}
+#mud-view.large-output #mud-run-command {
+    display: initial;
+    align-self: flex-start;
+}
 #profileView {
 }
 .fcolumn,
@@ -310,9 +324,15 @@ body:not(.emulation) #toggleStateButtons {
     font-family: monospace;
     white-space: pre;
 }
-.inherited {
+.inherited.property {
     color: darkorchid !important;
     font-style: italic;
+    font-weight: bold;
+}
+.inherited.method {
+    color: darkred !important;
+    font-style: italic;
+    font-weight: bold;
 }
 .inherited::before {
     content: '(';
@@ -323,6 +343,12 @@ body:not(.emulation) #toggleStateButtons {
 .property {
     color: orange;
     cursor: pointer;
+    font-weight: bold;
+}
+.method {
+    color: red;
+    cursor: pointer;
+    font-weight: bold;
 }
 .thing,
 .input {

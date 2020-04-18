@@ -14,15 +14,13 @@ objects:
     prototype: 5
     article: ''
   - id: 1
-    name: ''
-    fullName: Chamber of Attunement
+    name: Lobby
+    fullName: Lobby
     location: 0
     linkOwner: null
     otherLink: null
-    description: You are in $this. Many apply for entrance here but few are chosen... <i>and many of the chosen perish</i>. <br><br>Are you here by mistake?<br>
+    description: You are in $this
     prototype: 5
-    article: the
-    '!react_go': ['(thing, oldLoc, newLoc)', "  if (newLoc == this.thing) {\n    return cmd('@delay @output %event.source \"The gong sounds as $this enter$s the chamber\" @event me act');\n}"]
   - id: 2
     name: hall
     fullName: Hall of Prototypes
@@ -94,116 +92,43 @@ objects:
   - id: 8
     name: admin
     fullName: admin
-    location: 1
+    location: 0
     linkOwner: null
     otherLink: null
     prototype: 7
   - id: 9
-    name: mounds
-    fullName: Mumbling Mounds
+    name: box
+    fullName: box
+    location: 1
+    linkOwner: null
+    otherLink: null
+    prototype: 3
+    '!hello': [(evt), 'if (evt[1].id === this.thing._location) {alert(''hello ''+evt.source._name)}']
+    react_go: '@call me hello %event'
+  - id: 10
+    name: forest
+    fullName: forest
     location: 0
     linkOwner: null
     otherLink: null
-    article: the
     prototype: 5
-  - id: 10
-    name: down
-    fullName: down
+  - id: 11
+    name: north
+    fullName: north
     location: 0
     linkOwner: 1
-    otherLink: 11
-    prototype: 4
-  - id: 11
-    name: up
-    fullName: up
-    location: 0
-    linkOwner: 9
-    otherLink: 10
+    otherLink: 12
     prototype: 4
   - id: 12
-    name: ''
-    fullName: Gathering of Ancient Sages
-    location: 0
-    linkOwner: null
-    otherLink: null
-    article: a
-    prototype: 5
-  - id: 13
-    name: ''
-    fullName: Sea of Transformation
-    location: 0
-    linkOwner: null
-    otherLink: null
-    article: the
-    prototype: 5
-    description: You are in a ship on $this. Anything can happen.
-  - id: 14
     name: south
     fullName: south
     location: 0
-    linkOwner: 9
-    otherLink: 15
-    prototype: 4
-  - id: 15
-    name: north
-    fullName: north
-    location: 0
-    linkOwner: 12
-    otherLink: 14
-    prototype: 4
-  - id: 16
-    name: east
-    fullName: east
-    location: 0
-    linkOwner: 12
-    otherLink: 17
-    prototype: 4
-  - id: 17
-    name: west
-    fullName: west
-    location: 0
-    linkOwner: 13
-    otherLink: 16
-    prototype: 4
-  - id: 18
-    name: Exalted
-    fullName: Exalted Spirit Mountains
-    location: 0
-    linkOwner: null
-    otherLink: null
-    prototype: 5
-    article: ''
-  - id: 19
-    name: north
-    fullName: north
-    location: 0
-    linkOwner: 13
-    otherLink: 20
-    prototype: 4
-  - id: 20
-    name: south
-    fullName: south
-    location: 0
-    linkOwner: 18
-    otherLink: 19
-    prototype: 4
-  - id: 21
-    name: west
-    fullName: west
-    location: 0
-    linkOwner: 18
-    otherLink: 22
-    prototype: 4
-  - id: 22
-    name: east
-    fullName: east
-    location: 0
-    linkOwner: 1
-    otherLink: 21
+    linkOwner: 10
+    otherLink: 11
     prototype: 4
   - id: info
-    nextId: 24
-    name: Mystic Lands
+    nextId: 13
+    name: Functions
     lobby: 1
     limbo: 0
     hallOfPrototypes: 2

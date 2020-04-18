@@ -35,6 +35,7 @@ Shift-click or right-click and choose "Save link as..." to save these to your di
 
 * <span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</span>
 * <span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</span>
+* <span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Functions.yaml") : document.location = "examples/Functions.yaml"'>Function Example</span>
 
 # Using the MUD
 
@@ -117,6 +118,7 @@ Here are all of the current commands and the current help documentation:
 @as thing command...                           --  Make a thing execute a command
 @bluepill 
 @bluepill thing                                --  Turn off verbose names for thing (or yourself if there is no argument
+@call thing.property arg...                    --  Call a method on a thing
 @clock seconds                                 --  Change the clock rate
 @copy thing
 @copy thing force                              --  Copy a thing to your inventory (force allows copying the entire world -- can be dangerous)
@@ -124,22 +126,27 @@ Here are all of the current commands and the current help documentation:
 @del thing property                            --  Delete a properties from a thing so it will inherit from its prototype
 @delay command...                              --  Delay a command until after the current ones finish
 @dump thing                                    --  See properties of a thing
-@expr thing property expr                      --  Set a property to the value of an expression
+
+   You can use % as a synonym for @dump if it's the first character of a command
+
 @find thing                                    --  Find a thing
 @find thing location                           --  Find a thing from a location
-@if condition CLAUSES @end                     --  conditionally run commands
-@if condition @then commands... @elseif condition @then commands ... @else commands... @end
-
-@else and @end are optional, use @end if you nest @ifs
-clauses can contain multiple commands separated by semicolons
-Conditions can contain expressions -- see expressions
-
-Example:
-  @if me.x == 1 @then say one; @if true @then say derp @end @elseif me.x == 2 @then say two @else say other
-
 @info                                          --  List important information
+@js var1 var2 = value2 var3... ; code...       --  Run JavaScript code with optional variable bindings
+
+   You can use ! as a synonym for @js if it's the first character of a command
+
+   In this code you can use cmd(...) and cmdf(template, ...) to create a CommandContext
+   CommandContexts also support cmd() and cmdf() to chain commands
+   a CommandContext result will automatically run
+
 @link loc1 link1 link2 loc2                    --  create links between two things
 @loud                                          --  enable all output for this command
+@method thing name (args...) body              --  Define a method on a thing
+   The method actually runs in the context of the thing's MudConnection, not the thing itself
+   @call calls the method with whatever arguments it provides
+   This can use CommandContexts, see @js for details.
+
 @move thing location                           --  Move a thing
 @mute                                          --  temporarily silence all output commands that are not yours
 @output contextThing FORMAT-AND-EVENT-ARGS...  --   Output text to the user and/or others using a format string on contextThing
@@ -200,6 +207,9 @@ Example:
 @toast thing...                                --  Toast things and everything they're connected to
 @unmute                                        --  enable output from other commands
 act words...                                   --  Do something
+
+   You can use : as a synonym for act if it's the first character of a command
+
 drop thing                                     --  drop something you are carrying
 examine thing                                  --  See a detailed description of a thing
 gesture thing words...                         --  Do something towards thing
@@ -214,6 +224,9 @@ login user password                            --  Login to the mud
 look                                           --  See a description of your current location
 look thing                                     --  See a description of a thing
 say words...                                   --  Say something
+
+   You can use ' or " as a synonym for say if it's the first character of a command
+
 whisper thing words...                         --  Say something to thing
 
 You can use me for yourself, here for your location, and out for your location's location (if you're in a container)
@@ -258,45 +271,17 @@ Templates replace the original command with different commands, separated by sem
 Templates can contain $0..$N to refer to the command arguments. $0 refers to the thing itself.
 
 
-EXPRESSIONS:
-
-The following are legal expressions:
-   number
-   string
-   boolean
-   null
-   undefined
-   THING
-   THING.property
-   %any.property   -- returns the first value found on you or thing in your inventory
-                      If property is a collection, it returns the union of all found
-   '(' expr ')'
-   expr1 + expr2
-   expr1 - expr2
-   expr1 * expr2
-   expr1 / expr2
-   expr1 < expr2
-   expr1 <= expr2
-   expr1 > expr2
-   expr1 >= expr2
-   Expr1 == expr2
-   expr1 != expr2
-   !expr1
-   expr1 && expr2
-   expr1 || expr2
-   expr1 in expr2  -- returns whether expr1 is in expr2 (which must be a collection or a thing)
-
-
 EVENTS:
 
 When a thing executes a command, it emits an event which propagates to nearby things. Objects can react
-to a type of event by setting a property called react_EVENT to a command template (see COMMAND TEMPLATES).
+to a type of event by creating a command template called react_EVENT or a method called react_EVENT.
+In either case, the reaction takes an argument for the emmiter and each of the event's parameters.
 Events have properties which you can access in command templates with %event.PROPERTY and in format
-strings with $event.PROPERTY.
+strings with $event.PROPERTY. In methods, this.event refers to the current event.
 
 Example, this will make a box react to people arriving in its location:
 
-@set box react_go @if %event.1 == $0.location @then say Hello %event.source!
+@method box react_go (thing, oldLoc, newLoc) newLoc.id == this._location && cmd('say Hello %event.source!')
 
 
 EVENT PROPERTIES:

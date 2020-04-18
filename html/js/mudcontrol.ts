@@ -15,18 +15,6 @@ export let connection: MudConnection
 const connectionMap = new Map<Thing, MudConnection>()
 export let activeWorld: World
 const wordAndQuotePat = /("(?:[^"\\]|\\.)*")|\s+/
-const valuePat = /^("([^"\\]|\\.)*"|([0-9]*\.)?[0-9]+|true|false|null)$/;
-const thingPat = /^([a-zA-Z][a-zA-Z0-9]*|%[0-9]+|%[a-zA-Z]+|%[a-zA-z]+:[a-zA-Z]+)(?:\.([0-9]+|[a-zA-Z][a-zA-Z0-9]*))?$/;
-const ifPat = /(?:^|\s)(@if|@then|@else|@elseif|@end|"(?:[^"\\]|\\.)*")\b/
-const tokPrecLevels = [
-    ['!'],
-    ['in', 'match'],
-    ['*', '/'],
-    ['+', '-'],
-    ['<', '<=', '==', '>=', '>'],
-    ['&&'],
-    ['||'],
-]
 const reservedProperties = new Set([
     '_id',
     '_prototype',
@@ -42,16 +30,6 @@ const addableProperties = new Set([
     '_keys',
 ])
 
-const properties = [
-    'prototype',
-    'article',
-    'name',
-    'count',
-    'location',
-    'description',
-    'linkOwner',
-    'otherLink',
-]
 const setHelp = ['thing property value', `Set one of these properties on a thing:
   prototype   -- see the @info command
   article     -- the article for a thing's name
@@ -132,45 +110,17 @@ Templates replace the original command with different commands, separated by sem
 Templates can contain $0..$N to refer to the command arguments. $0 refers to the thing itself.
 
 
-EXPRESSIONS:
-
-The following are legal expressions:
-   number
-   string
-   boolean
-   null
-   undefined
-   THING
-   THING.property
-   %any.property   -- returns the first value found on you or thing in your inventory
-                      If property is a collection, it returns the union of all found
-   '(' expr ')'
-   expr1 + expr2
-   expr1 - expr2
-   expr1 * expr2
-   expr1 / expr2
-   expr1 < expr2
-   expr1 <= expr2
-   expr1 > expr2
-   expr1 >= expr2
-   Expr1 == expr2
-   expr1 != expr2
-   !expr1
-   expr1 && expr2
-   expr1 || expr2
-   expr1 in expr2  -- returns whether expr1 is in expr2 (which must be a collection or a thing)
-
-
 EVENTS:
 
 When a thing executes a command, it emits an event which propagates to nearby things. Objects can react
-to a type of event by setting a property called react_EVENT to a command template (see COMMAND TEMPLATES).
+to a type of event by creating a command template called react_EVENT or a method called react_EVENT.
+In either case, the reaction takes an argument for the emmiter and each of the event's parameters.
 Events have properties which you can access in command templates with %event.PROPERTY and in format
-strings with $event.PROPERTY.
+strings with $event.PROPERTY. In methods, this.event refers to the current event.
 
 Example, this will make a box react to people arriving in its location:
 
-@set box react_go @if %event.1 == $0.location @then say Hello %event.source!
+@method box react_go (thing, oldLoc, newLoc) newLoc.id == this._location && cmd('say Hello %event.source!')
 
 
 EVENT PROPERTIES:
@@ -225,16 +175,49 @@ export const commands = new Map([
     ['i', new Command({ help: [''], alt: 'inventory' })],
     ['invent', new Command({ help: [''], alt: 'inventory' })],
     ['inventory', new Command({ help: ['', `list what you are carrying`] })],
-    ['say', new Command({ help: ['words...', `Say something`] })],
+    ['say', new Command({
+        help: ['words...', `Say something
+
+   You can use ' or " as a synonym for say if it's the first character of a command
+`]
+    })],
     ['@say', new Command({ help: ['"words..." arg...', `Formatted say`] })],
     ['whisper', new Command({ help: ['thing words...', `Say something to thing`] })],
-    ['act', new Command({ help: ['words...', `Do something`] })],
+    ['act', new Command({
+        help: ['words...', `Do something
+
+   You can use : as a synonym for act if it's the first character of a command
+`]
+    })],
     ['gesture', new Command({ help: ['thing words...', `Do something towards thing`] })],
     ['get', new Command({
         help: ['thing', `grab a thing`, 'thing [from] location', `grab a thing from a location`]
     })],
     ['drop', new Command({ help: ['thing', `drop something you are carrying`] })],
-    ['@dump', new Command({ help: ['thing', 'See properties of a thing'] })],
+    ['@call', new Command({ help: ['thing.property arg...', `Call a method on a thing`] })],
+    ['@js', new Command({
+        help: ['var1 var2 = value2 var3... ; code...', `Run JavaScript code with optional variable bindings
+
+   You can use ! as a synonym for @js if it's the first character of a command
+
+   In this code you can use cmd(...) and cmdf(template, ...) to create a CommandContext
+   CommandContexts also support cmd() and cmdf() to chain commands
+   a CommandContext result will automatically run
+`]
+    })],
+    ['@method', new Command({
+        help: ['thing name (args...) body', `Define a method on a thing
+   The method actually runs in the context of the thing's MudConnection, not the thing itself
+   @call calls the method with whatever arguments it provides
+   This can use CommandContexts, see @js for details.
+`]
+    })],
+    ['@dump', new Command({
+        help: ['thing', `See properties of a thing
+
+   You can use % as a synonym for @dump if it's the first character of a command
+`]
+    })],
     ['@move', new Command({ help: ['thing location', 'Move a thing'] })],
     ['@output', new Command({
         help: ['contextThing FORMAT-AND-EVENT-ARGS...',
@@ -280,7 +263,6 @@ export const commands = new Map([
     ['@set', new Command({ help: setHelp })],
     ['@del', new Command({ help: ['thing property', `Delete a properties from a thing so it will inherit from its prototype`] })],
     ['@reproto', new Command({ help: ['thing proto', `Change the prototype of a thing`] })],
-    ['@expr', new Command({ help: ['thing property expr', `Set a property to the value of an expression`], admin: true })],
     ['@bluepill', new Command({
         help: [
             '', '',
@@ -294,19 +276,6 @@ export const commands = new Map([
         ]
     })],
     ['@delay', new Command({ help: ['command...', `Delay a command until after the current ones finish`] })],
-    ['@if', new Command({
-        minArgs: 2,
-        help: ['condition CLAUSES @end', `conditionally run commands
-@if condition @then commands... @elseif condition @then commands ... @else commands... @end
-
-@else and @end are optional, use @end if you nest @ifs
-clauses can contain multiple commands separated by semicolons
-Conditions can contain expressions -- see expressions
-
-Example:
-  @if me.x == 1 @then say one; @if true @then say derp @end @elseif me.x == 2 @then say two @else say other
-`]
-    })],
 ])
 
 export function init() { }
@@ -389,6 +358,72 @@ export class Descripton {
     }
 }
 
+class CommandContext {
+    connection: MudConnection
+    commands: string[]
+    executed = false
+
+    constructor(con: MudConnection) {
+        this.connection = con
+        this.commands = []
+    }
+    cmd(...stringsAndThings: any[]) {
+        let command = ''
+
+        for (const item of stringsAndThings) {
+            if (item instanceof Thing) {
+                command += ' %' + (item as Thing).id
+            } else {
+                command += item
+            }
+        }
+        this.commands.push(command)
+        return this
+    }
+    cmdf(str: string, ...args: any[]) {
+        const chunks = str.split(/(\\\$|\$[0-9]+(?:\.[a-zA-Z0-9_]+)?)/)
+        const things = args.map(item => this.findThing(item))
+        let command = ''
+
+        for (const chunk of chunks) {
+            if (chunk[0] === '$') {
+                const [, num, prop] = chunk.match(/^\$([0-9]+)(?:\.([a-zA-Z0-9_]+))?$/)
+                let value = things[num]
+
+                if (prop) {
+                    value = value[prop]
+                }
+                if (value instanceof Thing) {
+                    command += ` %${value.id} `
+                } else {
+                    command += value
+                }
+            } else {
+                command += chunk
+            }
+        }
+        this.commands.push(command)
+        return this
+    }
+    async run() {
+        if (!this.executed) {
+            this.executed = true
+            return this.connection.runCommands(this.commands)
+        }
+    }
+    findThing(item: any) {
+        if (item instanceof Thing) {
+            return item
+        } else if (typeof item === 'string') {
+            return this.connection.find(item)
+        } else if (Array.isArray(item)) {
+            return this.connection.find(item[0] as string, item[1] as Thing, item[2] as string)
+        } else {
+            throw new Error(`Could not find ${item}`)
+        }
+    }
+}
+
 export class MudConnection {
     world: World
     user: string
@@ -404,7 +439,7 @@ export class MudConnection {
     muted = 0
     commands: Map<string, Command>
     conditionResult: any
-    currentEvent: Descripton
+    event: Descripton
     acted = new Set<Thing>()
     pendingReactions = new Map<Thing, () => void>()
     tickCount = 0
@@ -413,11 +448,19 @@ export class MudConnection {
     tickers = new Set<Thing>()
     history: any = []
     historyPos = 0
+    substituting: boolean
 
     constructor(thing?: Thing) {
         this.created = []
         this.thing = thing
         this.outputHandler = () => { }
+        const con = this
+    }
+    cmd(...items: any[]) {
+        return new CommandContext(this).cmd(...items)
+    }
+    cmdf(format: string, ...items: any[]) {
+        return new CommandContext(this).cmdf(format, ...items)
     }
     init(world, outputHandler, remote = false) {
         this.world = world
@@ -448,9 +491,6 @@ export class MudConnection {
     errorNoThing(thing: string) {
         this.error(`You don't see any ${thing} here`)
     }
-    async formatOutput(ctx: Thing, text: string, args: any[]) {
-        return this.formatOutput(ctx, text, args)
-    }
     output(text: string) {
         if (!this.suppressOutput && this.muted < 1) {
             this.outputHandler(text.match(/^</) ? text : `<div>${text}</div>`)
@@ -458,15 +498,15 @@ export class MudConnection {
         this.failed = false
     }
     async withResults(otherCon: MudConnection, func: () => Promise<any>) {
-        const oldEvent = this.currentEvent
+        const oldEvent = this.event
         const oldCondition = this.conditionResult
 
-        this.currentEvent = otherCon.currentEvent
+        this.event = otherCon.event
         this.conditionResult = otherCon.conditionResult
         try {
             await func()
         } finally {
-            this.currentEvent = oldEvent
+            this.event = oldEvent
             this.conditionResult = oldCondition
         }
     }
@@ -514,10 +554,16 @@ export class MudConnection {
         }
         return output
     }
-    formatDumpProperty(thing: Thing, prop: string) {
-        const inherited = !thing.hasOwnProperty('_' + prop)
+    formatDumpProperty(thing: Thing, prop: string, noParens = false) {
+        const inherited = !(noParens || thing.hasOwnProperty('_' + prop))
 
         return `<span class='property${inherited ? ' inherited' : ''}'><span class='hidden input-text'>@set %${thing.id} ${prop} ${escape(thing['_' + prop])}</span>${prop}</span>`
+    }
+    formatDumpMethod(thing: Thing, prop: string, noParens = false) {
+        const inherited = !(noParens || thing.hasOwnProperty('!' + prop))
+        const [args, body] = thing['!' + prop]._code
+
+        return `<span class='method${inherited ? ' inherited' : ''}'><span class='hidden input-text'>@method %${thing.id} ${prop} ${escape(args)} ${escape(body)}</span>${prop}</span>`
     }
     async basicFormat(tip: thingId | Thing | Promise<Thing>, str: string, args: Thing[]) {
         if (!str) return str
@@ -551,7 +597,7 @@ export class MudConnection {
                     result += capitalize(t instanceof Thing ? this.formatName(t) : t, format)
                     continue
                 } else if (format.match(/^event(?:\.\w+)?$/i)) {
-                    const t = this.getResult(format, this.currentEvent)
+                    const t = this.getResult(format, this.event)
 
                     result += capitalize(t instanceof Thing ? this.formatName(t) : t, format)
                     continue
@@ -639,9 +685,11 @@ export class MudConnection {
         this.output(await this.description(thing))
     }
     checkCommand(prefix: string, cmd: string, thing: any, checkLocal = cmd === thing.name) {
-        return (checkLocal && thing[prefix]) || thing[`${prefix}_${cmd}`]
+        return (checkLocal && (thing['_' + prefix] || thing['!' + prefix]))
+            || thing[`_${prefix}_${cmd}`]
+            || thing[`!${prefix}_${cmd}`]
     }
-    async findCommand(words: string[], prefix = '_cmd') {
+    async findCommand(words: string[], prefix = 'cmd') {
         const result = await this.findTemplate(words, prefix)
 
         if (result) {
@@ -684,53 +732,84 @@ export class MudConnection {
             }
         }
     }
-    substituteCommand(template: string, args: any[]) {
-        const lines = []
-        const words = args.map(a => a instanceof Thing ? `%${a.id}` : a)
+    substituteCommand(template: any, args: any[]) {
+        if (typeof template === 'string') {
+            const lines = []
+            const words = args.map(a => a instanceof Thing ? `%${a.id}` : a)
 
-        for (const line of template.split(/;/)) {
-            const parts = line.split(/( *\$\w*)/)
-            let newCmd = ''
+            for (const line of template.split(/;/)) {
+                const parts = line.split(/( *\$\w*)/)
+                let newCmd = ''
 
-            for (const part of parts) {
-                const match = part.match(/^( *)\$([0-9]+)$/)
+                for (const part of parts) {
+                    const match = part.match(/^( *)\$([0-9]+)$/)
 
-                if (match) {
-                    const [_, space, format] = match
+                    if (match) {
+                        const [_, space, format] = match
 
-                    newCmd += space
-                    newCmd += words[Number(format)]
-                } else {
-                    newCmd += part
+                        newCmd += space
+                        newCmd += words[Number(format)]
+                    } else {
+                        newCmd += part
+                    }
+                }
+                lines.push(newCmd.trim())
+            }
+            return lines.length > 0 ? lines : null
+        } else if (template instanceof Function) {
+            return async () => {
+                const things = []
+
+                for (const item of args) {
+                    if (item instanceof Thing) {
+                        things.push(item)
+                    } else {
+                        things.push(await this.find(item, undefined, 'thing'))
+                    }
+                }
+                const result = await template.apply(this, things)
+                if (result instanceof CommandContext) {
+                    await result.run()
                 }
             }
-            lines.push(newCmd.trim())
         }
-        return lines.length > 0 ? lines : null
     }
-    async runCommands(lines: string[]) {
-        if (lines) {
-            for (const line of lines) {
-                await this.command(line, true)
-                if (this.failed) break
+    async runCommands(lines: string[] | (() => any)) {
+        const oldSubstituting = this.substituting
+
+        try {
+            this.substituting = true
+            if (Array.isArray(lines)) {
+                for (const line of lines) {
+                    await this.command(line, true)
+                    if (this.failed) break
+                }
+            } else if (lines instanceof Function) {
+                return lines()
             }
+        } finally {
+            this.substituting = oldSubstituting
         }
     }
     async command(line: string, substituted = false, user = false) {
+        const originalLine = line
+        if (!line.trim()) return
         if (line[0] === '"' || line[0] === "'") {
             line = `say ${line.substring(1)}`
         } else if (line[0] === ':') {
             line = `act ${line.substring(1)}`
         } else if (line[0] === '%' && this.admin) {
             line = `@dump ${line}`
+        } else if (line[0] === '!') {
+            line = `@js ${line.substring(1)}`
         }
         const words = splitQuotedWords(line)
         const commandName = words[0].toLowerCase()
 
         if (!substituted) {
-            this.output('<div class="input">&gt; <span class="input-text">' + escape(line) + '</span></div>')
-            if (this.history[this.historyPos - 1] !== line) {
-                this.history[this.historyPos++] = line
+            this.output('<div class="input">&gt; <span class="input-text">' + escape(originalLine) + '</span></div>')
+            if (this.history[this.historyPos - 1] !== originalLine) {
+                this.history[this.historyPos++] = originalLine
                 if (this.historyPos < this.history.length) {
                     this.history = this.history.slice(this.historyPos - 1)
                 }
@@ -760,7 +839,10 @@ export class MudConnection {
                     if (!substituted) this.suppressOutput = false
                 }
             })
-                .catch(err => this.error(err.message))
+                .catch(err => {
+                    console.log(err)
+                    this.error(err.message)
+                })
         } else {
             this.output('Unknown command: ' + words[0])
         }
@@ -787,8 +869,8 @@ export class MudConnection {
 
         if (!name) return null
         name = name.trim().toLowerCase()
-        if (start[0] !== '%' || this.admin) {
-            if (name === 'out') {
+        if (name[0] !== '%' || this.admin || this.substituting) {
+            if (name === 'out' || name === '%out') {
                 const location = await this.thing.getLocation()
 
                 result = location && await location.getLocation()
@@ -796,17 +878,17 @@ export class MudConnection {
                     throw new Error('You are not in a container')
                 }
             } else {
-                result = name === 'me' ? this.thing
-                    : name === 'here' ? await this.thing.getLocation()
+                result = name === 'me' || name === '%me' ? this.thing
+                    : name === 'here' || name === '%here' ? await this.thing.getLocation()
                         : name === '%limbo' ? this.world.limbo
                             : name === '%lobby' ? this.world.lobby
                                 : name === '%protos' ? this.world.hallOfPrototypes
                                     : name.match(/^%result(\.\w+)?$/) ? this.getResult(name, this.conditionResult)
-                                        : name.match(/^%event(\.\w+)?$/) ? this.getResult(name, this.currentEvent)
+                                        : name.match(/^%event(\.\w+)?$/) ? this.getResult(name, this.event)
                                             : name.match(/^%proto:/) ? await this.world.hallOfPrototypes.find(name.replace(/^%proto:/, ''))
                                                 : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
                                                     : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
-                                                        : await start.find(name, this.thing._location === this.world.limbo.id ? new Set() : new Set([this.world.limbo]))
+                                                        : await start.find(name[0] === '%' ? name.slice(1) : name, this.thing._location === this.world.limbo.id ? new Set() : new Set([this.world.limbo]))
             }
         }
         if (!result && errTag) {
@@ -843,7 +925,7 @@ export class MudConnection {
                 propMap.set(key.substring(1).toLowerCase(), key)
             }
         }
-        if (propMap.has(lowerProp)) {
+        if (typeof value !== 'undefined' && propMap.has(lowerProp)) {
             realProp = propMap.get(lowerProp)
             const curVal = thing[realProp]
 
@@ -927,11 +1009,11 @@ export class MudConnection {
     }
     async react(thing: Thing, desc: Descripton) {
         if (this.remote) throw new Error(`Attempt to react in a remote connection`)
-        const reactProp = `_react_${desc.event.toLowerCase()}`
+        const reactPat = new RegExp(`[_!]react_${desc.event.toLowerCase()}`)
         let reacted = false
 
         for (const key in thing) {
-            if (key.toLowerCase() === reactProp) {
+            if (key.toLowerCase().match(reactPat)) {
                 await this.doReaction(thing, desc, thing[key])
                 reacted = true
                 break
@@ -941,20 +1023,23 @@ export class MudConnection {
             await connection.doReaction(thing, desc, (thing as any)._react)
         }
     }
-    async doReaction(thing: Thing, desc: Descripton, reaction: string) {
+    async doReaction(thing: Thing, desc: Descripton, reaction: string | (() => void)) {
         if (this.remote) throw new Error(`Attempt to react in a remote connection`)
         if (this.acted.has(thing) && !this.pendingReactions.has(thing)) {
             this.pendingReactions.set(thing, () => this.doReaction(thing, desc, reaction))
             this.queueTick()
         } else {
-            const oldEvent = this.currentEvent
+            const oldEvent = this.event
 
             try {
-                this.currentEvent = desc
+                const con = this.connectionFor(thing)
+
+                con.event = desc
+                con.conditionResult = this.conditionResult
                 this.acted.add(thing)
-                await this.connectionFor(thing).runCommands(this.substituteCommand(reaction, [thing, ...desc.args]))
+                await con.runCommands(con.substituteCommand(reaction, [thing, ...desc.args]))
             } finally {
-                this.currentEvent = oldEvent
+                this.event = oldEvent
             }
         }
     }
@@ -966,7 +1051,7 @@ export class MudConnection {
             con.admin = true
             con.world = this.world
             con.remote = true
-            con.currentEvent = this.currentEvent
+            con.event = this.event
             con.conditionResult = this.conditionResult
             con.suppressOutput = this.suppressOutput
         }
@@ -1037,192 +1122,33 @@ export class MudConnection {
         }
         return false
     }
-    // the command is split into if-keywords (@if, @then, @else, @elseif, @end) and quoted strings
-    // intervening clauses can contain if-keywords, quoted strings, and semicolons
-    async runIfs(parts: string[]) {
-        const clauses = findIfClauses(parts.slice(1))
-
-        const [condition, conditionRest] = await this.computeExpr(exprTokens(clauses[0]))
-        if (conditionRest.length) {
-            throw new Error(`Extra text after condition: ${conditionRest.join(' ')}`)
-        }
-        if (condition) {
-            try {
-                this.conditionResult = condition
-                await this.runCommands(findCommands(clauses[1]))
-                return
-            } finally {
-                this.conditionResult = null
-            }
-        } else {
-            for (let i = 2; i < clauses.length - 1; i += 2) {
-                const [elcondition, elconditionRest] = await this.computeExpr(exprTokens(clauses[i]))
-
-                if (elconditionRest.length) {
-                    throw new Error(`Extra text after condition: ${elconditionRest.join(' ')}`)
-                }
-                if (elcondition) {
-                    try {
-                        this.conditionResult = condition
-                        await this.runCommands(findCommands(clauses[i + 1]))
-                        return
-                    } finally {
-                        this.conditionResult = null
-                    }
-                }
-            }
-            if (clauses.length % 2 === 1) { // there is an else clause
-                return this.runCommands(findCommands(clauses[clauses.length - 1]))
-            }
-        }
+    async inAny(target: Thing, prop: string, thing = this.thing) {
+        return (await this.findAny(prop, thing))?.has(target.id)
     }
-    async computeExpr(toks: string[], prec = tokPrecLevels.length): Promise<[any, string[]]> {
-        const origExpr = toks.join(' ')
-        let first: any
-        let second: any
+    async findAny(prop: string, thing = this.thing) {
+        const collection = new Set()
+        let pair: [any, any]
+        let possible: any
+        let useCollection = false
 
-        while (toks.length) {
-            if (toks[0] === '!') {
-                const [fst, firstToks] = await this.parseItem(toks.slice(1))
-                first = !fst
-                toks = firstToks
-            } else {
-                const [fst, firstToks] = await this.parseItem(toks)
-
-                first = fst
-                toks = firstToks
-            }
-            if (!toks.length) break
-            const op = toks[0]
-            const tokPrec = tokPrecLevels.findIndex(t => t.indexOf(op) > -1)
-            if (tokPrec === -1) throw new Error(`Bad expression operator: ${op}`)
-            if (tokPrec >= prec) return [first, toks]
-            const [next, nextToks] = await this.computeExpr(toks.slice(1), tokPrec)
-
-            second = next
-            toks = nextToks
-            switch (op) {
-                case 'in':
-                    if (typeof first === 'number') first = await this.world.getThing(first)
-                    if (!(first instanceof Thing)) throw new Error(`in only works on things: ${origExpr}`)
-                    if (!second) {
-                        first = false
-                    } else if (second instanceof Thing) {
-                        first = first._location === second.id
-                    } else if ('indexOf' in second) {
-                        first = second.indexOf(first._id) !== -1
-                    } else if ('has' in second) {
-                        first = second.has(first._id)
-                    } else {
-                        throw new Error(`value for 'in' is not a collection: ${origExpr}`)
-                    }
-                    break
-                case 'match':
-                    first = String(first).match(String(second))
-                    break
-                case '*':
-                    first = first * second
-                    break
-                case '/':
-                    first = first / second
-                    break
-                case '+':
-                    first = first + second
-                    break
-                case '-':
-                    first = first - second
-                    break
-                case '<':
-                    first = first < second
-                    break
-                case '<=':
-                    first = first <= second
-                    break
-                case '==':
-                    if ((first instanceof Thing) !== (second instanceof Thing)) {
-                        first = first instanceof Thing ? first.id : first
-                        second = second instanceof Thing ? second.id : second
-                    }
-                    first = first === second
-                    break
-                case '!=':
-                    if ((first instanceof Thing) !== (second instanceof Thing)) {
-                        first = first instanceof Thing ? first.id : first
-                        second = second instanceof Thing ? second.id : second
-                    }
-                    first = first !== second
-                    break
-                case '>=':
-                    first = first >= second
-                    break
-                case '>':
-                    first = first > second
-                    break
-                case '&&':
-                    first = first && second
-                    break
-                case '||':
-                    first = first || second
-                    break
-                default:
-                    throw new Error(`Unknown operator: ${op}`)
+        pair = this.gatherAny(prop, collection, thing)
+        if (pair) {
+            if (pair[0] !== undefined) return pair[0]
+            possible = pair[1]
+            if (possible === undefined) useCollection = true
+        }
+        for (const item of await thing.getContents()) {
+            pair = this.gatherAny(prop, collection, item)
+            if (pair) {
+                if (pair[0] !== undefined) return pair[0]
+                possible = pair[1]
+                if (possible === undefined) useCollection = true
             }
         }
-        return [first, toks]
+        if (possible !== undefined) return possible
+        if (useCollection) return collection
     }
-
-    // could be a number, string, boolean, name, name.property
-    async parseItem(toks: string[]) {
-        if (toks[0] === '(') {
-            const [value, newToks] = await this.computeExpr(toks.slice(1))
-
-            if (newToks[0] !== ')') throw new Error(`Unclosed parentheses: ${toks.join(' ')}`)
-            return [value, newToks.slice(1)]
-        } else if (toks[0].match(valuePat)) {
-            return [JSON.parse(toks[0]), toks.slice(1)]
-        } else if (toks[0] === 'undefined') {
-            return [undefined, toks.slice(1)]
-        } else if (toks[0].match(thingPat)) {
-            const match = toks[0].match(thingPat)
-            if (match[1] === '%any' && match[2]) { // currently just you and your stuff's properties
-                const prop = `_${match[2]}`
-                const collection = new Set()
-                let pair: [any, any]
-                let possible: any
-                let useCollection = false
-
-                pair = this.gatherAny(this.thing, prop, collection)
-                if (pair) {
-                    if (pair[0] !== undefined) return [pair[0], toks.slice(1)]
-                    possible = pair[1]
-                    if (possible === undefined) useCollection = true
-                }
-                for (const item of await this.thing.getContents()) {
-                    pair = this.gatherAny(item, prop, collection)
-                    if (pair) {
-                        if (pair[0] !== undefined) return [pair[0], toks.slice(1)]
-                        possible = pair[1]
-                        if (possible === undefined) useCollection = true
-                    }
-                }
-                if (possible !== undefined) return [possible, toks.slice(1)]
-                if (useCollection) return [collection, toks.slice(1)]
-                throw new Error(`Could not find a ${match[2]} property`)
-            }
-            const thing = await this.find(match[1])
-
-            if (!thing) throw new Error(`Could not find thing ${match[1]}`)
-            if (match[2]) {
-                if (thing instanceof Thing) return [thing['_' + match[2]], toks.slice(1)]
-                return [thing[match[2]], toks.slice(1)]
-            } else {
-                return [thing, toks.slice(1)]
-            }
-        } else {
-            throw new Error(`Could not parse ${toks[0]}`)
-        }
-    }
-    gatherAny(thing: Thing, prop: string, collection: Set<any>): [any, any] {
+    gatherAny(prop: string, collection: Set<any>, thing: Thing): [any, any] {
         if (prop in thing) {
             if (Array.isArray(thing[prop]) || thing[prop] instanceof Set) {
                 for (const item of thing[prop]) {
@@ -1281,7 +1207,7 @@ export class MudConnection {
     // COMMAND
     async go(cmdInfo, directionStr) {
         if (!cmdInfo.substituted) {
-            const cmd = await this.findCommand([directionStr, 'me'], '_go')
+            const cmd = await this.findCommand([directionStr, 'me'], 'go')
             if (cmd) return this.runCommands(cmd)
         }
         const oldLoc = await this.thing.getLocation()
@@ -1306,7 +1232,7 @@ export class MudConnection {
             const ctx = formatContexts(newPx >= oldPx ? location._contentsEnterFormat : oldLoc._contentsExitFormat)
             await this.world.doTransaction(async () => { this.thing.setLocation(location) })
             ctx.others && await this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing)
-            ctx.me && await this.formatOutput(emitter, ctx.me, [this.thing, oldLoc, location])
+            ctx.me && await this.basicFormat(emitter, ctx.me, [this.thing, oldLoc, location])
             ctx.others && await this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing)
         } else {
             const link = direction._otherLink && await direction.getOtherLink()
@@ -1319,8 +1245,8 @@ export class MudConnection {
             }
             const output = await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location)
             const exitCtx = formatContexts(direction._linkExitFormat)
-            await this.world.doTransaction(async () => { this.thing.setLocation(location) })
             exitCtx.others && await this.formatDescripton(direction, exitCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false)
+            await this.world.doTransaction(async () => { this.thing.setLocation(location) })
             output && this.output(output)
             const enterCtx = formatContexts(direction._linkEnterFormat)
             await this.formatDescripton(link, enterCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false)
@@ -1371,7 +1297,7 @@ export class MudConnection {
     async get(cmdInfo, thingStr, ...args: Thing[]) {
         const location = await this.thing.getLocation()
         let loc = location
-        let newCommands: string[]
+        let newCommands: any
 
         if (args.length) {
             const [_, name] = findSimpleName(args.join(' '))
@@ -1380,12 +1306,14 @@ export class MudConnection {
             if (!loc) return this.errorNoThing(name)
         }
         const thing = await this.find(thingStr, loc)
-        if (thing) {
-            const cmd = this.checkCommand('_get', thingStr, thing, true)
+        if (thing && thing._location === this.thing.id) {
+            return this.error(`You are already holding ${this.formatName(thing)}`)
+        } else if (thing) {
+            const cmd = this.checkCommand('get', thingStr, thing, true)
             if (cmd) newCommands = this.substituteCommand(cmd, [`%${thing._id}`, ...dropArgs(1, cmdInfo).split(/\s+/)])
         }
         if (!newCommands && !thing) {
-            newCommands = (await this.findCommand(dropArgs(1, cmdInfo).split(/\s+/), '_get')) as any
+            newCommands = (await this.findCommand(dropArgs(1, cmdInfo).split(/\s+/), 'get')) as any
         }
         if (newCommands) return this.runCommands(newCommands)
         if (!thing) return this.errorNoThing(thingStr)
@@ -1411,6 +1339,7 @@ export class MudConnection {
         if (text[0] === '"') text = text.substring(1, text.length - 1)
         const ctx = formatContexts(text)
 
+        args = await this.findAll(args, undefined, 'thing')
         ctx.me && this.output(`You say, "${await this.basicFormat(this.thing, ctx.me, args)}"`)
         ctx.others && await this.formatDescripton(this.thing, `says, "${ctx.others}"`, args, 'say', [text])
     }
@@ -1499,24 +1428,96 @@ ${protos.join('\n  ')}`)
         this.output(`Linked ${await this.dumpName(loc1)}->${await this.dumpName(exit1)}--${await this.dumpName(exit2)}<-${await this.dumpName(loc2)}`)
     }
     // COMMAND
+    async atCall(cmdInfo, thingStr: string, prop: string, ...args: any[]) {
+        const thing = await this.find(thingStr, undefined, 'receiver')
+        const method = thing['!' + prop]
+        const things = await this.findAll(args, undefined, 'thing')
+
+        if (typeof method !== 'function') {
+            this.error(`No function ${thingStr}.${prop}`)
+        } else {
+            const result = await method.apply(this.connectionFor(thing), things)
+
+            if (result instanceof CommandContext) {
+                return result.run()
+            } else {
+                this.output(result + '')
+            }
+        }
+    }
+    // COMMAND
+    async atJs(cmdInfo) {
+        const line = dropArgs(1, cmdInfo)
+        const [, varSection, codeSection] = line.match(/^((?:\s*[a-zA-Z]+\s*(?:=\s*[^\s]+\s*)?)+,)?\s*(.*)\s*$/)
+        const vars = []
+        const values = []
+        const code = codeSection.match(/;/) ? codeSection : 'return ' + codeSection
+
+        if (varSection) {
+            for (const [, varname, value] of varSection.matchAll(/\s*([a-zA-Z]+)\s*(?:=\s*([^\s,]+))?\s*/g)) {
+                vars.push(varname)
+                values.push(value || varname)
+            }
+        }
+        // tslint:disable-next-line:only-arrow-functions, no-eval
+        const result = (eval(`(async function(${vars.join(', ')}){
+const cmd = this.cmd.bind(this);
+const cmdf = this.cmdf.bind(this);
+${code}
+})`) as (...args) => any).apply(this, await this.findAll(values, undefined, 'thing'))
+        if (result instanceof CommandContext) {
+            return result.run()
+        } else {
+            this.output(result + '')
+        }
+    }
+    // COMMAND
+    async atMethod(cmdInfo, thingStr, prop) {
+        const thing = await this.find(thingStr, undefined, 'receiver')
+        const code = dropArgs(3, cmdInfo)
+        const realProp = '!' + prop
+
+        if (!code) {
+            if (typeof thing[realProp] === 'function') {
+                this.output(`Deleted function ${thingStr}.${prop}`)
+            } else {
+                this.error(`No function ${thingStr}.${prop}`)
+            }
+        } else {
+            const match = code.match(/^\s*(\([^()]*\))((?:.|\s)*)$/)
+
+            if (!match) {
+                this.error(`Bad syntax, expected @method thing property (args) body`)
+            } else {
+                const [, args, body] = [...match]
+                thing.setMethod(realProp, args, body)
+                this.output(`Defined function ${thingStr}.${prop}`)
+            }
+        }
+    }
+    // COMMAND
     async atDump(cmdInfo, thingStr) {
         checkArgs(cmdInfo, arguments)
         const thing = await this.find(thingStr)
         if (!thing) return this.error('could not find ' + thingStr)
+        console.log('DUMPING ', thing)
         const spec = thing.spec()
         const myKeys = new Set(Object.keys(thing).filter(k => !reservedProperties.has(k) && k[0] === '_'))
         const allKeys = []
-        const fp = (prop) => this.formatDumpProperty(thing, prop)
+        const fp = (prop, noParens = false) => this.formatDumpProperty(thing, prop, noParens)
+        const fm = (prop, noParens = false) => this.formatDumpMethod(thing, prop, noParens)
         let result = `<span class='code'>${await this.dumpName(thing)}
-${fp('prototype')}: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
-${fp('location')}:  ${await this.dumpName(thing._location)}
-${fp('contents')}:  ${await this.dumpThingNames(await thing.getContents())}
-${fp('links')}:     ${await this.dumpThingNames(await thing.getLinks())}
-${fp('linkOwner')}: ${await this.dumpName(thing._linkOwner)}
-${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
+${fp('prototype', true)}: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
+${fp('location', true)}:  ${await this.dumpName(thing._location)}
+${fp('contents', true)}:  ${await this.dumpThingNames(await thing.getContents())}
+${fp('links', true)}:     ${await this.dumpThingNames(await thing.getLinks())}
+${fp('linkOwner', true)}: ${await this.dumpName(thing._linkOwner)}
+${fp('otherLink', true)}: ${await this.dumpName(thing._otherLink)}`
 
         for (const prop in thing) {
             if (prop[0] === '_' && !reservedProperties.has(prop)) {
+                allKeys.push(prop)
+            } else if (prop[0] === '!') {
                 allKeys.push(prop)
             }
         }
@@ -1524,7 +1525,13 @@ ${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
         for (const prop of allKeys) {
             const propName = prop.substring(1)
 
-            result += `\n   ${fp(propName)}: ${escape(JSON.stringify(thing[prop]))}`
+            if (prop[0] === '_') {
+                result += `\n   ${fp(propName)}: ${escape(JSON.stringify(thing[prop]))}`
+            } else if (prop[0] === '!') {
+                const [args, body] = thing[prop]._code
+
+                result += `\n   ${fm(propName)}: ${escape(args)} ${escape(body)}`
+            }
         }
         result += '</span>'
         this.output(result)
@@ -1638,7 +1645,6 @@ ${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
             thing[prop] = [thing2._id]
         } else if (thing[prop].indexOf(thing2._id) === -1) {
             if (!thing.hasOwnProperty(prop)) thing[prop] = thing[prop].slice()
-            thing.markDirty()
             thing[prop].push(thing2._id)
             this.output(`Added ${thing2Str} to ${property}`)
         } else {
@@ -1657,7 +1663,6 @@ ${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
         }
         const index = thing[prop].indexOf(thing2._id)
         if (index !== -1) {
-            thing.markDirty()
             thing[prop].splice(index, 1)
             this.output(`Removed ${thing2Str} from ${property}`)
         } else {
@@ -1670,7 +1675,7 @@ ${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
         const thing = await this.find(thingStr, this.thing, 'thing')
         const proto = await this.find(protoStr, this.thing, 'prototype');
         (thing as any).__proto__ = proto
-        thing.markDirty(thing._prototype = proto.id)
+        thing._prototype = proto.id
         this.output(`You changed the prototype of ${this.formatName(thing)} to ${this.formatName(proto)}`)
     }
     // COMMAND
@@ -1695,7 +1700,6 @@ ${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
         value = val
         if (!thing) return
         if (addableProperties.has(realProp)) return this.error(`Cannot set ${property}`)
-        thing.markDirty(null)
         switch (lowerProp) {
             case 'react_tick':
                 thing._react_tick = String(value)
@@ -1747,7 +1751,7 @@ ${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
                 break
             default:
                 if (value instanceof Thing) value = value.id
-                thing.markDirty(thing[realProp] = value)
+                thing[realProp] = value
                 break
         }
         this.output(`set ${thingStr} ${property} to ${value}`)
@@ -1775,8 +1779,9 @@ ${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
     }
     async atToast(cmdInfo: any, thingStr: string) {
         checkArgs(cmdInfo, arguments)
-        const things = [...arguments].slice(1).map(async t => await this.find(t, this.thing, 'thing'))
+        const things = await this.findAll([...arguments].slice(1), this.thing, 'thing')
         let out = ''
+        const all = new Set<Thing>()
 
         for await (const thing of things) {
             const connected = await thing.findConnected()
@@ -1790,8 +1795,8 @@ ${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
                 } else if (connectionMap.has(item)) {
                     throw new Error(`${this.formatName(item)} has a player`)
                 }
+                all.add(item)
             }
-            await this.world.toast(connected)
             out += `<div>You toasted ${this.formatName(thing)}`
             if (connected.size > 1) {
                 const num = connected.size - 1
@@ -1800,39 +1805,18 @@ ${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
             }
             out += '<\div>'
         }
+        await this.world.toast(all)
         this.output(out)
-    }
-    async atExpr(cmdInfo: any, thingStr: string, property: string, expr: any) {
-        checkArgs(cmdInfo, arguments)
-        const [thing, lowerProp, realProp, val] = await this.thingProps(thingStr, property, '0', cmdInfo)
-
-        if (!thing) return
-        if (addableProperties.has(realProp)) return this.error(`Cannot set ${property}`)
-        const [value, rest] = await this.computeExpr(exprTokens(splitIf(dropArgs(3, cmdInfo))))
-        if (rest.length) {
-            throw new Error(`Extra text after condition: ${rest.join(' ')}`)
-        }
-        if (realProp in thing) {
-            const old = thing[realProp]
-
-            if (typeof old !== typeof value) {
-                return this.error(`${property} is a ${typeof old}, not a ${typeof value}`)
-            }
-        }
-        if (realProp === '_fullName') {
-            thing.markDirty(thing.fullName = value)
-        } else {
-            thing.markDirty(thing[realProp] = value)
-        }
-        this.output(`You set ${thingStr} ${property} to ${value}`)
-    }
-    // COMMAND
-    atIf(cmdInfo) {
-        return this.runIfs(splitIf(cmdInfo.line))
     }
     // COMMAND
     atDelay(cmdInfo) {
-        setTimeout(() => this.command(dropArgs(1, cmdInfo)))
+        if (this.world.transactionPromise) {
+            // tslint:disable-next-line:no-floating-promises
+            this.world.transactionPromise
+                .then(() => setTimeout(async () => await this.command(dropArgs(1, cmdInfo)), 1))
+        } else {
+            setTimeout(async () => await this.command(dropArgs(1, cmdInfo)), 1)
+        }
     }
     // COMMAND
     async atBluepill(cmdInfo) {
@@ -1863,7 +1847,7 @@ ${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
     // COMMAND
     async atDel(cmdInfo, thingStr, property) {
         checkArgs(cmdInfo, arguments)
-        const [thing, lowerProp, realProp, value, propMap] = await this.thingProps(thingStr, property, null, cmdInfo)
+        const [thing, lowerProp, realProp, value, propMap] = await this.thingProps(thingStr, property, undefined, cmdInfo)
 
         if (!thing) return
         if (!propMap.has(lowerProp)) {
@@ -1873,7 +1857,6 @@ ${fp('otherLink')}: ${await this.dumpName(thing._otherLink)}`
             return this.error('Reserved property: ' + property)
         }
         delete thing[realProp]
-        thing.markDirty()
         this.checkTicker(thing)
         this.output(`deleted ${property} from ${thing.name}`)
     }
@@ -1961,99 +1944,8 @@ You can use <b>me</b> for yourself, <b>here</b> for your location, and <b>out</b
 MudConnection.prototype.commands = initCommands(commands)
 
 
-function exprTokens(cond: string[]) {
-    const tokens = []
-
-    for (const part of cond) {
-        if (part[0] === '"' || part[0] === "'") {
-            tokens.push(part)
-        } else {
-            tokens.push(...part.split(/(\(|\)|\s+|<|<=|==|>=|>|\+|-|!|&&|\|\|)/).filter(x => x.trim()))
-        }
-    }
-    return tokens
-}
-
-function findCommands(toks: string[]) {
-    const lines = [] as string[]
-    let curLine = [] as string[]
-    let nesting = 0
-
-    for (const tok of toks) {
-        if (tok.toLowerCase() === '@if') {
-            nesting++
-        } else if (tok.toLowerCase() === '@end') {
-            nesting--
-        }
-        // only statements at the top level of this context are different commands
-        if (nesting === 0) {
-            const lineChunks = tok.split(';')
-
-            for (let i = 0; i < lineChunks.length; i++) {
-                if (i > 0) {
-                    lines.push(curLine.join(' ').trim())
-                    curLine = []
-                }
-                curLine.push(lineChunks[i])
-            }
-        } else {
-            curLine.push(tok)
-        }
-    }
-    if (curLine.length) {
-        lines.push(curLine.join(' ').trim())
-    }
-    return lines
-}
-
 function splitQuotedWords(line: string) {
     return line.split(wordAndQuotePat).filter(x => x) // discard empty strings
-}
-
-function splitIf(line: string) {
-    return line.split(ifPat).filter(x => x) // discard empty strings
-}
-
-function findIfClauses(toks: string[]) {
-    let nesting = 0
-    let start = 0
-    const clauses = [] as string[][]
-    let i = 0
-    let foundThen = false
-    let foundElse = false
-
-    for (; i < toks.length; i++) {
-        if (nesting === 0 && toks[i].toLowerCase().match(/^(@then|@else|@elseif|@end)$/)) {
-            if (toks[i].toLowerCase() === '@then') {
-                if (foundThen) throw new Error(`More than one @then: ${toks.join(' ')}`)
-                foundThen = true
-            } else if (toks[i].toLowerCase() !== '@then' && !foundThen) {
-                if (clauses.length) throw new Error(`@if requires a @then: ${toks.join(' ')}`)
-            } else if (toks[i].toLowerCase() === '@else') {
-                if (foundElse) throw new Error(`More than one @else: ${toks.join(' ')}`)
-                foundElse = true
-            } else if (toks[i].toLowerCase() === '@elseif') {
-                if (foundElse) throw new Error(`@elseif should not be after @else: ${toks.join(' ')}`)
-                foundThen = false
-            }
-            clauses.push(toks.slice(start, i))
-            start = i + 1
-            if (toks[i].toLowerCase() === '@end') break
-        } else if (toks[i].toLowerCase() === '@if') {
-            if (nesting === 0 && !foundThen) throw new Error(`More than one @if: ${toks.join(' ')}`)
-            nesting++
-        } else if (nesting > 0 && toks[i].toLowerCase() === '@end') {
-            nesting--
-        }
-    }
-    if (start < i) { // no @end for @if
-        clauses.push(toks.slice(start, i))
-    } else if (start < toks.length) {
-        throw new Error(`Extra text after @end: ${toks.slice(start)}`)
-    } else if (clauses.length < 2) {
-        throw new Error('@if requires @then')
-    }
-    return clauses
 }
 
 function helpText(argLen: number, command: any) {

@@ -7,10 +7,10 @@ objects:
   - id: 0
     name: limbo
     fullName: Limbo
-    description: You are floating in $this<br>$links<br><br>$contents
     location: 0
     linkOwner: null
     otherLink: null
+    description: You are floating in $this<br>$links<br><br>$contents
     prototype: 5
   - id: 1
     name: lobby
@@ -36,11 +36,12 @@ objects:
     description: This is $this
     article: the
     contentsFormat: $This $is here
-    contentsEnterFormat: $forme You go into $this $forothers $Arg goes into $this
+    contentsEnterFormat: $forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2
     examineFormat: 'Exits: $links<br>Contents: $contents'
     linkFormat: $This leads to $link
     keys: []
     priority: 0
+    contentsExitFormat: $forme You leave $this to $arg3 $forothers $Arg leaves $this to $arg3
   - id: 4
     name: link
     fullName: link
@@ -51,11 +52,12 @@ objects:
     prototype: 3
     article: ''
     locked: false
-    cmd: '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don''t have the key $forothers $Arg tries to go $this to $link but doesn''t have the key" me @event $0 false go $0'
-    go: '@if !$0.locked || $0 in %any.keys @then go $1 @else @output $0 "$forme You don''t have the key $forothers $Arg tries to go $this to $link but doesn''t have the key" me @event $0 false go $0'
-    linkEnterFormat: $Arg1 enters $arg2
+    linkEnterFormat: $Arg1 entered $arg3
     linkMoveFormat: You went $name to $arg3
-    linkExitFormat: $Arg1 went $name to $arg2
+    linkExitFormat: $Arg1 went $name to $arg3
+    get: "\n@output $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me @event me false get $0\n"
+    '!cmd': &ref_0 ['(dir, dest)', "\n                if (!dir._locked || await this.inAny(dir, '_keys')) {\n                    return this.cmd('go', dir);\n                } else {\n                    return this.cmdf('@output $0 \"$forme You don\\'t have the key $forothers $Arg tries to go $this to $link but doesn\\'t have the key\" me @event me false go $0', dir);\n                }\n"]
+    '!go': *ref_0
   - id: 5
     name: room
     fullName: room
@@ -73,7 +75,7 @@ objects:
     otherLink: null
     description: This is a thing
     prototype: 3
-    get: "\n@quiet;\n@copy $0;\n@expr %-1 fullName \"a \" + $0.name;\n@reproto %-1 %proto:thing;\n@loud;\n@output %-1 \"$forme You pick up $this $forothers $Arg picks up $arg2\" me %-1 @event me get %-1\n"
+    get: "\n@quiet;\n@copy $0;\n@js obj = %-1, obj.fullName  = \"a \" + obj._name;\n@reproto %-1 %proto:thing;\n@loud;\n@output %-1 \"$forme You pick up $this $forothers $Arg picks up $arg2\" me %-1 @event me get %-1\n"
     priority: -1
   - id: 7
     name: person
@@ -85,10 +87,11 @@ objects:
     prototype: 3
     article: ''
     examineFormat: 'Carrying: $contents'
+    get: "\n@output $0 \"$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't\" me @event me false get $0\n"
   - id: 8
     name: a
     fullName: ''
-    location: 1
+    location: 0
     linkOwner: null
     otherLink: null
     prototype: 7
