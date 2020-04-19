@@ -139,7 +139,8 @@ class Peer extends proto.DelegatingHandler {
     async start() {
         const url = "ws://" + document.location.host + "/";
         console.log("STARTING MUDPROTO");
-        proto.startProtocol(url + "libp2p", new proto.LoggingHandler(this.trackingHandler));
+        const ws = proto.startProtocol(url + "libp2p", new proto.LoggingHandler(this.trackingHandler));
+        ws.onclose = () => gui.die("Connection has closed");
     }
     db() {
         return this.storage.db;
@@ -191,6 +192,12 @@ class Peer extends proto.DelegatingHandler {
             default:
                 assertUnreachable(roleTracker.value);
                 break;
+        }
+    }
+    // P2P API
+    error(msg) {
+        if (!versionID) {
+            gui.die(msg);
         }
     }
     // P2P API
@@ -512,6 +519,7 @@ class GuestStrategy extends Strategy {
             peer.userMap.set(peerID, new UserInfo(peerID, user));
         }
         peer.showUsers();
+        gui.setMudOutput('');
     }
     // mud API message
     setUser(info, { peerID, user }) {

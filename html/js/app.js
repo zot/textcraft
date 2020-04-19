@@ -1,28 +1,7 @@
 import { NatState, RoleState, RelayState, SectionState, PeerState, natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, } from "./base.js";
 let app;
-let worker;
 export function init(appObj) {
     app = appObj;
-    console.log('STARTING WORKER');
-    worker = new window.SharedWorker('js/worker.js');
-    worker.port.start();
-    const msg = new WorkerMessaging();
-    worker.port.onmessage = msg.handle.bind(msg);
-}
-class WorkerMessaging {
-    handle(msg) {
-        console.log('RECEVING WORKER MESSAGE', msg);
-        if (msg.name in this) {
-            this[msg.name](msg);
-        }
-    }
-    output({ text }) {
-        console.log('Output from worker: ', text);
-    }
-}
-export function sendMessage(msg) {
-    console.log('SENDING WORKER MESSAGE', msg);
-    worker.port.postMessage(msg);
 }
 natTracker.observe((state, tracker) => {
     switch (state) {

@@ -975,6 +975,7 @@ function startProtocol(urlStr, handler) {
             }
         });
     }
+    return ws
 }
 
 function getCountedStringNext(dv, offset) {

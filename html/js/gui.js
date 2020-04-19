@@ -3,7 +3,6 @@ import * as model from './model.js';
 import * as mudcontrol from './mudcontrol.js';
 import * as storagecontrol from './storagecontrol.js';
 import * as mudproto from './mudproto.js';
-import * as app from './app.js';
 const jsyaml = window.jsyaml;
 let nextId = 0;
 export const exampleMuds = `
@@ -157,18 +156,18 @@ You have no MUDs in storage, click "Upload" above, to load a MUD from your disk.
         const div = cloneTemplate('#mud-item-template');
         $('#storage-list').append(div);
         $find(div, '[name=name]').textContent = world;
-        div.onclick = async () => editWorld(await model.storage.openWorld(world));
+        div.onclick = () => editWorld(world);
         $find(div, '[name=copy-mud]').onclick = async (evt) => {
             evt.stopPropagation();
             const w = await model.storage.openWorld(world);
             const newName = worldCopyName(world);
             await w.copyWorld(newName);
             showMuds();
-            return editWorld(await model.storage.openWorld(newName));
+            return editWorld(newName);
         };
         $find(div, '[name=activate-mud]').onclick = async (evt) => {
             evt.stopPropagation();
-            const playingThis = mudcontrol.connection?.world?.name == world;
+            const playingThis = mudcontrol.connection?.world?.name === world;
             if (mudTracker.value === MudState.Playing) {
                 mudcontrol.quit();
             }
@@ -185,7 +184,6 @@ async function activateMud(world) {
     roleTracker.setValue(RoleState.Solo);
     await mudcontrol.runMud(world, text => {
         addMudOutput('<div>' + text + '</div>');
-        app.sendMessage({ name: 'output', text: '<div>' + text + '</div>' });
     });
     $('#mud-name').textContent = world.name;
 }
@@ -275,7 +273,18 @@ async function populateExtensions(world, editor, changes) {
         extensionDiv.appendChild(populateExtensionItem(world, editor, ext, changes));
     }
 }
-export async function editWorld(world) {
+export async function editWorld(worldName) {
+    let world;
+    try {
+        world = await model.storage.openWorld(worldName);
+    }
+    catch (err) {
+        if (confirm(`Error opening world, delete world?`)) {
+            await model.storage.deleteWorld(worldName);
+            showMuds();
+            return;
+        }
+    }
     let processUsers = false;
     let deleted = false;
     const div = cloneTemplate('#mud-editor-template');
@@ -643,6 +652,10 @@ async function runMudCommand() {
 }
 export function selectStorage() {
     sectionTracker.setValue(SectionState.Storage);
+}
+export function die(msg) {
+    $('#deadMsg').innerHTML = msg;
+    $('#dead').classList.remove('hide');
 }
 export function start() {
     radioTracker(natTracker, 'Nat');

@@ -751,10 +751,8 @@ export class MudConnection {
             if (!substituted) {
                 this.output('<div class="input">&gt; <span class="input-text">' + escape(originalLine) + '</span></div>');
                 if (this.history[this.historyPos - 1] !== originalLine) {
-                    this.history[this.historyPos++] = originalLine;
-                    if (this.historyPos < this.history.length) {
-                        this.history = this.history.slice(this.historyPos - 1);
-                    }
+                    this.history.push(originalLine);
+                    this.historyPos = this.history.length;
                 }
                 if (!this.commands.has(commandName) && this.thing) {
                     const newCommands = await this.findCommand(words);
@@ -1119,6 +1117,19 @@ export class MudConnection {
             }
         }
     }
+    formatValue(value) {
+        if (value instanceof Thing)
+            return `%${value.id}`;
+        if (value === null)
+            return 'null';
+        if (Array.isArray(value)) {
+            return `[${value.map(t => this.formatValue(t)).join(', ')}]`;
+        }
+        else if (typeof value === 'object') {
+            return `{${Object.keys(value).map(k => k + ': ' + this.formatValue(value[k])).join(', ')}}`;
+        }
+        return String(value);
+    }
     // COMMAND
     login(cmdInfo, user, password) {
         return this.doLogin(user, password, user);
@@ -1432,7 +1443,7 @@ ${protos.join('\n  ')}`);
             return result.run();
         }
         else {
-            this.output(result + '');
+            this.output(this.formatValue(result));
         }
     }
     // COMMAND
@@ -1604,7 +1615,7 @@ ${fp('otherLink', true)}: ${await this.dumpName(thing._otherLink)}`;
         const thing = await this.find(thingStr, this.thing, 'thing');
         const thing2 = await this.find(thing2Str, this.thing, 'thing2');
         const prop = '_' + property.toLowerCase();
-        if (!addableProperties.has(prop)) {
+        if (!Array.isArray(thing[prop]) && !addableProperties.has(prop)) {
             return this.error(`${property} is not a list`);
         }
         if (!thing[prop]) {
@@ -1626,7 +1637,7 @@ ${fp('otherLink', true)}: ${await this.dumpName(thing._otherLink)}`;
         const thing = await this.find(thingStr, this.thing, 'thing');
         const thing2 = await this.find(thing2Str, this.thing, 'thing2');
         const prop = '_' + property.toLowerCase();
-        if (!addableProperties.has(prop)) {
+        if (!Array.isArray(thing[prop]) && !addableProperties.has(prop)) {
             this.error(`${property} is not a list`);
         }
         const index = thing[prop].indexOf(thing2._id);

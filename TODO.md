@@ -1,9 +1,3 @@
-# Can't delete a hosed MUD
-
-# Shouldn't be able to connect two browsers
-
-# Use window messaging to update things so multiple tabs work
-
 # QuestItem prototype
 * Generator makes only one per person, recording the generator id in a 'personal' prop
 * Items are invisible to others

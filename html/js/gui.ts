@@ -176,18 +176,18 @@ You have no MUDs in storage, click "Upload" above, to load a MUD from your disk.
 
         $('#storage-list').append(div)
         $find(div, '[name=name]').textContent = world
-        div.onclick = async () => editWorld(await model.storage.openWorld(world))
+        div.onclick = () => editWorld(world)
         $find(div, '[name=copy-mud]').onclick = async evt => {
             evt.stopPropagation()
             const w = await model.storage.openWorld(world)
             const newName = worldCopyName(world)
             await w.copyWorld(newName)
             showMuds()
-            return editWorld(await model.storage.openWorld(newName))
+            return editWorld(newName)
         }
         $find(div, '[name=activate-mud]').onclick = async evt => {
             evt.stopPropagation()
-            const playingThis = mudcontrol.connection?.world?.name == world
+            const playingThis = mudcontrol.connection?.world?.name === world
 
             if (mudTracker.value === MudState.Playing) {
                 mudcontrol.quit()
@@ -207,7 +207,6 @@ async function activateMud(world: model.World) {
 
     await mudcontrol.runMud(world, text => {
         addMudOutput('<div>' + text + '</div>')
-        app.sendMessage({ name: 'output', text: '<div>' + text + '</div>' })
     })
     $('#mud-name').textContent = world.name
 }
@@ -304,7 +303,17 @@ async function populateExtensions(world: model.World, editor: HTMLElement, chang
     }
 }
 
-export async function editWorld(world: model.World) {
+export async function editWorld(worldName: string) {
+    let world: model.World
+    try {
+        world = await model.storage.openWorld(worldName)
+    } catch (err) {
+        if (confirm(`Error opening world, delete world?`)) {
+            await model.storage.deleteWorld(worldName)
+            showMuds()
+            return
+        }
+    }
     let processUsers = false
     let deleted = false
     const div = cloneTemplate('#mud-editor-template')
@@ -701,6 +710,11 @@ async function runMudCommand() {
 
 export function selectStorage() {
     sectionTracker.setValue(SectionState.Storage)
+}
+
+export function die(msg: string) {
+    $('#deadMsg').innerHTML = msg
+    $('#dead').classList.remove('hide')
 }
 
 export function start() {

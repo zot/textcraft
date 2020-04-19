@@ -15,6 +15,7 @@ const locationIndex = 'locations'
 const userThingIndex = 'things'
 const linkOwnerIndex = 'linkOwners'
 const otherLinkIndex = 'otherLink'
+const associationIndex = 'associations'
 const nameIndex = 'names'
 const usersSuffix = ' users'
 const extensionsSuffix = ' extensions'
@@ -91,6 +92,7 @@ export class Thing {
     _keys: thingId[]
     _closed: boolean             // closed objects do not propagate descriptons to their locations
     _priority: number            // whether something will be picked against other, same-named things
+    _associations: thingId[]     // associated things
     world: World
     originalSpec: any
     toasted: boolean
@@ -129,6 +131,7 @@ export class Thing {
     get linkFormat() { return this._linkFormat }
     set linkFormat(f: string) { this._linkFormat = f }
     getContents(): Promise<Thing[]> { return this.world.getContents(this) }
+    getAssociated(): Promise<Thing[]> { return this.world.getAssociated(this) }
     getPrototype(): Promise<Thing> { return this.world.getThing(this._prototype) }
     setPrototype(t: Thing) {
         if (t) {
@@ -218,11 +221,12 @@ ${realCode};
         const original = this.originalSpec
         const keys = new Set(Object.keys(spec))
 
-        for (let prop in original) {
-            if (original[prop] === spec[prop]) {
-                keys.delete(prop)
-            } else {
+        if (keys.size !== Object.keys(original).length) return true
+        for (const prop of Object.keys(original)) {
+            if (!same(original[prop], spec[prop])) {
                 return true
+            } else {
+                keys.delete(prop)
             }
         }
         return keys.size > 0
@@ -239,8 +243,17 @@ ${realCode};
         }
         return spec
     }
-    async useSpec(spec: any) {
+    setSpec(spec: any) {
         this.originalSpec = spec
+        for (const k of Object.keys(spec)) {
+            const value = spec[k]
+
+            if (value && typeof value === 'object') {
+                spec[k] = JSON.parse(JSON.stringify(value))
+            }
+        }
+    }
+    async useSpec(spec: any) {
         for (const prop of Object.keys(spec)) {
             if (prop[0] === '!') {
                 let codeSpec = spec[prop]
@@ -256,6 +269,8 @@ ${realCode};
                 this['_' + prop] = spec[prop]
             }
         }
+        // this must be below the above code because setSpec changes spec to avoid aliasing
+        this.setSpec(spec)
         if (spec.prototype) {
             const prototype = await this.world.getThing(spec.prototype)
 
@@ -357,6 +372,10 @@ export class World {
                 thingStore.createIndex(locationIndex, 'location', { unique: false })
                 thingStore.createIndex(linkOwnerIndex, 'linkOwner', { unique: false })
                 thingStore.createIndex(otherLinkIndex, 'otherLink', { unique: false })
+                thingStore.createIndex(associationIndex, 'associations', {
+                    unique: false,
+                    multiEntry: true,
+                })
             }
             req.onerror = fail
         })
@@ -500,7 +519,7 @@ export class World {
 
                             if (thing.isDirty(spec)) {
                                 count++
-                                thing.originalSpec = spec
+                                thing.setSpec(spec)
                                 await promiseFor(this.thingStore.put(spec))
                             }
                         }
@@ -672,7 +691,7 @@ export class World {
     putThing(thing: Thing) {
         const spec = thing.spec()
 
-        thing.originalSpec = spec
+        thing.setSpec(spec)
         return promiseFor(this.thingStore.put(spec))
     }
     async replaceUsers(newUsers: any[]) {
@@ -807,12 +826,10 @@ export class World {
         })
     }
     stamp(thing: Thing) {
-        if (!this.txn) debugger
         if (thing) this.transactionThings.add(thing)
         return thing
     }
     stamps(things: Thing[]) {
-        if (!this.txn) debugger
         for (const t of things) {
             if (t) this.transactionThings.add(t)
         }
@@ -847,7 +864,7 @@ export class World {
                         cpy[prop] = original[prop]
                     }
                 }
-                cpy.originalSpec = {}
+                cpy.originalSpec = {} // guarantee this will be written out
             }
             const thingCopy = copies.get(thing.id)
             return thingCopy
@@ -888,6 +905,16 @@ export class World {
 
         return this.stamps(await this.doTransaction(async (things) => {
             return this.cacheThings(await promiseFor(things.index(locationIndex).getAll(IDBKeyRange.only(id))))
+        }))
+    }
+    async getAssociated(thing: thingId | Thing): Promise<Thing[]> {
+        const id = typeof thing === 'number' ? thing : thing.id
+
+        return this.stamps(await this.doTransaction(async (things) => {
+            if (!things.indexNames.contains(associationIndex)) {
+                return []
+            }
+            return this.cacheThings(await promiseFor(things.index(associationIndex).getAll(IDBKeyRange.only(id))))
         }))
     }
     async getOthers(thing: thingId | Thing): Promise<Thing[]> {
@@ -1027,6 +1054,15 @@ export class MudStorage {
             then(evt)
         }
         return req
+    }
+    async corruptWorld(name: string) {
+        try {
+            const txn = this.db.transaction([mudDbName(name)], 'readwrite')
+            const store = txn.objectStore(mudDbName(name))
+
+            await promiseFor(store.delete('info'))
+            return promiseFor(txn)
+        } catch (err) { }
     }
     deleteWorld(name: string) {
         return new Promise((succeed, fail) => {
@@ -1319,6 +1355,31 @@ function userDbName(name: string) {
 
 function extensionDbName(name: string) {
     return 'world ' + name + extensionsSuffix
+}
+
+function same(a: any, b: any) {
+    if (typeof a !== typeof b) return false
+    if (a === null || b === null) return a === b
+    if (typeof a !== 'object') return a === b
+    if (Array.isArray(a) !== Array.isArray(b)) return false
+    if (Array.isArray(a)) {
+        if (a.length !== b.length) return false
+        for (let i = 0; i < a.length; i++) {
+            if (!same(a[i], b[i])) return false
+        }
+        return true
+    } else {
+        const ak = Object.keys(a)
+        const bkset = new Set(Object.keys(b))
+
+        if (a.__proto__ !== b.__proto__) return false
+        if (ak.length !== Object.keys(b).length) return false
+        for (const k of ak) {
+            if (!same(a[k], b[k])) return false
+            bkset.delete(k)
+        }
+        return bkset.size === 0
+    }
 }
 
 export function randomName(prefix: string) {

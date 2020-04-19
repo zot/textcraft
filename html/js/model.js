@@ -8,6 +8,7 @@ const locationIndex = 'locations';
 const userThingIndex = 'things';
 const linkOwnerIndex = 'linkOwners';
 const otherLinkIndex = 'otherLink';
+const associationIndex = 'associations';
 const nameIndex = 'names';
 const usersSuffix = ' users';
 const extensionsSuffix = ' extensions';
@@ -86,6 +87,7 @@ export class Thing {
     get linkFormat() { return this._linkFormat; }
     set linkFormat(f) { this._linkFormat = f; }
     getContents() { return this.world.getContents(this); }
+    getAssociated() { return this.world.getAssociated(this); }
     getPrototype() { return this.world.getThing(this._prototype); }
     setPrototype(t) {
         if (t) {
@@ -172,12 +174,14 @@ ${realCode};
     isDirty(spec) {
         const original = this.originalSpec;
         const keys = new Set(Object.keys(spec));
-        for (let prop in original) {
-            if (original[prop] === spec[prop]) {
-                keys.delete(prop);
+        if (keys.size !== Object.keys(original).length)
+            return true;
+        for (const prop of Object.keys(original)) {
+            if (!same(original[prop], spec[prop])) {
+                return true;
             }
             else {
-                return true;
+                keys.delete(prop);
             }
         }
         return keys.size > 0;
@@ -194,8 +198,16 @@ ${realCode};
         }
         return spec;
     }
-    async useSpec(spec) {
+    setSpec(spec) {
         this.originalSpec = spec;
+        for (const k of Object.keys(spec)) {
+            const value = spec[k];
+            if (value && typeof value === 'object') {
+                spec[k] = JSON.parse(JSON.stringify(value));
+            }
+        }
+    }
+    async useSpec(spec) {
         for (const prop of Object.keys(spec)) {
             if (prop[0] === '!') {
                 let codeSpec = spec[prop];
@@ -212,6 +224,8 @@ ${realCode};
                 this['_' + prop] = spec[prop];
             }
         }
+        // this must be below the above code because setSpec changes spec to avoid aliasing
+        this.setSpec(spec);
         if (spec.prototype) {
             const prototype = await this.world.getThing(spec.prototype);
             if (!prototype) {
@@ -284,6 +298,10 @@ export class World {
                 thingStore.createIndex(locationIndex, 'location', { unique: false });
                 thingStore.createIndex(linkOwnerIndex, 'linkOwner', { unique: false });
                 thingStore.createIndex(otherLinkIndex, 'otherLink', { unique: false });
+                thingStore.createIndex(associationIndex, 'associations', {
+                    unique: false,
+                    multiEntry: true,
+                });
             };
             req.onerror = fail;
         });
@@ -426,7 +444,7 @@ export class World {
                             const spec = thing.spec();
                             if (thing.isDirty(spec)) {
                                 count++;
-                                thing.originalSpec = spec;
+                                thing.setSpec(spec);
                                 await promiseFor(this.thingStore.put(spec));
                             }
                         }
@@ -588,7 +606,7 @@ export class World {
     }
     putThing(thing) {
         const spec = thing.spec();
-        thing.originalSpec = spec;
+        thing.setSpec(spec);
         return promiseFor(this.thingStore.put(spec));
     }
     async replaceUsers(newUsers) {
@@ -724,15 +742,11 @@ export class World {
         });
     }
     stamp(thing) {
-        if (!this.txn)
-            debugger;
         if (thing)
             this.transactionThings.add(thing);
         return thing;
     }
     stamps(things) {
-        if (!this.txn)
-            debugger;
         for (const t of things) {
             if (t)
                 this.transactionThings.add(t);
@@ -772,7 +786,7 @@ export class World {
                         cpy[prop] = original[prop];
                     }
                 }
-                cpy.originalSpec = {};
+                cpy.originalSpec = {}; // guarantee this will be written out
             }
             const thingCopy = copies.get(thing.id);
             return thingCopy;
@@ -811,6 +825,15 @@ export class World {
         const id = typeof thing === 'number' ? thing : thing.id;
         return this.stamps(await this.doTransaction(async (things) => {
             return this.cacheThings(await promiseFor(things.index(locationIndex).getAll(IDBKeyRange.only(id))));
+        }));
+    }
+    async getAssociated(thing) {
+        const id = typeof thing === 'number' ? thing : thing.id;
+        return this.stamps(await this.doTransaction(async (things) => {
+            if (!things.indexNames.contains(associationIndex)) {
+                return [];
+            }
+            return this.cacheThings(await promiseFor(things.index(associationIndex).getAll(IDBKeyRange.only(id))));
         }));
     }
     async getOthers(thing) {
@@ -942,6 +965,15 @@ export class MudStorage {
             then(evt);
         };
         return req;
+    }
+    async corruptWorld(name) {
+        try {
+            const txn = this.db.transaction([mudDbName(name)], 'readwrite');
+            const store = txn.objectStore(mudDbName(name));
+            await promiseFor(store.delete('info'));
+            return promiseFor(txn);
+        }
+        catch (err) { }
     }
     deleteWorld(name) {
         return new Promise((succeed, fail) => {
@@ -1209,6 +1241,39 @@ function userDbName(name) {
 }
 function extensionDbName(name) {
     return 'world ' + name + extensionsSuffix;
+}
+function same(a, b) {
+    if (typeof a !== typeof b)
+        return false;
+    if (a === null || b === null)
+        return a === b;
+    if (typeof a !== 'object')
+        return a === b;
+    if (Array.isArray(a) !== Array.isArray(b))
+        return false;
+    if (Array.isArray(a)) {
+        if (a.length !== b.length)
+            return false;
+        for (let i = 0; i < a.length; i++) {
+            if (!same(a[i], b[i]))
+                return false;
+        }
+        return true;
+    }
+    else {
+        const ak = Object.keys(a);
+        const bkset = new Set(Object.keys(b));
+        if (a.__proto__ !== b.__proto__)
+            return false;
+        if (ak.length !== Object.keys(b).length)
+            return false;
+        for (const k of ak) {
+            if (!same(a[k], b[k]))
+                return false;
+            bkset.delete(k);
+        }
+        return bkset.size === 0;
+    }
 }
 export function randomName(prefix) {
     return prefix + Math.round(Math.random() * 10000000);

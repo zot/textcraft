@@ -19,8 +19,8 @@ if [ -z "$PUSH" ]; then
     cd $target
     if [ ! -e textcraft.version ]; then echo 0.0 > textcraft.version; fi
     oldID=$(cat textcraft.version)
-    OLDFLAGS="-X main.defaultPage=textcraft.html -X main.versionID=$oldID -X main.versionCheckURL=https://lambdamechanics.com/textcraft/download.php?file=version&peer=%s&version=%s%s"
-    LDFLAGS="-X main.defaultPage=textcraft.html -X main.versionID=$versionID -X main.versionCheckURL=https://lambdamechanics.com/textcraft/download.php?file=version&peer=%s&version=%s%s"
+    OLDFLAGS="-X main.singleConnectionOpt=true -X main.defaultPage=textcraft.html -X main.versionID=$oldID -X main.versionCheckURL=https://lambdamechanics.com/textcraft/download.php?file=version&peer=%s&version=%s%s"
+    LDFLAGS="-X main.singleConnectionOpt=true -X main.defaultPage=textcraft.html -X main.versionID=$versionID -X main.versionCheckURL=https://lambdamechanics.com/textcraft/download.php?file=version&peer=%s&version=%s%s"
     cp -a html html.prev
     (tsc && tslint -p tsconfig.json) || exit 1
     if diff -qr html html.prev > /dev/null 2>&1; then

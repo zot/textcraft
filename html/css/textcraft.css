@@ -52,6 +52,9 @@ body {
     text-decoration: underline;
     cursor: pointer;
 }
+#dead.hide {
+    display: none;
+}
 button {
     border-right-width: 3px;
     border-left-width: 3px;
