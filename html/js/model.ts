@@ -152,8 +152,8 @@ export class Thing {
     async findConnected() {
         return await this.world.findConnected(this, new Set<Thing>())
     }
-    copy(location: Thing, connected?: Set<Thing>) {
-        return this.world.copyThing(this, location, connected)
+    async copy(connected?: Set<Thing>) {
+        return this.world.stamp(await this.world.copyThing(this, connected))
     }
     async find(name: string, exclude = new Set([])) {
         let found: Thing
@@ -197,28 +197,32 @@ export class Thing {
     store() {
         return this.world.putThing(this)
     }
-    setMethod(prop, args, code) {
+    thingEval(args: string, code: string) {
         const realCode = code.match(/[;{}]/) ? code : 'return ' + code
+
         // tslint:disable-next-line:only-arrow-functions, no-eval
-        const method = eval(`(async function ${args} {
+        return eval(`(async function ${args} {
 const cmd = this.cmd.bind(this);
 const cmdf = this.cmdf.bind(this);
+const doThings = this.doThings.bind(this);
 ${realCode};
 })`)
-        method._code = [args, code]
+    }
+    setMethod(prop, args, code) {
+        const method = this.thingEval(args, code)
+
+        method._code = JSON.stringify([args, code])
         this[prop] = method
     }
     isDirty(spec: any) {
+        const original = this.originalSpec
         const keys = new Set(Object.keys(spec))
 
-        for (let prop of Object.keys(this)) {
-            if (prop[0] === '!' || prop[0] === '_') {
-                if (prop[0] === '_') prop = prop.slice(1)
-                if (this[prop] === spec[prop]) {
-                    keys.delete(prop)
-                } else {
-                    return true
-                }
+        for (let prop in original) {
+            if (original[prop] === spec[prop]) {
+                keys.delete(prop)
+            } else {
+                return true
             }
         }
         return keys.size > 0
@@ -239,11 +243,15 @@ ${realCode};
         this.originalSpec = spec
         for (const prop of Object.keys(spec)) {
             if (prop[0] === '!') {
-                if (Array.isArray(spec[prop])) {
-                    const [args, code] = spec[prop]
+                let codeSpec = spec[prop]
 
-                    this.setMethod(prop, args, code)
+                if (Array.isArray(spec[prop])) { // rewrite arrays to strings for faster isDirty
+                    spec[prop] = JSON.stringify(codeSpec)
+                } else {
+                    codeSpec = JSON.parse(spec[prop])
                 }
+                const [args, code] = codeSpec
+                this.setMethod(prop, args, code)
             } else {
                 this['_' + prop] = spec[prop]
             }
@@ -430,7 +438,7 @@ export class World {
             (generatorProto as any)._get = `
 @quiet;
 @copy $0;
-@js obj = %-1, obj.fullName  = "a " + obj._name;
+@js doThings('$0', '%-1', (orig, cpy)=> cpy.fullName = 'a ' + orig._name);
 @reproto %-1 %proto:thing;
 @loud;
 @output %-1 "$forme You pick up $this $forothers $Arg picks up $arg2" me %-1 @event me get %-1
@@ -466,7 +474,6 @@ export class World {
         if (this.txn) {
             return this.processTransaction(func)
         } else {
-            const oldTxn = this.txn
             const oldThingStore = this.thingStore
             const oldUserStore = this.userStore
             const txn = this.db().transaction([this.storeName, this.users], 'readwrite')
@@ -480,6 +487,7 @@ export class World {
             this.transactionPromise = txnPromise
             this.thingStore = txn.objectStore(this.storeName)
             this.userStore = txn.objectStore(this.users)
+            this.transactionThings = new Set()
             try {
                 result = await this.processTransaction(func)
             } finally {
@@ -491,23 +499,23 @@ export class World {
                             const spec = thing.spec()
 
                             if (thing.isDirty(spec)) {
+                                count++
                                 thing.originalSpec = spec
                                 await promiseFor(this.thingStore.put(spec))
                             }
-                            count++
                         }
                     }
-                    console.log(`Wrote ${count} things`)
+                    //console.log(`Wrote ${count} of ${this.transactionThings.size} things`)
                 }
                 if (oldId !== this.nextId && !allowIdChange) {
                     await this.store()
                 }
                 await txnPromise
-                this.txn = oldTxn
+                this.txn = null
                 this.thingStore = oldThingStore
                 this.userStore = oldUserStore
-                this.transactionThings = oldThings
                 this.transactionPromise = oldTxnPromise
+                this.transactionThings = oldThings
             }
             return result
         }
@@ -712,26 +720,28 @@ export class World {
         })
     }
     async getThing(tip: thingId | Thing | Promise<Thing>): Promise<Thing> {
+        return this.stamp(await this.basicGetThing(tip))
+    }
+    async basicGetThing(tip: thingId | Thing | Promise<Thing>): Promise<Thing> {
         let id: thingId
 
         if (typeof tip === 'number') {
             if (isNaN(tip)) return null
             id = tip
         } else if (tip instanceof Thing) {
-            return Promise.resolve(tip)
+            return tip
         } else if (tip instanceof Promise) {
-            return await tip
+            return tip
         } else {
             return null
         }
         const cached = this.thingCache.get(id)
 
         if (cached) {
-            return Promise.resolve(cached)
+            return cached
         }
-        const things = this.transactionThings
         return this.doTransaction(async (store) => {
-            return await this.cacheThingFor(await promiseFor(store.get(id)), things)
+            return await this.cacheThingFor(await promiseFor(store.get(id)))
         })
     }
     authenticate(name: string, passwd: string, thingName: string, noauthentication = false) {
@@ -796,7 +806,19 @@ export class World {
             }
         })
     }
-    async copyThing(thing: Thing, location: Thing, connected = new Set<Thing>()) {
+    stamp(thing: Thing) {
+        if (!this.txn) debugger
+        if (thing) this.transactionThings.add(thing)
+        return thing
+    }
+    stamps(things: Thing[]) {
+        if (!this.txn) debugger
+        for (const t of things) {
+            if (t) this.transactionThings.add(t)
+        }
+        return things
+    }
+    async copyThing(thing: Thing, connected = new Set<Thing>()) {
         return this.doTransaction(async () => {
             await this.findConnected(thing, connected)
             const originals = new Map<number, Thing>()
@@ -828,7 +850,6 @@ export class World {
                 cpy.originalSpec = {}
             }
             const thingCopy = copies.get(thing.id)
-            thingCopy.setLocation(location.id)
             return thingCopy
         })
     }
@@ -844,7 +865,7 @@ export class World {
         }
         return connected
     }
-    async cacheThingFor(thingSpec, things?: Set<Thing>) {
+    async cacheThingFor(thingSpec) {
         if (!thingSpec) return null
         const thing = new Thing(null, '')
 
@@ -852,36 +873,33 @@ export class World {
         await thing.useSpec(thingSpec)
         this.thingCache.set(thing.id, thing)
         this.watcher?.(thing)
-        things?.add(thing)
         return thing
     }
-    async cacheThings(specs: any, things?: Set<Thing>) {
+    async cacheThings(specs: any) {
         for (let i = 0; i < specs.length; i++) {
             const thing = this.thingCache.get(specs[i].id)
 
-            specs[i] = thing || await this.cacheThingFor(specs[i], things)
+            specs[i] = thing || await this.cacheThingFor(specs[i])
         }
         return specs
     }
-    getContents(thing: thingId | Thing): Promise<Thing[]> {
+    async getContents(thing: thingId | Thing): Promise<Thing[]> {
         const id = typeof thing === 'number' ? thing : thing.id
-        const thingSet = this.transactionThings
-        return this.doTransaction(async (things) => {
-            return this.cacheThings(await promiseFor(things.index(locationIndex).getAll(IDBKeyRange.only(id))), thingSet)
-        })
+
+        return this.stamps(await this.doTransaction(async (things) => {
+            return this.cacheThings(await promiseFor(things.index(locationIndex).getAll(IDBKeyRange.only(id))))
+        }))
     }
-    getOthers(thing: thingId | Thing): Promise<Thing[]> {
+    async getOthers(thing: thingId | Thing): Promise<Thing[]> {
         const id = typeof thing === 'number' ? thing : thing.id
-        const thingSet = this.transactionThings
-        return this.doTransaction(async (things) => {
-            return this.cacheThings(await promiseFor(things.index(otherLinkIndex).getAll(IDBKeyRange.only(id))), thingSet)
-        })
+        return this.stamps(await this.doTransaction(async (things) => {
+            return this.cacheThings(await promiseFor(things.index(otherLinkIndex).getAll(IDBKeyRange.only(id))))
+        }))
     }
-    getLinks(thing: Thing): Promise<Thing[]> {
-        const thingSet = this.transactionThings
-        return this.doTransaction(async (things) => {
-            return this.cacheThings(await promiseFor(things.index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id))), thingSet)
-        })
+    async getLinks(thing: Thing): Promise<Thing[]> {
+        return this.stamps(await this.doTransaction(async (things) => {
+            return this.cacheThings(await promiseFor(things.index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id))))
+        }))
     }
     async getAncestors(thing: Thing, ancestors = []): Promise<Thing[]> {
         if (thing._prototype) {

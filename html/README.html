@@ -15,11 +15,15 @@
 <p><img src="images/textcraft.png" alt="Textcraft MUD" title="Textcraft MUD"></p>
 <p><b>Version <span id='versionID'></span></b></p>
 <script>
-    setTimeout((()=> {
-        if (window.textcraft) {
-            window.textcraft.Gui.displayVersion()
-        }
-    }), 3000)
+function init(count) {
+    if (window.textcraft) {
+        window.textcraft.Gui.displayVersion();
+        document.getElementById('muds').innerHTML = window.textcraft.Gui.exampleMuds;
+    } else if (!count || count < 20) {
+        setTimeout(()=> init((count || 0) + 1), 250);
+    }
+}
+init();
 </script>
 <h1>TEXTCRAFT</h1>
 <p>Textcraft is an oldskool text-based MUD with a twist -- it's peer-to-peer.</p>
@@ -36,11 +40,7 @@
     cursor: pointer;
 }
 </style>
-<ul>
-<li><span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</span></li>
-<li><span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</span></li>
-<li><span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Functions.yaml") : document.location = "examples/Functions.yaml"'>Function Example</span></li>
-</ul>
+<div id='muds'></div>
 <h1>Using the MUD</h1>
 <ol>
 <li>Start by creating or uploading a MUD (using the Create or Upload buttons)</li>

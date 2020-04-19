@@ -149,15 +149,6 @@ objects:
     linkOwner: null
     otherLink: null
     prototype: 7
-  - id: 57
-    name: key
-    fullName: key
-    location: 8
-    linkOwner: !<tag:yaml.org,2002:js/undefined> ''
-    otherLink: !<tag:yaml.org,2002:js/undefined> ''
-    prototype: 3
-    keys: [25]
-    article: a
   - id: info
     nextId: 59
     name: Key Example

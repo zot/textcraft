@@ -2,11 +2,15 @@
 
 <b>Version <span id='versionID'></span></b>
 <script>
-    setTimeout((()=> {
-        if (window.textcraft) {
-            window.textcraft.Gui.displayVersion()
-        }
-    }), 3000)
+function init(count) {
+    if (window.textcraft) {
+        window.textcraft.Gui.displayVersion();
+        document.getElementById('muds').innerHTML = window.textcraft.Gui.exampleMuds;
+    } else if (!count || count < 20) {
+        setTimeout(()=> init((count || 0) + 1), 250);
+    }
+}
+init();
 </script>
 
 # TEXTCRAFT
@@ -33,9 +37,7 @@ Shift-click or right-click and choose "Save link as..." to save these to your di
 }
 </style>
 
-* <span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</span>
-* <span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</span>
-* <span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Functions.yaml") : document.location = "examples/Functions.yaml"'>Function Example</span>
+<div id='muds'></div>
 
 # Using the MUD
 

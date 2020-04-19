@@ -47,6 +47,11 @@ body {
     bottom: 0;
     right: 0;
 }
+.link {
+    color: blue;
+    text-decoration: underline;
+    cursor: pointer;
+}
 button {
     border-right-width: 3px;
     border-left-width: 3px;

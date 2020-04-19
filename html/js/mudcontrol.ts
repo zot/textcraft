@@ -202,9 +202,13 @@ export const commands = new Map([
    Note that commas between variable bindings are optional
    You can use ! as a synonym for @js if it's the first character of a command
 
-   In this code you can use cmd(...) and cmdf(template, ...) to create a CommandContext
-   CommandContexts also support cmd() and cmdf() to chain commands
-   a CommandContext result will automatically run
+   The following functions are predefined for convenience:
+     cmd(item, ...)            creates a command context
+     cmdf(FORMAT, arg, ...)    creates a command context
+     doThings(thing..., func)  find things and call func
+
+   CommandContexts also support methods cmd() and cmdf() to allow chaining
+   return a command context to run a command
 `]
     })],
     ['@method', new Command({
@@ -808,29 +812,29 @@ export class MudConnection {
         const words = splitQuotedWords(line)
         const commandName = words[0].toLowerCase()
 
-        if (!substituted) {
-            this.output('<div class="input">&gt; <span class="input-text">' + escape(originalLine) + '</span></div>')
-            if (this.history[this.historyPos - 1] !== originalLine) {
-                this.history[this.historyPos++] = originalLine
-                if (this.historyPos < this.history.length) {
-                    this.history = this.history.slice(this.historyPos - 1)
+        // execute command inside a transaction so it will automatically store any dirty objects
+        await this.world.doTransaction(async () => {
+            if (!substituted) {
+                this.output('<div class="input">&gt; <span class="input-text">' + escape(originalLine) + '</span></div>')
+                if (this.history[this.historyPos - 1] !== originalLine) {
+                    this.history[this.historyPos++] = originalLine
+                    if (this.historyPos < this.history.length) {
+                        this.history = this.history.slice(this.historyPos - 1)
+                    }
+                }
+                if (!this.commands.has(commandName) && this.thing) {
+                    const newCommands = await this.findCommand(words)
+
+                    if (newCommands) return this.runCommands(newCommands)
                 }
             }
-            if (!this.commands.has(commandName) && this.thing) {
-                const newCommands = await this.findCommand(words)
+            if (this.thing ? this.commands.has(commandName) : commandName === 'login' || commandName === 'help') {
+                let command = this.commands.get(commandName)
 
-                if (newCommands) return this.runCommands(newCommands)
-            }
-        }
-        if (this.thing ? this.commands.has(commandName) : commandName === 'login' || commandName === 'help') {
-            let command = this.commands.get(commandName)
-
-            if (command.alt) command = this.commands.get(command.alt)
-            if (command?.admin && !this.admin && !substituted) {
-                return this.error('Unknown command: ' + words[0])
-            }
-            // execute command inside a transaction so it will automatically store any dirty objects
-            await this.world.doTransaction(async () => {
+                if (command.alt) command = this.commands.get(command.alt)
+                if (command?.admin && !this.admin && !substituted) {
+                    return this.error('Unknown command: ' + words[0])
+                }
                 const muted = this.muted
 
                 try {
@@ -840,14 +844,14 @@ export class MudConnection {
                     if (this.muted === 0) this.muted = muted
                     if (!substituted) this.suppressOutput = false
                 }
+            } else {
+                this.output('Unknown command: ' + words[0])
+            }
+        })
+            .catch(err => {
+                console.log(err)
+                this.error(err.message)
             })
-                .catch(err => {
-                    console.log(err)
-                    this.error(err.message)
-                })
-        } else {
-            this.output('Unknown command: ' + words[0])
-        }
         if (this.thing?.name !== this.myName) {
             this.myName = this.thing.name
             mudproto.userThingChanged(this.thing)
@@ -865,6 +869,14 @@ export class MudConnection {
         const match = str.match(/^[^.]+(?:\.(\w+))?$/)
 
         return match[1]?.length ? value[match[1]] : value
+    }
+    async doThings(...items: any[]) {
+        const func = items[items.length - 1]
+        if (typeof func !== 'function') {
+            throw new Error('Expected function for with')
+        }
+        const things = await this.findAll(items.slice(0, items.length - 1), undefined, 'thing')
+        return func.apply(this, things)
     }
     async find(name: string, start: Thing = this.thing, errTag: string = ''): Promise<Thing> {
         let result: Thing
@@ -1453,7 +1465,6 @@ ${protos.join('\n  ')}`)
         const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?[^\s]+)+[\s,]*;)?\s*(.*)\s*$/)
         const vars = []
         const values = []
-        const code = codeSection.match(/;/) ? codeSection : 'return ' + codeSection
 
         if (varSection) {
             for (const [, varname, value] of varSection.matchAll(/[,\s]*([a-zA-Z]+)(?:\s*=\s*([^\s;,]+))?/g)) {
@@ -1462,11 +1473,7 @@ ${protos.join('\n  ')}`)
             }
         }
         // tslint:disable-next-line:only-arrow-functions, no-eval
-        const result = await (eval(`(async function(${vars.join(', ')}){
-const cmd = this.cmd.bind(this);
-const cmdf = this.cmdf.bind(this);
-${code}
-})`) as (...args) => any).apply(this, await this.findAll(values, undefined, 'thing'))
+        const result = await (this.thing.thingEval('(' + vars.join(', ') + ')', codeSection) as (...args) => any).apply(this, await this.findAll(values, undefined, 'thing'))
         if (result instanceof CommandContext) {
             return result.run()
         } else {
@@ -1775,7 +1782,7 @@ ${fp('otherLink', true)}: ${await this.dumpName(thing._otherLink)}`
                 }
             }
         }
-        const newThing = await thing.copy(this.thing, connected)
+        const newThing = await thing.copy(connected)
         this.created.push(newThing)
         this.output(`You copied ${this.formatName(thing)} to your inventory`)
     }

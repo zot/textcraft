@@ -5,12 +5,35 @@ import {
 } from "./base.js"
 
 let app: any
+let worker: any
 
 export function init(appObj) {
     app = appObj
+    console.log('STARTING WORKER')
+    worker = new (window as any).SharedWorker('js/worker.js')
+    worker.port.start()
+    const msg = new WorkerMessaging()
+    worker.port.onmessage = msg.handle.bind(msg)
 }
 
-natTracker.observe((state, tracker)=>{
+class WorkerMessaging {
+    handle(msg: any) {
+        console.log('RECEVING WORKER MESSAGE', msg)
+        if (msg.name in this) {
+            this[msg.name](msg)
+        }
+    }
+    output({ text }) {
+        console.log('Output from worker: ', text)
+    }
+}
+
+export function sendMessage(msg: any) {
+    console.log('SENDING WORKER MESSAGE', msg)
+    worker.port.postMessage(msg)
+}
+
+natTracker.observe((state, tracker) => {
     switch (state) {
         case NatState.Notstarted:
             break
@@ -22,7 +45,7 @@ natTracker.observe((state, tracker)=>{
             break
     }
 })
-peerTracker.observe((state, tracker)=>{
+peerTracker.observe((state, tracker) => {
     switch (state) {
         case PeerState.disconnected:
             break
@@ -62,7 +85,7 @@ peerTracker.observe((state, tracker)=>{
             break
     }
 })
-roleTracker.observe((state, tracker)=>{
+roleTracker.observe((state, tracker) => {
     switch (state) {
         case RoleState.None:
             break
@@ -72,7 +95,7 @@ roleTracker.observe((state, tracker)=>{
             break
     }
 })
-relayTracker.observe((state, tracker)=>{
+relayTracker.observe((state, tracker) => {
     switch (state) {
         case RelayState.Idle:
             break
@@ -82,7 +105,7 @@ relayTracker.observe((state, tracker)=>{
             break
     }
 })
-sectionTracker.observe((state, tracker)=>{
+sectionTracker.observe((state, tracker) => {
     switch (state) {
         case SectionState.Connection:
             break

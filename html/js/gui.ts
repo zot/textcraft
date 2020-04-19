@@ -7,10 +7,20 @@ import * as model from './model.js'
 import * as mudcontrol from './mudcontrol.js'
 import * as storagecontrol from './storagecontrol.js'
 import * as mudproto from './mudproto.js'
+import * as app from './app.js'
 
 const jsyaml: any = (window as any).jsyaml
 
 let nextId = 0
+export const exampleMuds = `
+Here are some example MUDs you can try:
+<ul>
+   <li><span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Mystic%20Lands.yaml") : document.location = "examples/Mystic%20Lands.yaml"'>Mystic Lands</span>
+   <li><span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Key%20Example.yaml") : document.location = "examples/Key%20Example.yaml"'>Key and Lock</span>
+   <li><span class='link' onclick='window.textcraft ? textcraft.Gui.activateMudFromURL("examples/Extension%20Example.yaml") : document.location = "examples/Extension%20Example.yaml"'>Simple Extension</span>
+</ul>
+<br>
+`
 
 export function init(appObj: any) { }
 
@@ -151,6 +161,14 @@ function cloneTemplate(name: string) {
 export function showMuds() {
     const worldList = [...model.storage.worlds]
 
+    if (!worldList.length) {
+        $('#storage-list').innerHTML = `
+You have no MUDs in storage, click "Upload" above, to load a MUD from your disk.
+<br>
+<br>
+` + exampleMuds;
+        return
+    }
     worldList.sort()
     $('#storage-list').innerHTML = ''
     for (const world of worldList) {
@@ -169,10 +187,13 @@ export function showMuds() {
         }
         $find(div, '[name=activate-mud]').onclick = async evt => {
             evt.stopPropagation()
-            if (mudTracker.value === MudState.NotPlaying) {
-                return activateMud(await model.storage.openWorld(world))
-            } else {
+            const playingThis = mudcontrol.connection?.world?.name == world
+
+            if (mudTracker.value === MudState.Playing) {
                 mudcontrol.quit()
+            }
+            if (!playingThis) {
+                return activateMud(await model.storage.openWorld(world))
             }
         }
         $find(div, '[name=activate-mud]').setAttribute('mud', world)
@@ -186,6 +207,7 @@ async function activateMud(world: model.World) {
 
     await mudcontrol.runMud(world, text => {
         addMudOutput('<div>' + text + '</div>')
+        app.sendMessage({ name: 'output', text: '<div>' + text + '</div>' })
     })
     $('#mud-name').textContent = world.name
 }
@@ -603,10 +625,6 @@ function showMudState(state: MudState) {
     const mudTabButton = $('#mudSection')
     const mudTab = mudTabButton.closest('.tab')
 
-    if (mudTab.classList.contains('disabled') === playing) {
-        mudTab.classList.toggle('disabled')
-    }
-    mudTabButton.disabled = !playing
     if (playing) {
         sectionTracker.setValue(SectionState.Mud)
         $('#mud-command').removeAttribute('disabled')
@@ -618,7 +636,12 @@ function showMudState(state: MudState) {
         for (const button of $all(`button[mud]`)) {
             button.textContent = 'Activate'
         }
-        $('#mud-output').innerHTML = ''
+        $('#mud-output').innerHTML = `
+You haven't activated a MUD.
+<br>
+Click the Storage tab or <span class='link' onclick='textcraft.Gui.selectStorage()'>click here see the MUDs you have in storage</span>
+<br>
+<br>` + exampleMuds;
         sectionTracker.setValue(SectionState.Storage)
         $('#mud-command').value = ''
         $('#mud-command').setAttribute('disabled', true)
@@ -674,6 +697,10 @@ async function runMudCommand() {
         $('#mud-command').value = ''
         $('#mud-command').focus()
     })
+}
+
+export function selectStorage() {
+    sectionTracker.setValue(SectionState.Storage)
 }
 
 export function start() {
