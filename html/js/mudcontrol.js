@@ -846,7 +846,7 @@ export class MudConnection {
         for (const item of things) {
             items.push(await this.dumpName(item));
         }
-        return items.join(', ');
+        return items.length ? items.join(', ') : 'nothing';
     }
     async thingProps(thingStr, property, value, cmd) {
         const thing = await this.find(thingStr);
@@ -1458,12 +1458,14 @@ ${protos.join('\n  ')}`);
         const fm = (prop, noParens = false) => this.formatDumpMethod(thing, prop, noParens);
         let result = `<span class='code'>${await this.dumpName(thing)}
 ${fp('prototype', true)}: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
-${fp('location', true)}:  ${await this.dumpName(thing.getLocationId())}
-${fp('contents', true)}:  ${await this.dumpThingNames(await thing.getContents())}
-${fp('links', true)}:     ${await this.dumpThingNames(await thing.getLinks())}
-${fp('linkOwner', true)}: ${await this.dumpName(thing.getLinkOwner())}
-${fp('otherLink', true)}: ${await this.dumpName(thing.getOtherLink())}`;
+${fp('location', true)}--> ${await this.dumpName(thing.getLocationId())}
+${fp('linkOwner', true)}--> ${await this.dumpName(thing.getLinkOwner())}
+${fp('otherLink', true)}--> ${await this.dumpName(thing.getOtherLink())}
+<--(location)--${await this.dumpThingNames(await thing.getContents())}
+<--(linkOwner)--${await this.dumpThingNames(await thing.getLinks())}`;
         for (const prop in thing) {
+            if (prop === '_associations' || prop === '_associationThings')
+                continue;
             if (prop[0] === '_' && !reservedProperties.has(prop)) {
                 allKeys.push(prop);
             }
@@ -1481,6 +1483,32 @@ ${fp('otherLink', true)}: ${await this.dumpName(thing.getOtherLink())}`;
                 const [args, body] = JSON.parse(thing[prop]._code);
                 result += `\n   ${fm(propName)}: ${escape(args)} ${escape(body)}`;
             }
+        }
+        const associationMap = new Map();
+        for (const [k, v] of thing._associations) {
+            if (k === 'location' || k === 'linkOwner' || k === 'otherLink')
+                continue;
+            if (associationMap.has(k))
+                associationMap.set(k, new Set());
+            associationMap.get(k).add(await this.world.getThing(v));
+        }
+        const associations = Array.from(associationMap.keys());
+        associations.sort();
+        for (const key of associations) {
+            result += `\n   ${fp(key)}--> ${Array.from(associationMap.get(key)).map(t => this.formatName(t)).join(' ')}`;
+        }
+        const backlinks = new Map();
+        for (const associate of await thing.getAllAssociated()) {
+            for (const [k, v] of associate._associations) {
+                if (k === 'location' || k === 'linkOwner' || k === 'otherLink' || v !== thing.id)
+                    continue;
+                if (!backlinks.has(k))
+                    backlinks.set(k, []);
+                backlinks.get(k).push(associate);
+            }
+        }
+        for (const link of backlinks.keys()) {
+            result += `\n   <--(${link})--${await this.dumpThingNames(backlinks.get(link))}`;
         }
         result += '</span>';
         this.output(result);
