@@ -12,5 +12,5 @@ export async function addMud() {
     const world = await model.storage.openWorld()
 
     gui.showMuds()
-    gui.editWorld(world)
+    gui.editWorld(world.name)
 }

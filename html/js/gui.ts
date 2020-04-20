@@ -432,8 +432,25 @@ export async function editWorld(worldName: string) {
         $find(div, '[name=save]').textContent = deleted ? 'Delete' : 'Save'
     }
     try {
-        await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]', validate)
+        dialog: for (; ;) {
+            await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]', validate)
+            if (!deleted) {
+                const userNames = new Set()
+                for (const childDiv of userList.children) {
+                    const name = $find(childDiv, '[name=mud-user-name]').value
+
+                    if (userNames.has(name)) {
+                        document.body.appendChild(div)
+                        alert(`Duplicate user name: ${name}`)
+                        continue dialog
+                    }
+                    userNames.add(name)
+                }
+            }
+            break
+        }
         await success()
+
     } catch (err) { // revoke URL on cancel
         for (const blobToRevoke of changes.blobsToRevoke as Set<string>) {
             URL.revokeObjectURL(blobToRevoke)

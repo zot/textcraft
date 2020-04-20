@@ -1,4 +1,4 @@
-import proto from './protocol-shim.js'
+import protocol from './protocol-shim.js'
 import {
     Constructor,
     MudConnection,
@@ -8,6 +8,7 @@ import {
 
 export let storage: MudStorage
 
+const codeVersion = 1
 const jsyaml: any = (window as any).jsyaml
 const centralDbName = 'textcraft'
 const infoKey = 'info'
@@ -16,19 +17,15 @@ const userThingIndex = 'things'
 const linkOwnerIndex = 'linkOwners'
 const otherLinkIndex = 'otherLink'
 const associationIndex = 'associations'
-const nameIndex = 'names'
+const basicAssociationIndex = 'basicAssociations'
+const prototypeIndex = 'prototypes'
 const usersSuffix = ' users'
 const extensionsSuffix = ' extensions'
 const extensionNameIndex = 'names'
 const extensionHashIndex = 'hashes'
-
-let app: any
-
-const idProps = {
-    _location: true,
-    _linkOwner: true,
-    _otherLink: true,
-}
+const thingIndexes = [prototypeIndex, associationIndex, basicAssociationIndex,
+    //obsolete indexes
+    locationIndex, linkOwnerIndex, otherLinkIndex]
 
 export type thingId = number
 
@@ -44,7 +41,7 @@ export class Extension {
         Object.assign(this, obj)
     }
     async getHash() {
-        return this.hash || (this.hash = toHex(new Int8Array(await crypto.subtle.digest('sha-256', proto.utfEncoder.encode(this.text)))))
+        return this.hash || (this.hash = toHex(new Int8Array(await crypto.subtle.digest('sha-256', protocol.utfEncoder.encode(this.text)))))
     }
     async populate(file: File) {
         this.name = file.name
@@ -86,24 +83,24 @@ export class Thing {
     _linkMoveFormat: string      // shown to someone when they move through a link
     _linkEnterFormat: string     // shown to occupants when someone enters through the link
     _linkExitFormat: string      // shown to occupants when someone leaves through the link
-    _location: thingId           // if this thing has a location, it is in its location's contents
-    _linkOwner: thingId          // the owner of this link (if this is a link)
-    _otherLink: thingId          // the other link (if this is a link)
     _keys: thingId[]
     _closed: boolean             // closed objects do not propagate descriptons to their locations
     _priority: number            // whether something will be picked against other, same-named things
-    _associations: thingId[]     // associated things
+    _associations: [string, thingId][] // associations to things
+    _associationThings: thingId[]
+    _private: thingId            // private to a player, not perceived by others
     world: World
     originalSpec: any
     toasted: boolean
+    // standard associations
+    //location                   -- if this thing has a location, it is in its location's contents
+    //linkOwner                  -- the owner of this link (if this is a link)
+    //otherLink                  -- the other link (if this is a link)
 
     constructor(id: number, name: string, description?) {
         this._id = id
         this.fullName = name
         if (typeof description !== 'undefined') this._description = description
-        this._location = null
-        this._linkOwner = null
-        this._otherLink = null
     }
     get id() { return this._id }
     get article() { return this._article }
@@ -130,8 +127,101 @@ export class Thing {
     set examineFormat(f: string) { this._examineFormat = f }
     get linkFormat() { return this._linkFormat }
     set linkFormat(f: string) { this._linkFormat = f }
-    getContents(): Promise<Thing[]> { return this.world.getContents(this) }
-    getAssociated(): Promise<Thing[]> { return this.world.getAssociated(this) }
+    getAllAssociated(): Promise<Thing[]> { return this.world.getAllAssociated(this) }
+    getAssociated(prop: string): Promise<Thing[]> { return this.world.getAssociated(prop, this) }
+    hasAssociation(prop: string) { return typeof this.associationIdNamed(prop) !== 'undefined' }
+    associationIdsNamed(prop: string, ids: thingId[] = []): thingId[] {
+        for (const assoc of this._associations) {
+            if (assoc[0] === prop) ids.push(assoc[1])
+        }
+        return ids
+    }
+    async associationsNamed(prop: string): Promise<Thing[]> {
+        return this.world.getThings(this.associationIdsNamed(prop))
+    }
+    async associationNamed(prop: string) {
+        for (const assoc of this._associations) {
+            if (assoc[0] === prop) return this.world.getThing(assoc[1])
+        }
+    }
+    isAssociated(prop: string, tid: thingId | Thing) {
+        const id = idFor(tid)
+
+        for (const assoc of this._associations) {
+            if (assoc[0] === prop && assoc[1] === id) return true
+        }
+        return false
+    }
+    associationIdNamed(prop: string) {
+        for (const assoc of this._associations) {
+            if (assoc[0] === prop) return assoc[1] as number
+        }
+    }
+    checkAssociations() {
+        if (!this.hasOwnProperty('_associations')) {
+            this._associations = this._associations.slice()
+        }
+    }
+    associate(prop: string, tid: thingId | Thing, m2m = false) {
+        const id = idFor(tid)
+
+        this.checkAssociations()
+        if (!m2m) this.dissociateNamed(prop, false)
+        this._associations.push([prop, id])
+        this.changedAssociations()
+    }
+    dissociate(prop: string, tid: thingId | Thing) {
+        const id = idFor(tid)
+
+        this.checkAssociations()
+        for (let i = 0; i < this._associations.length; i++) {
+            const assoc = this._associations[i]
+
+            if (assoc[0] === prop && assoc[1] === id) {
+                return this._associations.splice(i, 1)
+            }
+        }
+        this.changedAssociations()
+    }
+    dissociateFrom(tid: thingId | Thing) {
+        const id = idFor(tid)
+
+        this.checkAssociations()
+        for (let i = 0; i < this._associations.length; i++) {
+            const assoc = this._associations[i]
+
+            if (assoc[1] === id) {
+                this._associations.splice(i, 1)
+            }
+        }
+        this.changedAssociations()
+    }
+    dissociateNamed(prop: string, update = true) {
+        this.checkAssociations()
+        for (let i = 0; i < this._associations.length; i++) {
+            const assoc = this._associations[i]
+
+            if (assoc[0] === prop) {
+                this._associations.splice(i, 1)
+            }
+        }
+        if (update) this.changedAssociations()
+    }
+    changedAssociations() {
+        this._associationThings = Array.from(new Set(this._associations.map(([, v]) => v))) as thingId[]
+    }
+    isIn(tid: thingId | Thing) { return this.getLocationId() === getId(tid) }
+    getLocationId() { return this.associationIdNamed('location') }
+    getLocation(): Promise<Thing> { return this.associationNamed('location') }
+    setLocation(t: Thing | thingId) { this.associate('location', t) }
+    getContents(): Promise<Thing[]> { return this.getAssociated('location') }
+    getLinks(): Promise<Thing[]> { return this.getAssociated('linkOwner') }
+    getLinkOwner(): Promise<Thing> { return this.associationNamed('linkOwner') }
+    getLinkOwnerId() { return this.associationIdNamed('linkOwner') }
+    setLinkOwner(t: Thing) { this.associate('linkOwner', t) }
+    getOtherLink(): Promise<Thing> { return this.associationNamed('otherLink') }
+    getOtherLinkId() { return this.associationIdNamed('otherLink') }
+    setOtherLink(t: Thing) { this.associate('otherLink', t) }
     getPrototype(): Promise<Thing> { return this.world.getThing(this._prototype) }
     setPrototype(t: Thing) {
         if (t) {
@@ -141,13 +231,6 @@ export class Thing {
             this._prototype = null
         }
     }
-    getLocation(): Promise<Thing> { return this.world.getThing(this._location) }
-    setLocation(t: Thing | thingId) { this._location = idFor(t) }
-    getLinks(): Promise<Thing[]> { return this.world.getLinks(this) }
-    getLinkOwner(): Promise<Thing> { return this.world.getThing(this._linkOwner) }
-    setLinkOwner(t: Thing) { this._linkOwner = t && t.id }
-    getOtherLink(): Promise<Thing> { return this.world.getThing(this._otherLink) }
-    setOtherLink(t: Thing) { this._otherLink = t && t.id }
 
     formatName() {
         return (this.article ? this.article + ' ' : '') + this.fullName
@@ -281,6 +364,7 @@ ${realCode};
         }
     }
 }
+Thing.prototype._associations = []
 export class World {
     name: string
     storeName: string
@@ -338,53 +422,93 @@ export class World {
         this.extensionsName = extensionDbName(name)
     }
     initDb() {
+        return this.checkDbs(async () => {
+            this.limbo = await this.createThing('Limbo', 'You are floating in $this<br>$links<br><br>$contents')
+            this.lobby = await this.createThing('Lobby', 'You are in $this')
+            this.hallOfPrototypes = await this.createThing('Hall of Prototypes')
+            this.thingProto = await this.createThing('thing', 'This is $this')
+            this.linkProto = await this.createThing('link', '$This to $link')
+            this.roomProto = await this.createThing('room', 'You are in $this')
+            this.generatorProto = await this.createThing('generator', 'This is a thing')
+            this.personProto = await this.createThing('person', '$This $is only a dude')
+            this.limbo.setPrototype(this.roomProto)
+            this.limbo._article = ''
+            this.lobby.setPrototype(this.roomProto)
+            this.generatorProto.setPrototype(this.thingProto)
+            this.hallOfPrototypes.setPrototype(this.roomProto)
+            this.limbo.setLocation(this.limbo)
+            await this.createUser('a', 'a', true)
+            this.defaultUser = 'a'
+            await this.store()
+        })
+    }
+    async needsDbUpgrade() {
+        let anyMissing = false
+
+        if (!storage.db.objectStoreNames.contains(this.storeName)) return true
+        const txn = storage.db.transaction(this.storeName)
+        const store = txn.objectStore(this.storeName)
+        for (const index of thingIndexes) {
+            if (!store.indexNames.contains(index)) {
+                anyMissing = true
+                break
+            }
+        }
+        await promiseFor(txn)
+        return anyMissing
+    }
+    async checkDbs(then: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction) => Promise<any>, allowIdChange = false) {
+        if (!await this.needsDbUpgrade()) {
+            return this.doTransaction(then, allowIdChange)
+        }
         return new Promise((succeed, fail) => {
-            const req = storage.upgrade(() => {
-                return this.doTransaction(async (store, users, txn) => {
-                    this.limbo = await this.createThing('Limbo', 'You are floating in $this<br>$links<br><br>$contents')
-                    this.lobby = await this.createThing('Lobby', 'You are in $this')
-                    this.hallOfPrototypes = await this.createThing('Hall of Prototypes')
-                    this.thingProto = await this.createThing('thing', 'This is $this')
-                    this.linkProto = await this.createThing('link', '$This to $link')
-                    this.roomProto = await this.createThing('room', 'You are in $this')
-                    this.generatorProto = await this.createThing('generator', 'This is a thing')
-                    this.personProto = await this.createThing('person', '$This $is only a dude')
-                    this.limbo.setPrototype(this.roomProto)
-                    this.limbo._article = ''
-                    this.lobby.setPrototype(this.roomProto)
-                    this.generatorProto.setPrototype(this.thingProto)
-                    this.hallOfPrototypes.setPrototype(this.roomProto)
-                    this.limbo.setLocation(this.limbo)
-                    await this.createUser('a', 'a', true)
-                    this.defaultUser = 'a'
-                    await this.store()
-                    succeed()
-                })
+            const req = storage.upgrade(async () => {
+                succeed(await this.doTransaction(async (store, users, txn) => {
+                    return then(store, users, txn)
+                }, allowIdChange))
             })
 
             req.onupgradeneeded = () => {
                 const txn = req.transaction
-                //let userStore = txn.db.createObjectStore(this.users, {autoIncrement: true})
-                const userStore = txn.db.createObjectStore(this.users, { keyPath: 'name' })
-                const thingStore = txn.db.createObjectStore(this.storeName, { keyPath: 'id' })
+                const db = txn.db
+                const userStore = db.objectStoreNames.contains(this.users) ? txn.objectStore(this.users)
+                    : db.createObjectStore(this.users, { keyPath: 'name' })
+                const thingStore = db.objectStoreNames.contains(this.storeName) ? txn.objectStore(this.storeName)
+                    : db.createObjectStore(this.storeName, { keyPath: 'id' })
 
-                userStore.createIndex(userThingIndex, 'thing', { unique: true })
-                thingStore.createIndex(locationIndex, 'location', { unique: false })
-                thingStore.createIndex(linkOwnerIndex, 'linkOwner', { unique: false })
-                thingStore.createIndex(otherLinkIndex, 'otherLink', { unique: false })
-                thingStore.createIndex(associationIndex, 'associations', {
+                checkIndex(userStore, userThingIndex, 'thing', { unique: true })
+                checkIndex(thingStore, prototypeIndex, 'prototype', { unique: false })
+                checkIndex(thingStore, associationIndex, 'associations', {
                     unique: false,
                     multiEntry: true,
                 })
+                checkIndex(thingStore, basicAssociationIndex, 'associationThings', {
+                    unique: false,
+                    multiEntry: true,
+                })
+
+                // obsolete indexes
+                checkIndex(thingStore, locationIndex, 'location', { unique: false })
+                checkIndex(thingStore, linkOwnerIndex, 'linkOwner', { unique: false })
+                checkIndex(thingStore, otherLinkIndex, 'otherLink', { unique: false })
+
             }
             req.onerror = fail
         })
     }
     loadInfo() {
-        return this.doTransaction(async (store, users, txn) => {
+        return this.checkDbs(async (store, users) => {
             this.thingStore = store
             this.userStore = users
-            await this.useInfo(await promiseFor(store.get('info')))
+            const info = (await promiseFor(store.get('info'))) as any
+            if (!info.version || info.version < codeVersion) {
+                this.upgrade(info.version, info)
+                await doAll(store, async (spec, cursor) => {
+                    this.upgrade(info.version, spec) // upgrade things and info in the DB
+                    return promiseFor(cursor.update(spec))
+                })
+            }
+            await this.useInfo(info)
         }, true)
     }
     async useInfo(info) {
@@ -413,20 +537,19 @@ export class World {
             const linkProto = this.linkProto
             const generatorProto = this.generatorProto
 
-            thingProto._location = this.hallOfPrototypes.id
+            thingProto.setLocation(this.hallOfPrototypes)
             thingProto.article = 'the'
             thingProto.contentsFormat = '$This $is here'
             thingProto._contentsEnterFormat = '$forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2'
             thingProto._contentsExitFormat = '$forme You leave $this to $arg3 $forothers $Arg leaves $this to $arg3'
             thingProto.examineFormat = 'Exits: $links<br>Contents: $contents'
             thingProto.linkFormat = '$This leads to $link'
-            thingProto._keys = []
             thingProto._priority = 0
-            linkProto._location = this.hallOfPrototypes.id
+            linkProto.setLocation(this.hallOfPrototypes)
             linkProto.article = '';
             (linkProto as any)._locked = false
             linkProto.setMethod('!cmd', '(dir, dest)', `
-                if (!dir._locked || await this.inAny(dir, '_keys')) {
+                if (!dir._locked || await this.inAny(dir, 'key')) {
                     return this.cmd('go', dir);
                 } else {
                     return this.cmdf('@output $0 "$forme You don\\'t have the key $forothers $Arg tries to go $this to $link but doesn\\'t have the key" me @event me false go $0', dir);
@@ -441,17 +564,17 @@ export class World {
             (linkProto as any)._get = `
 @output $0 "$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means..." me @event me false get $0
 `
-            roomProto._location = this.hallOfPrototypes.id
+            roomProto.setLocation(this.hallOfPrototypes)
             roomProto._closed = true
             roomProto.setPrototype(thingProto)
-            personProto._location = this.hallOfPrototypes.id
+            personProto.setLocation(this.hallOfPrototypes)
             personProto.setPrototype(thingProto)
             personProto._article = ''
             personProto.examineFormat = 'Carrying: $contents';
             (personProto as any)._get = `
 @output $0 "$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't" me @event me false get $0
 `
-            generatorProto._location = this.hallOfPrototypes.id
+            generatorProto.setLocation(this.hallOfPrototypes)
             generatorProto.setPrototype(thingProto)
             generatorProto._priority = -1;
             (generatorProto as any)._get = `
@@ -460,7 +583,7 @@ export class World {
 @js doThings('$0', '%-1', (orig, cpy)=> cpy.fullName = 'a ' + orig._name);
 @reproto %-1 %proto:thing;
 @loud;
-@output %-1 "$forme You pick up $this $forothers $Arg picks up $arg2" me %-1 @event me get %-1
+get %-1
 `
         })
     }
@@ -473,10 +596,13 @@ export class World {
             limbo: this.limbo.id,
             hallOfPrototypes: this.hallOfPrototypes.id,
             thingProto: this.thingProto.id,
+            linkProto: this.linkProto.id,
+            roomProto: this.linkProto.id,
             personProto: this.personProto.id,
             generatorProto: this.generatorProto.id,
             defaultUser: this.defaultUser,
             clockRate: this.clockRate,
+            version: codeVersion,
         }
     }
     rename(newName) {
@@ -491,7 +617,7 @@ export class World {
     // perform a transaction, then write all dirty things to storage
     async doTransaction(func: (store: IDBObjectStore, users: IDBObjectStore, txn: IDBTransaction) => Promise<any>, allowIdChange = false) {
         if (this.txn) {
-            return this.processTransaction(func)
+            return await this.processTransaction(func)
         } else {
             const oldThingStore = this.thingStore
             const oldUserStore = this.userStore
@@ -511,23 +637,24 @@ export class World {
                 result = await this.processTransaction(func)
             } finally {
                 if (this.transactionThings.size > 0) {
-                    let count = 0
+                    //let count = 0
 
                     for (const thing of this.transactionThings) {
                         if (!thing.toasted) {
                             const spec = thing.spec()
 
                             if (thing.isDirty(spec)) {
-                                count++
+                                //count++
                                 thing.setSpec(spec)
-                                await promiseFor(this.thingStore.put(spec))
+                                this.thingStore.put(spec)
                             }
                         }
                     }
                     //console.log(`Wrote ${count} of ${this.transactionThings.size} things`)
                 }
                 if (oldId !== this.nextId && !allowIdChange) {
-                    await this.store()
+                    // tslint:disable-next-line:no-floating-promises
+                    this.store()
                 }
                 await txnPromise
                 this.txn = null
@@ -645,6 +772,9 @@ export class World {
                     const cursor = (evt.target as any).result
 
                     if (cursor) {
+                        const user = cursor.value
+
+                        user.id = cursor.key
                         userList.push(cursor.value)
                         console.log('found user', cursor.value)
                         cursor.continue()
@@ -685,7 +815,7 @@ export class World {
             return user
         })
     }
-    putUser(user: any) {
+    async putUser(user: any) {
         return promiseFor(this.userStore.put(user))
     }
     putThing(thing: Thing) {
@@ -695,8 +825,10 @@ export class World {
         return promiseFor(this.thingStore.put(spec))
     }
     async replaceUsers(newUsers: any[]) {
-        await this.doTransaction(async (store, users, txn) => deleteAll(users))
-        return this.doTransaction(async (store, users, txn) => Promise.all(newUsers.map(u => this.putUser(u))))
+        return this.doTransaction(async (store, users, txn) => {
+            await deleteAll(users)
+            return Promise.all(newUsers.map(u => this.putUser(u)))
+        })
     }
     async replaceExtensions(newExtensions: any[]) {
         if (!this.db().objectStoreNames.contains(this.extensionsName)) {
@@ -719,23 +851,58 @@ export class World {
         }
         return promiseFor(txn)
     }
+    upgrade(fromVersion: number, spec: any) {
+        if (!fromVersion) { // upgrade to version 1
+            if (spec.id === 'info') {
+                spec.version = 1
+            } else {
+                if (!spec.associations) spec.associations = []
+                this.specAssociation(spec, 'location')
+                this.specAssociation(spec, 'linkOwner')
+                this.specAssociation(spec, 'otherLink')
+                for (const key of spec.keys || []) {
+                    this.specAssociation(spec, 'key', key, true)
+                }
+                delete spec.keys
+                spec.associationThings = Array.from(new Set(spec.associations.map(([, v]) => v)))
+            }
+        }
+        // more upgrade blocks here will successively upgrade each thing
+    }
+    specAssociation(spec: any, prop: string, value = spec[prop], m2m = false) {
+        if (!m2m) {
+            spec.associations = spec.associations.filter(([k]) => k !== prop)
+        } else if (spec.associations.find(([k, v]) => k === prop && v === value)) {
+            delete spec[prop]
+            return
+        }
+        if (value !== undefined && value !== null) {
+            spec.associations.push([prop, value])
+        }
+        delete spec[prop]
+    }
     async replaceThings(newThings: any[]) {
-        const index = newThings.findIndex(t => t.id === 'info')
-        const info = newThings[index]
+        const info = newThings.find(t => t.id === 'info')
+        const version = info.version
+        const needUpgrade = !version || version < codeVersion
 
-        newThings.splice(index, 1)
         await this.doTransaction(async (store, users, txn) => {
             return deleteAll(store)
         })
-        await this.doTransaction(async (store, users, txn) => {
+        return this.doTransaction(async (store, users, txn) => {
+            const promises: Promise<any>[] = []
+
+            if (needUpgrade) this.upgrade(version, info)
             for (const thing of newThings) {
-                await promiseFor(this.thingStore.put(thing))
+                if (needUpgrade) this.upgrade(version, thing)
+                promises.push(promiseFor(this.thingStore.put(thing)))
             }
+            await Promise.all(promises)
             this.thingCache = new Map()
             this.transactionThings = new Set()
             await this.useInfo(info)
             await this.initStdPrototypes()
-            await this.store()
+            return this.store()
         })
     }
     async getThing(tip: thingId | Thing | Promise<Thing>): Promise<Thing> {
@@ -769,14 +936,15 @@ export class World {
 
             if (noauthentication && !user) { // auto-create a user
                 user = { name, password: null }
-                await promiseFor(users.put(user))
+                await this.putUser(user)
+                console.log("SET NEW USER ID =", user.id)
             } else if (!(user && (noauthentication || user.password === passwd))) {
                 throw new Error('Bad user or password')
             }
             if (!user.thing) {
                 const thing = await this.createThing(name)
 
-                thing._location = this.lobby.id
+                thing.setLocation(this.lobby)
                 if (this.personProto) thing.setPrototype(this.personProto)
                 thing.fullName = thingName || name
                 user.thing = thing.id
@@ -796,7 +964,7 @@ export class World {
         const t = new Thing(this.nextId++, name, description)
 
         t.world = this
-        if (this.limbo) t._location = this.limbo.id
+        if (this.limbo) t.setLocation(this.limbo)
         if (this.thingProto) t.setPrototype(this.thingProto)
         this.thingCache.set(t.id, t)
         this.watcher?.(t)
@@ -805,22 +973,46 @@ export class World {
         })
         return t
     }
+    async getThings(ids: thingId[]) {
+        const things: Thing[] = []
+
+        for (const id of ids) {
+            things.push(await this.getThing(id))
+        }
+        return things
+    }
+    getPrototypes() {
+        return this.doTransaction(async (things) => {
+            const result = new Set()
+
+            await doKeys(things.index(prototypeIndex), key => result.add(key))
+            return this.getThings(result as any)
+        })
+    }
+    getInstances(proto: Thing) {
+        return this.doTransaction(async (things) => {
+            const result = []
+
+            await doAll(things.index(prototypeIndex), async t => result.push(t.id), IDBKeyRange.only(proto.id))
+            return await this.getThings(result)
+        })
+    }
     async toast(toasted: Set<Thing>) {
         return this.doTransaction(async (things) => {
+            const protos = new Set(await this.getPrototypes())
+
+            for (const thing of toasted) {
+                if (protos.has(thing)) throw new Error(`Attempt to toast prototype ${thing.id}, change references first`)
+            }
             for (const thing of toasted) {
                 things.delete(thing.id)
                 this.thingCache.delete(thing.id)
                 thing.toasted = true
-            }
-            for (const thing of toasted) {
                 for (const guts of await thing.getContents()) {
                     guts.setLocation(this.limbo)
                 }
-                for (const link of await thing.getLinks()) {
-                    delete link._linkOwner
-                }
-                for (const other of await this.getOthers(thing)) {
-                    delete other._otherLink
+                for (const associated of await this.getAllAssociated(thing)) {
+                    associated.dissociateFrom(thing)
                 }
             }
         })
@@ -852,8 +1044,8 @@ export class World {
             for (const [id, cpy] of copies) {
                 const original = originals.get(id)
                 for (const prop of Object.keys(original)) {
-                    if (prop === '_linkOwner' || prop === '_otherLink') {
-                        cpy[prop] = copies.get(original[prop])?.id
+                    if (prop === '_associations' || prop === '_associationThings') {
+                        continue
                     } else if (copies.has(original[prop])) { // probably an id
                         cpy[prop] = copies.get(original[prop])?.id
                     } else if (original[prop] instanceof Set) {
@@ -863,6 +1055,14 @@ export class World {
                     } else {
                         cpy[prop] = original[prop]
                     }
+                }
+                cpy._associations = []
+                cpy._associationThings = []
+                if (original._associations.length) {
+                    for (const [k, v] of original._associations) {
+                        cpy._associations.push([k, copies.has(v) ? copies.get(v).id : v])
+                    }
+                    cpy.changedAssociations()
                 }
                 cpy.originalSpec = {} // guarantee this will be written out
             }
@@ -901,24 +1101,36 @@ export class World {
         return specs
     }
     async getContents(thing: thingId | Thing): Promise<Thing[]> {
-        const id = typeof thing === 'number' ? thing : thing.id
+        const id = getId(thing)
 
         return this.stamps(await this.doTransaction(async (things) => {
             return this.cacheThings(await promiseFor(things.index(locationIndex).getAll(IDBKeyRange.only(id))))
         }))
     }
-    async getAssociated(thing: thingId | Thing): Promise<Thing[]> {
-        const id = typeof thing === 'number' ? thing : thing.id
+    async getAssociated(prop: string, thing: thingId | Thing): Promise<Thing[]> {
+        const id = getId(thing)
+        const key = [prop, id]
 
         return this.stamps(await this.doTransaction(async (things) => {
             if (!things.indexNames.contains(associationIndex)) {
                 return []
             }
-            return this.cacheThings(await promiseFor(things.index(associationIndex).getAll(IDBKeyRange.only(id))))
+            return this.cacheThings(await promiseFor(things.index(associationIndex).getAll(IDBKeyRange.only(key))))
+        }))
+    }
+    async getAllAssociated(thing: thingId | Thing): Promise<Thing[]> {
+        const id = getId(thing)
+
+        return this.stamps(await this.doTransaction(async (things) => {
+            if (!things.indexNames.contains(basicAssociationIndex)) {
+                return []
+            }
+            return this.cacheThings(await promiseFor(things.index(basicAssociationIndex).getAll(IDBKeyRange.only(id))))
         }))
     }
     async getOthers(thing: thingId | Thing): Promise<Thing[]> {
-        const id = typeof thing === 'number' ? thing : thing.id
+        const id = getId(thing)
+
         return this.stamps(await this.doTransaction(async (things) => {
             return this.cacheThings(await promiseFor(things.index(otherLinkIndex).getAll(IDBKeyRange.only(id))))
         }))
@@ -1189,26 +1401,27 @@ export class MudStorage {
         }
         const world = await this.openWorld(info.name)
 
-        return world.doTransaction(async (thingStore, userStore, txn) => {
-            await this.uploadStrippedWorld(worldAndUsers, failSilently, world)
-            await world.replaceUsers(users)
-            return world.name
+        await world.doTransaction(async (thingStore, userStore, txn) => {
+            return world.replaceUsers(users)
         })
+        return this.uploadStrippedWorld(worldAndUsers, failSilently, world)
     }
     async uploadStrippedWorld(data: any, failSilently: boolean, world = null) {
-        if (!world) {
-            const info = data.objects.find(i => i.id === 'info')
-
-            if (this.hasWorld(info.name)) {
-                if (failSilently) return info.name
-                alert(`There is already a world named ${info.name}, you must rename it or delete it to upload this`)
-                return null
-            }
-            world = await this.openWorld(info.name)
-        }
-        await world.replaceThings(data.objects)
         if (data.extensions) await world.replaceExtensions(data.extensions)
-        return world.name
+        return world.doTransaction(async (thingStore, userStore, txn) => {
+            if (!world) {
+                const info = data.objects.find(i => i.id === 'info')
+
+                if (this.hasWorld(info.name)) {
+                    if (failSilently) return info.name
+                    alert(`There is already a world named ${info.name}, you must rename it or delete it to upload this`)
+                    return null
+                }
+                world = await this.openWorld(info.name)
+            }
+            await world.replaceThings(data.objects)
+            return world.name
+        })
     }
 }
 
@@ -1235,6 +1448,30 @@ export class Profile {
             peerKey: this.peerKey,
             port: this.port,
         }
+    }
+}
+
+function getId(tip: thingId | Thing) {
+    if (typeof tip === 'number') {
+        if (isNaN(tip)) return null
+        return tip
+    } else if (tip instanceof Thing) {
+        return tip.id
+    } else {
+        return null
+    }
+}
+
+async function getTipId(tip: thingId | Thing | Promise<Thing>) {
+    if (typeof tip === 'number') {
+        if (isNaN(tip)) return null
+        return tip
+    } else if (tip instanceof Thing) {
+        return tip.id
+    } else if (tip instanceof Promise) {
+        return (await tip).id
+    } else {
+        return null
     }
 }
 
@@ -1386,6 +1623,49 @@ export function randomName(prefix: string) {
     return prefix + Math.round(Math.random() * 10000000)
 }
 
+function doKeys(store: IDBObjectStore | IDBIndex, consumer: (arg: any) => void) {
+    return new Promise((succeed, fail) => {
+        const req = store.openKeyCursor()
+
+        req.onerror = fail
+        req.onsuccess = evt => {
+            const cursor = (evt.target as any).result
+
+            if (cursor) {
+                consumer(cursor.key)
+                cursor.continue()
+            } else {
+                succeed(null)
+            }
+        }
+    })
+}
+
+function doAll(store: IDBObjectStore | IDBIndex, consumer: (arg: any, cursor: IDBCursorWithValue) => Promise<any>, range?: IDBKeyRange) {
+    return new Promise((succeed, fail) => {
+        const req = store.openCursor(range)
+        const promises: Promise<any>[] = []
+
+        req.onerror = fail
+        req.onsuccess = async evt => {
+            const cursor = (evt.target as any).result
+
+            if (cursor) {
+                promises.push(consumer(cursor.value, cursor))
+                cursor.continue()
+            } else {
+                return Promise.all(promises).then(succeed)
+            }
+        }
+    })
+}
+
+function checkIndex(store: IDBObjectStore, index: string, keypath: any, opts?: any) {
+    if (!store.indexNames.contains(index)) {
+        store.createIndex(index, keypath, opts)
+    }
+}
+
 function deleteAll(store: IDBObjectStore) {
     return new Promise((succeed, fail) => {
         const req = store.openCursor()
@@ -1452,9 +1732,7 @@ export function escape(text: string) {
     return typeof text === 'string' ? text.replace(/</g, '&lt;') : text
 }
 
-export function init(appObj: any) {
-    app = appObj
-}
+export function init() { }
 
 export function toHex(arraylike: any) {
     let result = ''

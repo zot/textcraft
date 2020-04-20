@@ -8,11 +8,7 @@ const wordAndQuotePat = /("(?:[^"\\]|\\.)*")|\s+/;
 const reservedProperties = new Set([
     '_id',
     '_prototype',
-    '_location',
     '_contents',
-    '_links',
-    '_linkOwner',
-    '_otherLink',
     '__proto__',
 ]);
 const addableProperties = new Set([
@@ -108,7 +104,7 @@ strings with $event.PROPERTY. In methods, this.event refers to the current event
 
 Example, this will make a box react to people arriving in its location:
 
-@method box react_go (thing, oldLoc, newLoc) newLoc.id == this._location && cmd('say Hello %event.source!')
+@method box react_go (thing, oldLoc, newLoc) this.thing.isIn(newLoc) && cmd('say Hello %event.source!')
 
 
 EVENT PROPERTIES:
@@ -246,6 +242,7 @@ export const commands = new Map([
     ['@set', new Command({ help: setHelp })],
     ['@del', new Command({ help: ['thing property', `Delete a properties from a thing so it will inherit from its prototype`] })],
     ['@reproto', new Command({ help: ['thing proto', `Change the prototype of a thing`] })],
+    ['@instances', new Command({ help: ['proto', `Display all instances`] })],
     ['@bluepill', new Command({
             help: [
                 '', '',
@@ -509,7 +506,7 @@ export class MudConnection {
     }
     formatDumpMethod(thing, prop, noParens = false) {
         const inherited = !(noParens || thing.hasOwnProperty('!' + prop));
-        const [args, body] = thing['!' + prop]._code;
+        const [args, body] = JSON.parse(thing['!' + prop]._code);
         return `<span class='method${inherited ? ' inherited' : ''}'><span class='hidden input-text'>@method %${thing.id} ${prop} ${escape(args)} ${escape(body)}</span>${prop}</span>`;
     }
     async basicFormat(tip, str, args) {
@@ -836,7 +833,7 @@ export class MudConnection {
                                             : name.match(/^%proto:/) ? await this.world.hallOfPrototypes.find(name.replace(/^%proto:/, ''))
                                                 : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
                                                     : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
-                                                        : await start.find(name[0] === '%' ? name.slice(1) : name, this.thing._location === this.world.limbo.id ? new Set() : new Set([this.world.limbo]));
+                                                        : await start.find(name[0] === '%' ? name.slice(1) : name, this.thing.isIn(this.world.limbo) ? new Set() : new Set([this.world.limbo]));
             }
         }
         if (!result && errTag) {
@@ -1077,58 +1074,27 @@ export class MudConnection {
         return (await this.findAny(prop, thing))?.has(target.id);
     }
     async findAny(prop, thing = this.thing) {
-        const collection = new Set();
-        let pair;
-        let possible;
-        let useCollection = false;
-        pair = this.gatherAny(prop, collection, thing);
-        if (pair) {
-            if (pair[0] !== undefined)
-                return pair[0];
-            possible = pair[1];
-            if (possible === undefined)
-                useCollection = true;
-        }
+        const ids = [];
+        thing.associationIdsNamed(prop, ids);
         for (const item of await thing.getContents()) {
-            pair = this.gatherAny(prop, collection, item);
-            if (pair) {
-                if (pair[0] !== undefined)
-                    return pair[0];
-                possible = pair[1];
-                if (possible === undefined)
-                    useCollection = true;
-            }
+            item.associationIdsNamed(prop, ids);
         }
-        if (possible !== undefined)
-            return possible;
-        if (useCollection)
-            return collection;
-    }
-    gatherAny(prop, collection, thing) {
-        if (prop in thing) {
-            if (Array.isArray(thing[prop]) || thing[prop] instanceof Set) {
-                for (const item of thing[prop]) {
-                    collection.add(item);
-                }
-                return [undefined, undefined];
-            }
-            else {
-                return thing.hasOwnProperty(prop) ? [thing[prop], null] : [undefined, thing[prop]];
-            }
-        }
+        return new Set(ids);
     }
     formatValue(value) {
-        if (value instanceof Thing)
-            return `%${value.id}`;
         if (value === null)
             return 'null';
+        if (value === undefined)
+            return 'undefined';
+        if (value instanceof Thing)
+            return `%${value.id}`;
         if (Array.isArray(value)) {
             return `[${value.map(t => this.formatValue(t)).join(', ')}]`;
         }
         else if (typeof value === 'object') {
             return `{${Object.keys(value).map(k => k + ': ' + this.formatValue(value[k])).join(', ')}}`;
         }
-        return String(value);
+        return JSON.stringify(value);
     }
     // COMMAND
     login(cmdInfo, user, password) {
@@ -1145,7 +1111,7 @@ export class MudConnection {
             this.output(await this.examination(thing));
             return this.commandDescripton(null, `looks at themself`, 'examine', [thing]);
         }
-        else if (thing.id === this.thing._location) {
+        else if (this.thing.isIn(thing)) {
             this.output(await this.examination(await this.thing.getLocation()));
             return this.commandDescripton(null, `looks around`, 'examine', [thing]);
         }
@@ -1170,7 +1136,7 @@ export class MudConnection {
                 if (thing === this.thing) {
                     return this.commandDescripton(null, `looks at themself`, 'examine', [thing]);
                 }
-                else if (thing.id === this.thing._location) {
+                else if (this.thing.isIn(thing)) {
                     return this.commandDescripton(null, `looks around`, 'examine', [thing]);
                 }
                 else {
@@ -1189,8 +1155,9 @@ export class MudConnection {
         const oldLoc = await this.thing.getLocation();
         const direction = await this.find(directionStr, this.thing, 'direction');
         let location;
-        const visited = new Set();
+        const linkOwner = direction.getLinkOwnerId();
         let tmp = direction;
+        const visited = new Set();
         while (tmp !== this.world.limbo) {
             if (visited.has(tmp))
                 throw new Error(`${this.formatName(direction)} is in a circularity`);
@@ -1198,9 +1165,9 @@ export class MudConnection {
             if (tmp === this.thing) {
                 throw new Error('You cannot go into something you are holding');
             }
-            tmp = await (tmp._linkOwner ? tmp.getLinkOwner() : tmp.getLocation());
+            tmp = await (tmp.hasAssociation('linkOwner') ? tmp.getLinkOwner() : tmp.getLocation());
         }
-        if (!direction._linkOwner) {
+        if (!linkOwner) {
             location = direction;
             const oldPx = this.world.propertyProximity(oldLoc, '_contentsExitFormat');
             const newPx = this.world.propertyProximity(location, '_contentsEnterFormat');
@@ -1212,12 +1179,13 @@ export class MudConnection {
             ctx.others && await this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing);
         }
         else {
-            const link = direction._otherLink && await direction.getOtherLink();
+            const link = await direction.getOtherLink();
             if (link) {
-                location = link && await link.getLinkOwner();
-                if (!location) {
+                const dest = await link.getLinkOwner();
+                if (!dest) {
                     return this.error(`${directionStr} does not lead anywhere`);
                 }
+                location = dest;
             }
             const output = await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location);
             const exitCtx = formatContexts(direction._linkExitFormat);
@@ -1281,15 +1249,15 @@ export class MudConnection {
                 return this.errorNoThing(name);
         }
         const thing = await this.find(thingStr, loc);
-        if (thing && thing._location === this.thing.id) {
+        if (thing && thing.isIn(this.thing)) {
             return this.error(`You are already holding ${this.formatName(thing)}`);
         }
-        else if (thing) {
+        else if (thing && !cmdInfo.substituted) {
             const cmd = this.checkCommand('get', thingStr, thing, true);
             if (cmd)
                 newCommands = this.substituteCommand(cmd, [`%${thing._id}`, ...dropArgs(1, cmdInfo).split(/\s+/)]);
         }
-        if (!newCommands && !thing) {
+        if (!newCommands && !thing && !cmdInfo.substituted) {
             newCommands = (await this.findCommand(dropArgs(1, cmdInfo).split(/\s+/), 'get'));
         }
         if (newCommands)
@@ -1310,7 +1278,7 @@ export class MudConnection {
         const loc = await this.thing.getLocation();
         if (!thing)
             return this.errorNoThing(thingStr);
-        if (thing._location !== this.thing._id)
+        if (!thing.isIn(this.thing))
             return this.error(`You aren't holding ${thingStr}`);
         await thing.setLocation(loc);
         this.output(`You drop ${this.formatName(thing)}`);
@@ -1428,17 +1396,22 @@ ${protos.join('\n  ')}`);
     // COMMAND
     async atJs(cmdInfo) {
         const line = dropArgs(1, cmdInfo);
-        const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?[^\s]+)+[\s,]*;)?\s*(.*)\s*$/);
+        //const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?[^\s]+)+[\s,]*;)?\s*(.*)\s*$/)
+        const [, varSection, codeSection] = line.match(/^((?:[^;]|\s)*;)?(.*)$/);
         const vars = [];
         const values = [];
-        if (varSection) {
+        let code = codeSection;
+        if (varSection?.match(/^(([\s,]*[a-zA-Z]+\s*=\s*)?[^\s]+)+[\s,]*;/)) {
             for (const [, varname, value] of varSection.matchAll(/[,\s]*([a-zA-Z]+)(?:\s*=\s*([^\s;,]+))?/g)) {
                 vars.push(varname);
                 values.push(value || varname);
             }
         }
+        else {
+            code = line;
+        }
         // tslint:disable-next-line:only-arrow-functions, no-eval
-        const result = await this.thing.thingEval('(' + vars.join(', ') + ')', codeSection).apply(this, await this.findAll(values, undefined, 'thing'));
+        const result = await this.thing.thingEval('(' + vars.join(', ') + ')', code).apply(this, await this.findAll(values, undefined, 'thing'));
         if (result instanceof CommandContext) {
             return result.run();
         }
@@ -1485,11 +1458,11 @@ ${protos.join('\n  ')}`);
         const fm = (prop, noParens = false) => this.formatDumpMethod(thing, prop, noParens);
         let result = `<span class='code'>${await this.dumpName(thing)}
 ${fp('prototype', true)}: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
-${fp('location', true)}:  ${await this.dumpName(thing._location)}
+${fp('location', true)}:  ${await this.dumpName(thing.getLocationId())}
 ${fp('contents', true)}:  ${await this.dumpThingNames(await thing.getContents())}
 ${fp('links', true)}:     ${await this.dumpThingNames(await thing.getLinks())}
-${fp('linkOwner', true)}: ${await this.dumpName(thing._linkOwner)}
-${fp('otherLink', true)}: ${await this.dumpName(thing._otherLink)}`;
+${fp('linkOwner', true)}: ${await this.dumpName(thing.getLinkOwner())}
+${fp('otherLink', true)}: ${await this.dumpName(thing.getOtherLink())}`;
         for (const prop in thing) {
             if (prop[0] === '_' && !reservedProperties.has(prop)) {
                 allKeys.push(prop);
@@ -1505,7 +1478,7 @@ ${fp('otherLink', true)}: ${await this.dumpName(thing._otherLink)}`;
                 result += `\n   ${fp(propName)}: ${escape(JSON.stringify(thing[prop]))}`;
             }
             else if (prop[0] === '!') {
-                const [args, body] = thing[prop]._code;
+                const [args, body] = JSON.parse(thing[prop]._code);
                 result += `\n   ${fm(propName)}: ${escape(args)} ${escape(body)}`;
             }
         }
@@ -1657,6 +1630,15 @@ ${fp('otherLink', true)}: ${await this.dumpName(thing._otherLink)}`;
         thing.__proto__ = proto;
         thing._prototype = proto.id;
         this.output(`You changed the prototype of ${this.formatName(thing)} to ${this.formatName(proto)}`);
+    }
+    // COMMAND
+    async atInstances(cmdInfo, protoStr) {
+        const proto = await this.find(protoStr, this.thing, 'prototype');
+        let result = `<pre>Instances of ${this.formatName(proto)}:`;
+        for (const inst of await this.world.getInstances(proto)) {
+            result += `\n   ${this.formatName(inst)}`;
+        }
+        this.output(result + '</pre>');
     }
     // COMMAND
     atSetBigInt(cmdInfo, thingStr, property, value) {

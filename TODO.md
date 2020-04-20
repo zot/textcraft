@@ -1,3 +1,5 @@
+# Check out [orbit-db](https://github.com/berty/go-orbit-db)
+
 # QuestItem prototype
 * Generator makes only one per person, recording the generator id in a 'personal' prop
 * Items are invisible to others
