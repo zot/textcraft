@@ -124,7 +124,7 @@ objects:
     fullName: Jolly Jester
     article: a
     prototype: 7
-    '!react_go': ['(ignore, from, to)', "   if (this.event.failed) {\n    return cmd('say ha ha!');\n} else if (this.thing.isIn(to)) {\n    return cmd('@say \"$Event.source came here from $event.0\"');\n} else {\n    return cmd('@say \"$Event.source went to $event.1\"');\n}"]
+    '!react_go': ['(ignore, from, to)', "   if (event.failed) {\n    return cmd('say ha ha!');\n} else if (this.thing.isIn(to)) {\n    return cmd('@say \"$Event.source came here from $event.0\"');\n} else {\n    return cmd('@say \"$Event.source went to $event.1\"');\n}"]
     associations: [[location, 1]]
     associationThings: [1]
   - id: 50

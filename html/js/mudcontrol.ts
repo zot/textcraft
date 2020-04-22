@@ -8,6 +8,9 @@ import {
     thingId,
     findSimpleName,
     escape,
+    DeferredThing,
+    aw,
+    DeferredThings,
 } from './model.js'
 import * as mudproto from './mudproto.js'
 
@@ -371,7 +374,15 @@ export class Descripton {
      * If the thing is open, also propagate to its location
      * If this.visitLinks is true, also propagate through links
      */
-    async propagate(thing: Thing) {
+    async propagate(thing: Thing | DeferredThing) {
+        const world = this.source.world
+
+        if (!(thing instanceof Thing)) {
+            const d = thing as DeferredThing
+
+            await world.sync()
+            thing = d.thing
+        }
         if (this.done || !thing || this.visited.has(thing)) return
         this.visited.add(thing)
         this.visitFunc(thing, this)
@@ -380,14 +391,14 @@ export class Descripton {
         }
         if (this.visitLinks) {
             for (const item of await thing.refs.linkOwner) {
-                const otherLink = await thing.assoc.otherLink
-                const otherThing = otherLink && await otherLink.assoc.linkOwner
+                const otherLink = thing.assoc.otherLink
+                const otherThing = otherLink && otherLink.assoc.linkOwner
 
                 await this.propagate(otherLink)
                 await this.propagate(otherThing)
             }
         }
-        if (!thing._closed || this.ignoreClosed) return this.propagate(await thing.assoc.location)
+        if (!thing._closed || this.ignoreClosed) return this.propagate(thing.assoc.location)
     }
 }
 
@@ -575,17 +586,19 @@ export class MudConnection {
 
         return ctx.others ? this.basicFormat(tip, formatContexts(str).others, args) : ''
     }
-    async dumpName(tip: thingId | Thing | Promise<Thing>) {
-        const thing = await this.world.getThing(tip)
+    async dumpName(tip: thingId | Thing | Promise<Thing> | DeferredThing) {
+        const thing = await (tip instanceof Promise ? tip
+            : tip instanceof DeferredThing ? tip._thing
+                : this.world.getThing(tip))
 
         return thing ? this.formatName(thing, true, true) : 'null'
     }
     formatName(thing: Thing, esc = false, verbose = this.verboseNames) {
-        let output = thing.formatName()
+        let output = thing._thing.formatName()
 
         if (esc) output = escape(output)
         if (verbose) {
-            output += `<span class='thing'>(%${thing._id})</span>`
+            output += `<span class='thing'>(%${thing.id})</span>`
         }
         return output
     }
@@ -602,7 +615,7 @@ export class MudConnection {
     }
     async basicFormat(tip: thingId | Thing | Promise<Thing>, str: string, args: Thing[]) {
         if (!str) return str
-        const thing = await this.world.getThing(tip)
+        const thing = await (tip instanceof Promise ? tip : this.world.getThing(tip))
         const adminParts = str.split(/(\s*\$admin\b\s*)/i)
         str = adminParts.length > 1 ? (this.admin && adminParts[2]) || adminParts[0] : str
         const parts = str.split(/( *\$(?:result|event)(?:\.\w*)?| *\$\w*)/i)
@@ -664,16 +677,17 @@ export class MudConnection {
                         continue
                     }
                     case 'location': {
-                        result += capitalize(this.formatName(await thing.assoc.location), format)
+                        result += capitalize(this.formatName(await thing.assoc.location._thing), format)
                         continue
                     }
                     case 'owner': {
-                        result += capitalize(this.formatName(await thing.assoc.linkOwner), format)
+                        result += capitalize(this.formatName(await thing.assoc.linkOwner._thing), format)
                         continue
                     }
                     case 'link': {
-                        const other = await thing.assoc.otherLink
-                        const dest = await other?.assoc.linkOwner
+                        const other = await thing.assoc.otherLink._thing
+                        await this.world.sync()
+                        const dest = await other?.assoc.linkOwner._thing
 
                         if (dest) {
                             result += capitalize(this.formatName(dest), format)
@@ -730,7 +744,7 @@ export class MudConnection {
         if (result) {
             const [context, template] = result
 
-            return this.substituteCommand(template, [`%${context._id}`, ...words])
+            return this.substituteCommand(template, [`%${context.id}`, ...words])
         }
     }
     async findTemplate(words: string[], prefix: string) {
@@ -752,7 +766,7 @@ export class MudConnection {
             }
         }
         if (!template) {
-            const loc = await this.thing.assoc.location
+            const loc = await this.thing.assoc.location._thing
 
             template = this.checkCommand(prefix, cmd, loc)
             if (template) {
@@ -795,11 +809,12 @@ export class MudConnection {
             return async () => {
                 const things = []
 
+                this.substituting = true
                 for (const item of args) {
                     if (item instanceof Thing) {
                         things.push(thingPxy(item))
                     } else {
-                        things.push(thingPxy(await this.find(item, undefined, 'thing')))
+                        things.push(thingPxy(await this.find(item, undefined, 'thing', true)))
                     }
                 }
                 const result = await template.apply(this, things)
@@ -905,22 +920,23 @@ export class MudConnection {
         const things = await this.findAll(items.slice(0, items.length - 1), undefined, 'thing')
         return func.apply(this, things)
     }
-    async find(name: string, start: Thing = this.thing, errTag: string = ''): Promise<Thing> {
+    async find(name: string, start: Thing = this.thing, errTag: string = '', subst = false): Promise<Thing> {
         let result: Thing
 
+        start = await start._thing
         if (!name) return null
         name = name.trim().toLowerCase()
-        if (name[0] !== '%' || this.admin || this.substituting) {
+        if (name[0] !== '%' || this.admin || this.substituting || subst) {
             if (name === 'out' || name === '%out') {
-                const location = await this.thing.assoc.location
+                const location = await this.thing.assoc.location._thing
 
-                result = location && await location.assoc.location
+                result = location && await location.assoc.location._thing
                 if (!result || result === this.world.limbo) {
                     throw new Error('You are not in a container')
                 }
             } else {
                 result = name === 'me' || name === '%me' ? this.thing
-                    : name === 'here' || name === '%here' ? await this.thing.assoc.location
+                    : name === 'here' || name === '%here' ? await this.thing.assoc.location._thing
                         : name === '%limbo' ? this.world.limbo
                             : name === '%lobby' ? this.world.lobby
                                 : name === '%protos' ? this.world.hallOfPrototypes
@@ -938,12 +954,13 @@ export class MudConnection {
         if (!result && errTag) {
             throw new Error(`Could not find ${errTag}: ${name}`)
         }
-        return result
+        return await result?._thing
     }
-    async dumpThingNames(things: Thing[]) {
-        const items = []
+    async dumpThingNames(things: Thing[] | DeferredThings) {
+        const items: string[] = []
+        const ts = things instanceof DeferredThings ? await aw(things) : things
 
-        for (const item of things) {
+        for (const item of ts) {
             items.push(await this.dumpName(item))
         }
         return items.length ? items.join(', ') : 'nothing'
@@ -1046,7 +1063,7 @@ export class MudConnection {
                 }
             })
 
-            if (!startAt) startAt = await this.thing.assoc.location
+            if (!startAt) startAt = await this.thing.assoc.location._thing
             if (excludeActor) desc.visited.add(actor)
             await desc.propagate(startAt)
         }
@@ -1156,11 +1173,11 @@ export class MudConnection {
         }
     }
     async hasKey(lock: Thing, start: Thing) {
-        if (start._keys.indexOf(lock._id) !== -1) {
+        if (start._keys.indexOf(lock.id) !== -1) {
             return true
         }
         for (const item of await start.refs.location) {
-            if (item._keys.indexOf(lock._id) !== -1) {
+            if (item._keys.indexOf(lock.id) !== -1) {
                 return true
             }
         }
@@ -1193,7 +1210,7 @@ export class MudConnection {
         if (typeof value !== 'object') return JSON.stringify(value)
         if (visited.has(value)) return 'circularity'
         visited.add(value)
-        if (value instanceof Thing) return `%${(value as Thing).id}`
+        if (value instanceof Thing) return `%${this.formatName(value as Thing)}`
         if (Array.isArray(value)) {
             return `[${(value as any[]).map(t => this.formatValue(t, visited)).join(', ')}]`
         } else if (typeof value === 'object') {
@@ -1207,7 +1224,7 @@ export class MudConnection {
     }
     // COMMAND
     async look(cmdInfo, target?) {
-        const thing = await (target ? this.find(target, this.thing) : this.thing.assoc.location)
+        const thing = await (target ? this.find(target, this.thing) : this.thing.assoc.location._thing)
 
         if (!thing) {
             this.errorNoThing(target)
@@ -1216,7 +1233,7 @@ export class MudConnection {
             this.output(await this.examination(thing))
             return this.commandDescripton(null, `looks at themself`, 'examine', [thing])
         } else if (this.thing.isIn(thing)) {
-            this.output(await this.examination(await this.thing.assoc.location))
+            this.output(await this.examination(await this.thing.assoc.location._thing))
             return this.commandDescripton(null, `looks around`, 'examine', [thing])
         } else {
             this.output(await this.description(thing))
@@ -1251,8 +1268,10 @@ export class MudConnection {
             const cmd = await this.findCommand([directionStr, 'me'], 'go')
             if (cmd) return this.runCommands(cmd)
         }
-        const oldLoc = await this.thing.assoc.location
-        const direction = await this.find(directionStr, this.thing, 'direction')
+        const oldLoc = await this.thing.assoc.location._thing
+        let direction = await this.find(directionStr, this.thing, 'direction')
+        if (!direction) throw new Error(`Go where?`)
+        direction = await direction._thing
         let location: Thing
         const linkOwner = direction.assocId.linkOwner
         let tmp = direction
@@ -1264,10 +1283,10 @@ export class MudConnection {
             if (tmp === this.thing) {
                 throw new Error('You cannot go into something you are holding')
             }
-            tmp = await (linkOwner in tmp.assoc ? tmp.assoc.linkOwner : tmp.assoc.location)
+            tmp = await (linkOwner in tmp.assoc ? tmp.assoc.linkOwner._thing : tmp.assoc.location._thing)
         }
         if (!linkOwner) {
-            location = direction
+            location = await direction._thing
             const oldPx = this.world.propertyProximity(oldLoc, '_contentsExitFormat')
             const newPx = this.world.propertyProximity(location, '_contentsEnterFormat')
             const emitter = newPx >= oldPx ? location : oldLoc
@@ -1277,15 +1296,16 @@ export class MudConnection {
             ctx.me && await this.basicFormat(emitter, ctx.me, [this.thing, oldLoc, location])
             ctx.others && await this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing)
         } else {
-            const link = await direction.assoc.otherLink
+            let link = await direction.assoc.otherLink._thing
 
             if (link) {
-                const dest = await link.assoc.linkOwner
+                link = await link._thing
+                const dest = await link.assoc.linkOwner._thing
 
                 if (!dest) {
                     return this.error(`${directionStr} does not lead anywhere`)
                 }
-                location = dest
+                location = await dest._thing
             }
             const output = await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location)
             const exitCtx = formatContexts(direction._linkExitFormat)
@@ -1293,7 +1313,9 @@ export class MudConnection {
             await this.world.doTransaction(async () => { this.thing.assoc.location = location })
             output && this.output(output)
             const enterCtx = formatContexts(direction._linkEnterFormat)
-            await this.formatDescripton(link, enterCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false)
+            if (link) {
+                await this.formatDescripton(link, enterCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false)
+            }
         }
         await this.look(cmdInfo)
     }
@@ -1339,7 +1361,7 @@ export class MudConnection {
     }
     // COMMAND
     async get(cmdInfo, thingStr, ...args: Thing[]) {
-        const location = await this.thing.assoc.location
+        const location = await this.thing.assoc.location._thing
         let loc = location
         let newCommands: any
 
@@ -1354,7 +1376,7 @@ export class MudConnection {
             return this.error(`You are already holding ${this.formatName(thing)}`)
         } else if (thing && !cmdInfo.substituted) {
             const cmd = this.checkCommand('get', thingStr, thing, true)
-            if (cmd) newCommands = this.substituteCommand(cmd, [`%${thing._id}`, ...dropArgs(1, cmdInfo).split(/\s+/)])
+            if (cmd) newCommands = this.substituteCommand(cmd, [`%${thing.id}`, ...dropArgs(1, cmdInfo).split(/\s+/)])
         }
         if (!newCommands && !thing && !cmdInfo.substituted) {
             newCommands = (await this.findCommand(dropArgs(1, cmdInfo).split(/\s+/), 'get')) as any
@@ -1370,7 +1392,7 @@ export class MudConnection {
     // COMMAND
     async drop(cmdInfo, thingStr) {
         const thing = await this.find(thingStr, this.thing)
-        const loc = await this.thing.assoc.location
+        const loc = await this.thing.assoc.location._thing
 
         if (!thing) return this.errorNoThing(thingStr)
         if (!thing.isIn(this.thing)) return this.error(`You aren't holding ${thingStr}`)
@@ -1426,7 +1448,7 @@ export class MudConnection {
             const protos = []
 
             for (const aproto of await hall.refs.location) {
-                protos.push(`%${aproto._id} %proto:${aproto.name}`)
+                protos.push(`%${aproto.id} %proto:${aproto.name}`)
             }
             this.error(`<pre>Could not find prototype ${protoStr}
 Prototypes:
@@ -1475,21 +1497,24 @@ ${protos.join('\n  ')}`)
     async atJs(cmdInfo) {
         const line = dropArgs(1, cmdInfo)
         //const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?[^\s]+)+[\s,]*;)?\s*(.*)\s*$/)
-        const [, varSection, codeSection] = line.match(/^((([\s,]*[a-zA-Z]+\s*=\s*)?\s*[a-zA-z%0-9:_]+\s*)+[\s,]*;)?(.*)$/)
+        const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?\s*[a-zA-z%0-9:_]+\s*)+[\s,]*;)?(.*)$/)
         const vars = []
         const values = []
         let code = codeSection
 
-        if (varSection?.match(/^(([\s,]*[a-zA-Z]+\s*=\s*)?\s*[a-zA-z%0-9:_]+\s*)+[\s,]*;/)) {
+        if (varSection) {
             for (const [, varname, value] of varSection.matchAll(/[,\s]*([a-zA-Z]+)(?:\s*=\s*([^\s;,]+))?/g)) {
                 vars.push(varname)
                 values.push(value || varname)
             }
         } else {
             code = line
+            const semis = code.match(/\s*;*/)
+            if (semis) code = code.substring(semis[0].length)
         }
         // tslint:disable-next-line:only-arrow-functions, no-eval
         const result = await (this.thing.thingEval('(' + vars.join(', ') + ')', code) as (...args) => any).apply(this, (await this.findAll(values, undefined, 'thing')).map(t => t?.specProxy))
+        await this.world.sync()
         if (result instanceof CommandContext) {
             return result.run()
         } else {
@@ -1550,7 +1575,7 @@ ${protos.join('\n  ')}`)
         const fp = (prop, noParens = false) => this.formatDumpProperty(thing, prop, noParens)
         const fm = (prop, noParens = false) => this.formatDumpMethod(thing, prop, noParens)
         let result = `<span class='code'>${await this.dumpName(thing)}
-${fp('prototype', true)}: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
+${fp('prototype', true)}: ${thing._prototype ? await this.dumpName(thing.world.getThing(thing._prototype)) : 'none'}
 ${fp('location', true)}--> ${await this.dumpName(thing.assocId.location)}
 ${fp('linkOwner', true)}--> ${await this.dumpName(thing.assoc.linkOwner)}
 ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
@@ -1570,11 +1595,11 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
             const propName = prop.substring(1)
 
             if (prop[0] === '_') {
-                result += `\n   ${fp(propName)}: ${escape(JSON.stringify(thing[prop]))}`
+                result += `\n   ${fp(propName)}: ${escape(JSON.stringify(thing[prop]))} `
             } else if (prop[0] === '!') {
                 const [args, body] = JSON.parse(thing[prop]._code)
 
-                result += `\n   ${fm(propName)}: ${escape(args)} ${escape(body)}`
+                result += `\n   ${fm(propName)}: ${escape(args)} ${escape(body)} `
             }
         }
         const associationMap = new Map<string, Set<Thing>>()
@@ -1586,7 +1611,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         const associations = Array.from(associationMap.keys())
         associations.sort()
         for (const key of associations) {
-            result += `\n   ${fp(key)}--> ${Array.from(associationMap.get(key)).map(t => this.formatName(t)).join(' ')}`
+            result += `\n   ${fp(key)} --> ${Array.from(associationMap.get(key)).map(t => this.formatName(t)).join(' ')} `
         }
         const backlinks = new Map<string, Thing[]>()
         for (const associate of await thing.assoc.refs()) {
@@ -1597,7 +1622,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
             }
         }
         for (const link of backlinks.keys()) {
-            result += `\n   <--(${link})--${await this.dumpThingNames(backlinks.get(link))}`
+            result += `\n < --(${link})--${await this.dumpThingNames(backlinks.get(link))} `
         }
         result += '</span>'
         this.output(result)
@@ -1660,10 +1685,10 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         const thing = await this.find(thingStr)
         const loc = await this.find(locStr)
 
-        if (!thing) return this.error(`Could not find ${thingStr}`)
-        if (!loc) return this.error(`Could not find ${locStr}`)
+        if (!thing) return this.error(`Could not find ${thingStr} `)
+        if (!loc) return this.error(`Could not find ${locStr} `)
         thing.assoc.location = loc
-        this.output(`You moved ${thingStr} to ${locStr}`)
+        this.output(`You moved ${thingStr} to ${locStr} `)
     }
     // COMMAND
     async atAs(cmdInfo: any, thingStr: string) {
@@ -1684,7 +1709,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
     async atAdmin(cmdInfo: any, thingStr: string, toggle: string) {
         checkArgs(cmdInfo, arguments)
         const thing = await this.find(thingStr)
-        if (!thing) return this.error(`Could not find ${thingStr}`)
+        if (!thing) return this.error(`Could not find ${thingStr} `)
         const con = connectionMap.get(thing)
         const boolVal = toggle.toLowerCase() in { t: true, true: true }
         const user = await this.world.getUserForThing(thing)
@@ -1695,7 +1720,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
             if (con) con.admin = boolVal
             if (boolVal) con.output(`${this.formatName(this.thing)} just upgraded you`)
         }
-        this.output(`You just ${toggle ? 'upgraded' : 'downgraded'} ${thingStr}`)
+        this.output(`You just ${toggle ? 'upgraded' : 'downgraded'} ${thingStr} `)
     }
     // COMMAND
     async atAdd(cmdInfo: any, thingStr: string, property: string, thing2Str: string) {
@@ -1708,13 +1733,13 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
             return this.error(`${property} is not a list`)
         }
         if (!thing[prop]) {
-            thing[prop] = [thing2._id]
-        } else if (thing[prop].indexOf(thing2._id) === -1) {
+            thing[prop] = [thing2.id]
+        } else if (thing[prop].indexOf(thing2.id) === -1) {
             if (!thing.hasOwnProperty(prop)) thing[prop] = thing[prop].slice()
-            thing[prop].push(thing2._id)
-            this.output(`Added ${thing2Str} to ${property}`)
+            thing[prop].push(thing2.id)
+            this.output(`Added ${thing2Str} to ${property} `)
         } else {
-            this.error(`${thing2Str} is already in ${property}`)
+            this.error(`${thing2Str} is already in ${property} `)
         }
     }
     // COMMAND
@@ -1727,12 +1752,12 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         if (!Array.isArray(thing[prop]) && !addableProperties.has(prop)) {
             this.error(`${property} is not a list`)
         }
-        const index = thing[prop].indexOf(thing2._id)
+        const index = thing[prop].indexOf(thing2.id)
         if (index !== -1) {
             thing[prop].splice(index, 1)
-            this.output(`Removed ${thing2Str} from ${property}`)
+            this.output(`Removed ${thing2Str} from ${property} `)
         } else {
-            this.error(`${thing2Str} is not in ${property}`)
+            this.error(`${thing2Str} is not in ${property} `)
         }
     }
     // COMMAND
@@ -1742,15 +1767,15 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         const proto = await this.find(protoStr, this.thing, 'prototype');
         (thing as any).__proto__ = proto
         thing._prototype = proto.id
-        this.output(`You changed the prototype of ${this.formatName(thing)} to ${this.formatName(proto)}`)
+        this.output(`You changed the prototype of ${this.formatName(thing)} to ${this.formatName(proto)} `)
     }
     // COMMAND
     async atInstances(cmdInfo: any, protoStr: string) {
         const proto = await this.find(protoStr, this.thing, 'prototype');
-        let result = `<pre>Instances of ${this.formatName(proto)}:`
+        let result = `< pre > Instances of ${this.formatName(proto)}: `
 
         for (const inst of await this.world.getInstances(proto)) {
-            result += `\n   ${this.formatName(inst)}`
+            result += `\n   ${this.formatName(inst)} `
         }
         this.output(result + '</pre>')
     }
@@ -1775,7 +1800,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         const [thing, lowerProp, realProp, val] = await this.thingProps(thingStr, property, value, cmdInfo)
         value = val
         if (!thing) return
-        if (addableProperties.has(realProp)) return this.error(`Cannot set ${property}`)
+        if (addableProperties.has(realProp)) return this.error(`Cannot set ${property} `)
         switch (lowerProp) {
             case 'react_tick':
                 thing._react_tick = String(value)
@@ -1830,7 +1855,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
                 thing[realProp] = value
                 break
         }
-        this.output(`set ${thingStr} ${property} to ${value}`)
+        this.output(`set ${thingStr} ${property} to ${value} `)
     }
     async atCopy(cmdInfo: any, thingStr: string, force: string) {
         checkArgs(cmdInfo, arguments)
@@ -1873,11 +1898,11 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
                 }
                 all.add(item)
             }
-            out += `<div>You toasted ${this.formatName(thing)}`
+            out += `< div > You toasted ${this.formatName(thing)} `
             if (connected.size > 1) {
                 const num = connected.size - 1
 
-                out += ` and everything it was connected to (${num} other object${num === 1 ? '' : 's'})`
+                out += ` and everything it was connected to(${num} other object${num === 1 ? '' : 's'})`
             }
             out += '<\div>'
         }
@@ -1902,9 +1927,9 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
 
         if (con) {
             con.verboseNames = false
-            this.output(`You take the blue pill. You feel normal`)
+            this.output(`You take the blue pill.You feel normal`)
         } else {
-            this.error(`Could not find ${thingStr}`)
+            this.error(`Could not find ${thingStr} `)
         }
     }
     // COMMAND
@@ -1915,7 +1940,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
 
         if (con) {
             con.verboseNames = true
-            this.output(`You take the red pill. You feel abnormal. Don't you wish you had taken the blue pill?`)
+            this.output(`You take the red pill.You feel abnormal.Don't you wish you had taken the blue pill?`)
         } else {
             this.error(`Could not find ${thingStr}`)
         }
@@ -1950,7 +1975,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         const protos = []
 
         for (const proto of await hall.refs.location) {
-            protos.push(`%${proto._id} %proto:${proto.name}`)
+            protos.push(`%${proto.id} %proto:${proto.name}`)
         }
         this.output(
             `<pre>Name: ${this.world.name}
@@ -2091,11 +2116,11 @@ function formatContexts(format: string): any {
 }
 
 function thingPxy(item: any): any {
-    return !(item instanceof Thing) ? item : (item as any)._thing ? item : item.specProxy
+    return !(item instanceof Thing) ? item : item._thing.specProxy
 }
 
 function pxyThing(item: any): any {
-    return !(item instanceof Thing) ? item : (item as any)._thing ? (item as any)._thing : item
+    return !(item instanceof Thing) ? item : (item as any)._thing || item
 }
 
 ////

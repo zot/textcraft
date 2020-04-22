@@ -38,30 +38,76 @@ const associationProps = {
     assocId: true,
     assocIdMany: true,
     refs: true,
+    _thing: true,
 };
-function deferredThing(promise, item, path) {
+export class Deferred {
+    constructor(world, promise) {
+        this.world = world;
+        this.promise = promise.then(t => this.thing = t);
+    }
+    then(func) {
+        return this.promise.then.apply(this.promise, arguments);
+    }
+    catch(func) {
+        return this.promise.catch.apply(this.promise, arguments);
+    }
+    toString() {
+        return `[a Deferred Thing]`;
+    }
+}
+export class DeferredThing extends Deferred {
+    constructor(world, promise) {
+        super(world, promise);
+    }
+}
+export class DeferredThings extends Deferred {
+    constructor(world, promise) {
+        super(world, promise);
+    }
+}
+function deferredThing(world, promise, item, path = [], array) {
+    if (promise instanceof Thing || Array.isArray(promise))
+        return promise;
     let thing = null;
-    path = path ? path.slice() : [];
+    world.addDeferred(promise);
     path.push(item);
     // tslint:disable-next-line:no-floating-promises
-    promise.then(t => thing = t);
-    return new Proxy({}, {
+    promise.then(t => {
+        thing = t;
+        world.removeDeferred(promise);
+    });
+    return new Proxy(array ? new DeferredThings(world, promise) : new DeferredThing(world, promise), {
         get(obj, prop) {
+            if (prop === 'toString' || prop === 'then' || prop === 'thing' || prop === 'length'
+                || prop === 'world' || prop === 'catch' || prop === 'promise')
+                return obj[prop];
+            if (prop === 'isDeferred')
+                return true;
             if (thing)
                 return thing[prop];
             // every 2nd prop must be an association prop
-            if ((path.length % 2 === 1 === prop in associationProps)
+            if ((path.length % 2 === 0 === prop in associationProps)
                 // you have to stop after getting refs
                 && !(path.length >= 1 && path[path.length - 2] === 'refs')) {
-                return deferredThing(promise.then(t => t[prop]), prop, path);
+                if (prop === '_thing') {
+                    return promise.then(t => t[prop]);
+                }
+                else {
+                    return deferredThing(world, promise.then(t => t[prop]), prop, path.slice());
+                }
             }
             throw new Error(`Attempt to use thing before a sync()`);
         },
         set(obj, prop, value) {
-            if (thing) {
-                thing[prop] = value;
-            }
+            if (!thing)
+                throw new Error(`Attempt to use thing before a sync()`);
+            thing[prop] = value;
             return true;
+        },
+        has(obj, prop) {
+            if (!thing)
+                throw new Error(`Attempt to use thing before a sync()`);
+            return prop in thing;
         }
     });
 }
@@ -95,11 +141,10 @@ class AssociationIdAccessor {
         return new Proxy(this, {
             get(obj, prop) {
                 if (typeof prop === 'string') {
-                    return obj.refs(prop)
-                        .then((refs) => {
-                        return refs;
-                    });
+                    return obj.refs(prop);
                 }
+                else
+                    throw new Error(`Illegal refs property: ${String(prop)}`);
             }
         });
     }
@@ -145,7 +190,9 @@ class AssociationIdAccessor {
         }
     }
     allNamed(prop) {
-        return this.thing.world.getThings(this.allIdsNamed(prop));
+        const things = this.thing.world.getThings(this.allIdsNamed(prop));
+        return things instanceof Promise ? deferredThing(this.thing.world, things, this.thing.id, [], true)
+            : things;
     }
     named(prop) {
         const id = this.idNamed(prop);
@@ -194,6 +241,7 @@ class AssociationIdAccessor {
         this.thing._associationThings = Array.from(new Set(this.thing._associations.map(([, v]) => v)));
     }
     selectResult(result) {
+        result = result.map(t => t instanceof Thing ? t._thing.specProxy : t);
         return this.many ? result
             : !result || result.length === 0 ? null
                 : result.length === 1 ? result[0]
@@ -203,8 +251,8 @@ class AssociationIdAccessor {
 class AssociationAccessor extends AssociationIdAccessor {
     get(prop) {
         const result = this.allNamed(prop);
-        return !(result instanceof Promise) ? this.selectResult(result)
-            : result.then((r) => this.selectResult(r));
+        return Array.isArray(result) ? this.selectResult(result)
+            : deferredThing(this.thing.world, result.then(a => this.selectResult(a)), this.thing.id);
     }
 }
 /*
@@ -238,6 +286,7 @@ export class Thing {
             this._description = description;
         this.makeProxies();
     }
+    get _thing() { return this; }
     makeProxies() {
         this.assoc = new AssociationAccessor(this).proxify();
         this.assocMany = new AssociationAccessor(this, true).proxify();
@@ -338,15 +387,15 @@ export class Thing {
         }
         if (found)
             return found;
-        const loc = await this.assoc.location;
+        const loc = await this.assoc.location._thing;
         if (loc) {
-            const result = await loc.find(name, exclude);
+            const result = await loc._thing.find(name, exclude);
             if (result)
                 return result;
         }
-        const owner = await this.assoc.linkOwner;
+        const owner = await this.assoc.linkOwner._thing;
         if (owner) {
-            const result = await owner.find(name, exclude);
+            const result = await owner._thing.find(name, exclude);
             if (result)
                 return result;
         }
@@ -359,12 +408,15 @@ export class Thing {
         const realCode = code.match(/[;{}]/) ? code : 'return ' + code;
         // tslint:disable-next-line:only-arrow-functions, no-eval
         return eval(`(async function ${args} {
+const sync = this.world.sync.bind(this.world);
 const cmd = this.cmd.bind(this);
 const cmdf = this.cmdf.bind(this);
 const anyHas = this.anyHas.bind(this);
 const findNearby = this.findNearby.bind(this);
 const doThings = this.doThings.bind(this);
 const me = this.thing.specProxy;
+const here = await this.world.getThing(this.thing.assoc.location._thing);
+const event = this.event;
 ${realCode};
 })`);
     }
@@ -438,6 +490,9 @@ ${realCode};
     }
 }
 Thing.prototype._associations = [];
+Thing.prototype.isDeferred = false;
+export class SpecProxy extends Thing {
+}
 export class World {
     constructor(name, stg) {
         this.activeExtensions = new Map();
@@ -447,6 +502,7 @@ export class World {
         this.thingCache = new Map();
         this.transactionThings = new Set();
         this.nextId = 0;
+        this.deferred = new Set();
     }
     async start() {
         for (const extension of await this.getExtensions()) {
@@ -568,7 +624,7 @@ export class World {
         this.clockRate = info.clockRate || 2;
     }
     async findPrototype(name) {
-        for (const aproto of await this.hallOfPrototypes.refs.location) {
+        for (const aproto of await aw(this.hallOfPrototypes.refs.location)) {
             if (name === aproto.name)
                 return aproto;
         }
@@ -938,33 +994,30 @@ get %-1
             return this.store();
         });
     }
-    async getThing(tip) {
-        const thing = this.basicGetThing(tip);
-        return thing instanceof Thing ? thing
-            : this.basicGetThing(tip).then(t => this.stamp(t));
+    addDeferred(promise) {
+        this.deferred.add(promise);
     }
-    basicGetThing(tip) {
-        let id;
-        if (typeof tip === 'number') {
-            if (isNaN(tip))
-                return null;
-            id = tip;
+    removeDeferred(promise) {
+        this.deferred.delete(promise);
+    }
+    async sync(t) {
+        if (this.deferred.size) {
+            await Promise.all(Array.from(this.deferred));
+            return t;
         }
-        else if (tip instanceof Thing) {
-            return tip;
-        }
-        else if (tip instanceof Promise) {
-            return tip;
-        }
-        else {
+    }
+    getThing(tid) {
+        if (tid instanceof Thing)
+            return this.stamp(tid);
+        if (tid === null || (typeof tid === 'number' && isNaN(tid)))
             return null;
-        }
-        const cached = this.thingCache.get(id);
-        if (cached) {
+        const cached = this.thingCache.get(tid);
+        if (cached)
             return cached;
-        }
         return this.doTransaction(async (store) => {
-            return await this.cacheThingFor(await promiseFor(store.get(id)));
+            const thing = await this.cacheThingFor(await promiseFor(store.get(tid)));
+            this.stamp(thing);
+            return thing;
         });
     }
     authenticate(name, passwd, thingName, noauthentication = false) {
@@ -1011,12 +1064,21 @@ get %-1
         });
         return t;
     }
-    async getThings(ids) {
+    getThings(ids) {
         const things = [];
-        for (const id of ids) {
-            things.push(this.getThing(id));
+        const promises = [];
+        for (let i = 0; i < ids.length; i++) {
+            const id = ids[i];
+            const thing = this.getThing(id);
+            if (thing instanceof Thing) {
+                things.push(thing);
+            }
+            else {
+                things.push(null);
+                promises.push(thing.then(t => things[i] = t));
+            }
         }
-        return things;
+        return promises.length ? Promise.all(promises).then(() => things) : things;
     }
     getPrototypes() {
         return this.doTransaction(async (things) => {
@@ -1029,7 +1091,7 @@ get %-1
         return this.doTransaction(async (things) => {
             const result = [];
             await doAll(things.index(prototypeIndex), async (t) => result.push(t.id), IDBKeyRange.only(proto.id));
-            return await this.getThings(result);
+            return this.getThings(result);
         });
     }
     async toast(toasted) {
@@ -1054,7 +1116,7 @@ get %-1
     }
     stamp(thing) {
         if (thing) {
-            this.transactionThings.add(thing);
+            this.transactionThings.add(thing._thing);
         }
         return thing;
     }
@@ -1065,6 +1127,7 @@ get %-1
         return things;
     }
     async copyThing(thing, connected = new Set()) {
+        thing = thing._thing;
         return this.doTransaction(async () => {
             await this.findConnected(thing, connected);
             const originals = new Map();
@@ -1762,5 +1825,12 @@ export function registerExtension(id, onStarted, onLoggedIn) {
     onStarted?.(activeWorld, connection);
     ext.onLoggedIn = onLoggedIn;
     ext.succeed?.();
+}
+export async function aw(t) {
+    if (t instanceof DeferredThing || t instanceof DeferredThings) {
+        await t.world.sync();
+        return t.thing;
+    }
+    return t;
 }
 //# sourceMappingURL=model.js.map

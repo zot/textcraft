@@ -56,33 +56,89 @@ const associationProps = {
     assocId: true,
     assocIdMany: true,
     refs: true,
+    _thing: true,
 }
 
 type propType = string | number | symbol
 
-function deferredThing(promise: Promise<Thing>, item: propType, path?: propType[]) {
+export class Deferred {
+    world: World
+    promise: Promise<Thing>;
+    length: number
+    isDeferred: boolean
+    thing: Thing
+
+    constructor(world, promise) {
+        this.world = world
+        this.promise = promise.then(t => this.thing = t)
+    }
+    then(func) {
+        return this.promise.then.apply(this.promise, arguments)
+    }
+    catch(func) {
+        return this.promise.catch.apply(this.promise, arguments)
+    }
+    toString() {
+        return `[a Deferred Thing]`
+    }
+}
+export class DeferredThing extends Deferred {
+    _thing: Promise<Thing>
+
+    constructor(world, promise) {
+        super(world, promise)
+    }
+}
+
+export class DeferredThings extends Deferred {
+    _thing: Promise<Thing[]>
+
+    constructor(world, promise) {
+        super(world, promise)
+    }
+}
+
+function deferredThing(world: World, promise: Thing, item: propType, path?: any[]): Thing
+function deferredThing(world: World, promise: Promise<Thing | Thing[]>, item: propType, path?: any[]): DeferredThing
+function deferredThing(world: World, promise: Thing[], item: propType, path?: any[]): Thing[]
+function deferredThing(world: World, promise: Promise<Thing | Thing[]>, item: propType, path?: any[], array?: boolean): DeferredThings
+function deferredThing(world: World, promise: Thing | Thing[] | Promise<Thing | Thing[]>, item: propType, path = [], array?: boolean): DeferredThing | DeferredThings | Thing | Thing[] {
+    if (promise instanceof Thing || Array.isArray(promise)) return promise
     let thing: Thing | Thing[] = null
 
-    path = path ? path.slice() : []
+    world.addDeferred(promise)
     path.push(item)
     // tslint:disable-next-line:no-floating-promises
-    promise.then(t => thing = t)
-    return new Proxy({}, {
+    promise.then(t => {
+        thing = t
+        world.removeDeferred(promise)
+    })
+    return new Proxy(array ? new DeferredThings(world, promise) : new DeferredThing(world, promise), {
         get(obj, prop) {
+            if (prop === 'toString' || prop === 'then' || prop === 'thing' || prop === 'length'
+                || prop === 'world' || prop === 'catch' || prop === 'promise') return obj[prop]
+            if (prop === 'isDeferred') return true
             if (thing) return thing[prop]
             // every 2nd prop must be an association prop
-            if ((path.length % 2 === 1 === prop in associationProps)
+            if ((path.length % 2 === 0 === prop in associationProps)
                 // you have to stop after getting refs
                 && !(path.length >= 1 && path[path.length - 2] === 'refs')) {
-                return deferredThing(promise.then(t => t[prop]), prop, path)
+                if (prop === '_thing') {
+                    return promise.then(t => t[prop])
+                } else {
+                    return deferredThing(world, promise.then(t => t[prop]), prop, path.slice())
+                }
             }
             throw new Error(`Attempt to use thing before a sync()`)
         },
         set(obj, prop, value) {
-            if (thing) {
-                thing[prop] = value
-            }
+            if (!thing) throw new Error(`Attempt to use thing before a sync()`)
+            thing[prop] = value
             return true
+        },
+        has(obj, prop) {
+            if (!thing) throw new Error(`Attempt to use thing before a sync()`)
+            return prop in thing
         }
     })
 }
@@ -121,10 +177,7 @@ class AssociationIdAccessor {
             get(obj, prop: string | number | symbol) {
                 if (typeof prop === 'string') {
                     return obj.refs(prop)
-                        .then((refs) => {
-                            return refs
-                        })
-                }
+                } else throw new Error(`Illegal refs property: ${String(prop)}`)
             }
         })
     }
@@ -165,8 +218,11 @@ class AssociationIdAccessor {
             if (assoc[0] === prop) return assoc[1] as number
         }
     }
-    allNamed(prop: string): Promise<Thing[]> | Thing[] {
-        return this.thing.world.getThings(this.allIdsNamed(prop))
+    allNamed(prop: string): DeferredThings | Thing[] {
+        const things = this.thing.world.getThings(this.allIdsNamed(prop))
+
+        return things instanceof Promise ? deferredThing(this.thing.world, things, this.thing.id, [], true)
+            : things
     }
     named(prop: string) {
         const id = this.idNamed(prop)
@@ -219,6 +275,7 @@ class AssociationIdAccessor {
         this.thing._associationThings = Array.from(new Set(this.thing._associations.map(([, v]) => v))) as thingId[]
     }
     selectResult(result: any) {
+        result = result.map(t => t instanceof Thing ? t._thing.specProxy : t)
         return this.many ? result
             : !result || result.length === 0 ? null
                 : result.length === 1 ? result[0]
@@ -230,8 +287,8 @@ class AssociationAccessor extends AssociationIdAccessor {
     get(prop: string) {
         const result = this.allNamed(prop)
 
-        return !(result instanceof Promise) ? this.selectResult(result)
-            : result.then((r) => this.selectResult(r))
+        return Array.isArray(result) ? this.selectResult(result)
+            : deferredThing(this.thing.world, result.then(a => this.selectResult(a)), this.thing.id)
     }
 }
 
@@ -283,6 +340,7 @@ export class Thing {
     assocIdMany: any             // proxy that simplifies association access
     refs: any                    // proxy for associations back to this
     specProxy: any
+    isDeferred: boolean
     // standard associations
     //location                   -- if this thing has a location, it is in its location's contents
     //linkOwner                  -- the owner of this link (if this is a link)
@@ -295,6 +353,7 @@ export class Thing {
         if (typeof description !== 'undefined') this._description = description
         this.makeProxies()
     }
+    get _thing() { return this }
     makeProxies() {
         this.assoc = new AssociationAccessor(this).proxify()
         this.assocMany = new AssociationAccessor(this, true).proxify()
@@ -392,15 +451,15 @@ export class Thing {
             }
         }
         if (found) return found
-        const loc = await this.assoc.location
+        const loc = await this.assoc.location._thing
         if (loc) {
-            const result = await loc.find(name, exclude)
+            const result = await loc._thing.find(name, exclude)
 
             if (result) return result
         }
-        const owner = await this.assoc.linkOwner
+        const owner = await this.assoc.linkOwner._thing
         if (owner) {
-            const result = await owner.find(name, exclude)
+            const result = await owner._thing.find(name, exclude)
 
             if (result) return result
         }
@@ -414,12 +473,15 @@ export class Thing {
 
         // tslint:disable-next-line:only-arrow-functions, no-eval
         return eval(`(async function ${args} {
+const sync = this.world.sync.bind(this.world);
 const cmd = this.cmd.bind(this);
 const cmdf = this.cmdf.bind(this);
 const anyHas = this.anyHas.bind(this);
 const findNearby = this.findNearby.bind(this);
 const doThings = this.doThings.bind(this);
 const me = this.thing.specProxy;
+const here = await this.world.getThing(this.thing.assoc.location._thing);
+const event = this.event;
 ${realCode};
 })`)
     }
@@ -494,6 +556,9 @@ ${realCode};
     }
 }
 Thing.prototype._associations = []
+Thing.prototype.isDeferred = false
+
+export class SpecProxy extends Thing { }
 
 export class World {
     name: string
@@ -522,6 +587,7 @@ export class World {
     mudConnectionConstructor: Constructor<MudConnection>;
     transactionThings: Set<Thing>;
     transactionPromise: Promise<any>;
+    deferred: Set<Promise<any>>;
 
     constructor(name: string, stg: MudStorage) {
         this.setName(name)
@@ -529,6 +595,7 @@ export class World {
         this.thingCache = new Map()
         this.transactionThings = new Set()
         this.nextId = 0
+        this.deferred = new Set()
     }
     async start() {
         for (const extension of await this.getExtensions()) {
@@ -654,8 +721,8 @@ export class World {
         this.generatorProto = (await this.getThing(info.generatorProto)) || await this.findPrototype('generatorProto')
         this.clockRate = info.clockRate || 2
     }
-    async findPrototype(name: string) {
-        for (const aproto of await this.hallOfPrototypes.refs.location) {
+    async findPrototype(name: string): Promise<Thing> {
+        for (const aproto of await aw(this.hallOfPrototypes.refs.location as Thing[])) {
             if (name === aproto.name) return aproto
         }
     }
@@ -1035,31 +1102,31 @@ get %-1
             return this.store()
         })
     }
-    async getThing(tip: thingId | Thing | Promise<Thing>) {
-        const thing = this.basicGetThing(tip)
-        return thing instanceof Thing ? thing
-            : (this.basicGetThing(tip) as Promise<Thing>).then(t => this.stamp(t))
+    addDeferred(promise: Promise<any>) {
+        this.deferred.add(promise)
     }
-    basicGetThing(tip: thingId | Thing | Promise<Thing>) {
-        let id: thingId
-
-        if (typeof tip === 'number') {
-            if (isNaN(tip)) return null
-            id = tip
-        } else if (tip instanceof Thing) {
-            return tip
-        } else if (tip instanceof Promise) {
-            return tip
-        } else {
-            return null
+    removeDeferred(promise: Promise<any>) {
+        this.deferred.delete(promise)
+    }
+    async sync(t?: Thing | DeferredThing): Promise<Thing>
+    async sync(t: Thing[] | DeferredThings): Promise<Thing[]>
+    async sync(t?: Thing | Thing[] | DeferredThing | DeferredThings): Promise<Thing | Thing[]> {
+        if (this.deferred.size) {
+            await Promise.all(Array.from(this.deferred))
+            return (t as any)
         }
-        const cached = this.thingCache.get(id)
+    }
+    getThing(tid: thingId | Thing | DeferredThing) {
+        if (tid instanceof Thing) return this.stamp(tid)
+        if (tid === null || (typeof tid === 'number' && isNaN(tid))) return null
+        const cached = this.thingCache.get(tid)
 
-        if (cached) {
-            return cached
-        }
+        if (cached) return cached
         return this.doTransaction(async (store) => {
-            return await this.cacheThingFor(await promiseFor(store.get(id)))
+            const thing = await this.cacheThingFor(await promiseFor(store.get(tid)))
+
+            this.stamp(thing)
+            return thing
         })
     }
     authenticate(name: string, passwd: string, thingName: string, noauthentication = false) {
@@ -1105,13 +1172,22 @@ get %-1
         })
         return t
     }
-    async getThings(ids: thingId[]): Promise<Thing[]> {
+    getThings(ids: thingId[]): Promise<Thing[]> | Thing[] {
         const things = []
+        const promises = []
 
-        for (const id of ids) {
-            things.push(this.getThing(id))
+        for (let i = 0; i < ids.length; i++) {
+            const id = ids[i]
+            const thing = this.getThing(id)
+
+            if (thing instanceof Thing) {
+                things.push(thing)
+            } else {
+                things.push(null)
+                promises.push(thing.then(t => things[i] = t))
+            }
         }
-        return things
+        return promises.length ? Promise.all(promises).then(() => things) : things
     }
     getPrototypes() {
         return this.doTransaction(async (things) => {
@@ -1126,7 +1202,7 @@ get %-1
             const result = []
 
             await doAll(things.index(prototypeIndex), async t => result.push(t.id), IDBKeyRange.only(proto.id))
-            return await this.getThings(result)
+            return this.getThings(result)
         })
     }
     async toast(toasted: Set<Thing>) {
@@ -1151,7 +1227,7 @@ get %-1
     }
     stamp(thing: Thing) {
         if (thing) {
-            this.transactionThings.add(thing)
+            this.transactionThings.add(thing._thing)
         }
         return thing
     }
@@ -1162,6 +1238,7 @@ get %-1
         return things
     }
     async copyThing(thing: Thing, connected = new Set<Thing>()) {
+        thing = thing._thing
         return this.doTransaction(async () => {
             await this.findConnected(thing, connected)
             const originals = new Map<number, Thing>()
@@ -1898,4 +1975,14 @@ export function registerExtension(id: number, onStarted: (world: World, con: Mud
     onStarted?.(activeWorld, connection)
     ext.onLoggedIn = onLoggedIn
     ext.succeed?.()
+}
+
+export function aw(t: Thing | DeferredThing): Promise<Thing>
+export function aw(t: Thing[] | DeferredThings): Promise<Thing[]>
+export async function aw(t: Thing | Thing[] | DeferredThing | DeferredThings): Promise<Thing | Thing[]> {
+    if (t instanceof DeferredThing || t instanceof DeferredThings) {
+        await t.world.sync()
+        return t.thing
+    }
+    return t
 }
