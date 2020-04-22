@@ -32,6 +32,181 @@ export class Extension {
         return this.getHash();
     }
 }
+const associationProps = {
+    assoc: true,
+    assocMany: true,
+    assocId: true,
+    assocIdMany: true,
+    refs: true,
+};
+function deferredThing(promise, item, path) {
+    let thing = null;
+    path = path ? path.slice() : [];
+    path.push(item);
+    // tslint:disable-next-line:no-floating-promises
+    promise.then(t => thing = t);
+    return new Proxy({}, {
+        get(obj, prop) {
+            if (thing)
+                return thing[prop];
+            // every 2nd prop must be an association prop
+            if ((path.length % 2 === 1 === prop in associationProps)
+                // you have to stop after getting refs
+                && !(path.length >= 1 && path[path.length - 2] === 'refs')) {
+                return deferredThing(promise.then(t => t[prop]), prop, path);
+            }
+            throw new Error(`Attempt to use thing before a sync()`);
+        },
+        set(obj, prop, value) {
+            if (thing) {
+                thing[prop] = value;
+            }
+            return true;
+        }
+    });
+}
+function proxify(accessor) {
+    return new Proxy(accessor, {
+        get(obj, prop) {
+            if (prop in obj)
+                return obj[prop];
+            return obj.get(String(prop));
+        },
+        set(obj, prop, value) {
+            obj.set(String(prop), value);
+            return true;
+        },
+        has(obj, prop) {
+            return obj.has(prop);
+        },
+        deleteProperty(obj, prop) {
+            obj.dissociateNamed(String(prop));
+            return true;
+        },
+    });
+}
+class AssociationIdAccessor {
+    constructor(thing, many = false) {
+        this.thing = thing;
+        this.many = many;
+    }
+    proxify() { return proxify(this); }
+    refsProxy() {
+        return new Proxy(this, {
+            get(obj, prop) {
+                if (typeof prop === 'string') {
+                    return obj.refs(prop)
+                        .then((refs) => {
+                        return refs;
+                    });
+                }
+            }
+        });
+    }
+    has(prop, tid) {
+        if (tid === undefined)
+            return typeof this.idNamed(prop) !== 'undefined';
+        const id = idFor(tid);
+        for (const assoc of this.thing._associations) {
+            if (assoc[0] === prop && assoc[1] === id)
+                return true;
+        }
+        return false;
+    }
+    get(prop) {
+        return this.selectResult(this.allIdsNamed(prop));
+    }
+    set(prop, tid, m2m = false) {
+        const id = idFor(tid);
+        if (id == null)
+            return this.dissociateNamed(prop);
+        this.checkAssociations();
+        if (!m2m)
+            this.dissociateNamed(prop, false); // remove all others first if not m2m
+        this.thing._associations.push([prop, id]);
+        this.changedAssociations();
+    }
+    add(prop, tid) { this.set(prop, tid, true); }
+    refs(prop) {
+        return prop ? this.thing.world.getAssociated(prop, this.thing)
+            : this.thing.world.getAllAssociated(this.thing);
+    }
+    allIdsNamed(prop, ids = []) {
+        for (const assoc of this.thing._associations) {
+            if (assoc[0] === prop)
+                ids.push(assoc[1]);
+        }
+        return ids;
+    }
+    idNamed(prop) {
+        for (const assoc of this.thing._associations) {
+            if (assoc[0] === prop)
+                return assoc[1];
+        }
+    }
+    allNamed(prop) {
+        return this.thing.world.getThings(this.allIdsNamed(prop));
+    }
+    named(prop) {
+        const id = this.idNamed(prop);
+        if (id)
+            return this.thing.world.getThing(id);
+    }
+    dissociate(prop, tid) {
+        const id = idFor(tid);
+        this.checkAssociations();
+        for (let i = 0; i < this.thing._associations.length; i++) {
+            const assoc = this.thing._associations[i];
+            if (assoc[0] === prop && assoc[1] === id) {
+                return this.thing._associations.splice(i, 1);
+            }
+        }
+        this.changedAssociations();
+    }
+    dissociateFrom(tid) {
+        const id = idFor(tid);
+        this.checkAssociations();
+        for (let i = 0; i < this.thing._associations.length; i++) {
+            const assoc = this.thing._associations[i];
+            if (assoc[1] === id) {
+                this.thing._associations.splice(i, 1);
+            }
+        }
+        this.changedAssociations();
+    }
+    dissociateNamed(prop, update = true) {
+        this.checkAssociations();
+        for (let i = 0; i < this.thing._associations.length; i++) {
+            const assoc = this.thing._associations[i];
+            if (assoc[0] === prop) {
+                this.thing._associations.splice(i, 1);
+            }
+        }
+        if (update)
+            this.changedAssociations();
+    }
+    checkAssociations() {
+        if (!this.thing.hasOwnProperty('_associations')) {
+            this.thing._associations = this.thing._associations.slice();
+        }
+    }
+    changedAssociations() {
+        this.thing._associationThings = Array.from(new Set(this.thing._associations.map(([, v]) => v)));
+    }
+    selectResult(result) {
+        return this.many ? result
+            : !result || result.length === 0 ? null
+                : result.length === 1 ? result[0]
+                    : result;
+    }
+}
+class AssociationAccessor extends AssociationIdAccessor {
+    get(prop) {
+        const result = this.allNamed(prop);
+        return !(result instanceof Promise) ? this.selectResult(result)
+            : result.then((r) => this.selectResult(r));
+    }
+}
 /*
  * ## The Thing class
  *
@@ -55,11 +230,45 @@ export class Thing {
     //location                   -- if this thing has a location, it is in its location's contents
     //linkOwner                  -- the owner of this link (if this is a link)
     //otherLink                  -- the other link (if this is a link)
-    constructor(id, name, description) {
+    constructor(world, id, name, description) {
+        this.world = world;
         this._id = id;
         this.fullName = name;
         if (typeof description !== 'undefined')
             this._description = description;
+        this.makeProxies();
+    }
+    makeProxies() {
+        this.assoc = new AssociationAccessor(this).proxify();
+        this.assocMany = new AssociationAccessor(this, true).proxify();
+        this.assocId = new AssociationIdAccessor(this).proxify();
+        this.assocIdMany = new AssociationIdAccessor(this, true).proxify();
+        this.refs = this.assoc.refsProxy();
+        this.specProxy = new Proxy(this, {
+            get(obj, prop) {
+                if (typeof prop === 'number' || typeof prop === 'symbol') {
+                    throw new Error('You can only get string properties on things');
+                }
+                if (prop === '_thing')
+                    return obj;
+                if (prop === 'assoc' || prop === 'assocId' || prop === 'refs') {
+                    return obj[prop];
+                }
+                return obj[prop[0] === '!' ? prop : '_' + prop];
+            },
+            set(obj, prop, value) {
+                if (typeof prop === 'number' || typeof prop === 'symbol') {
+                    throw new Error('You can only set string properties on things');
+                }
+                if (prop === 'associations' || prop === 'associationThings'
+                    || prop === 'prototype' || prop === 'id'
+                    || prop === 'assoc' || prop === 'assocId' || prop === 'refs') {
+                    throw new Error(`You can't set ${prop}`);
+                }
+                obj[prop[0] === '!' ? prop : '_' + prop] = value;
+                return true;
+            }
+        });
     }
     get id() { return this._id; }
     get article() { return this._article; }
@@ -86,100 +295,6 @@ export class Thing {
     set examineFormat(f) { this._examineFormat = f; }
     get linkFormat() { return this._linkFormat; }
     set linkFormat(f) { this._linkFormat = f; }
-    getAllAssociated() { return this.world.getAllAssociated(this); }
-    getAssociated(prop) { return this.world.getAssociated(prop, this); }
-    hasAssociation(prop) { return typeof this.associationIdNamed(prop) !== 'undefined'; }
-    associationIdsNamed(prop, ids = []) {
-        for (const assoc of this._associations) {
-            if (assoc[0] === prop)
-                ids.push(assoc[1]);
-        }
-        return ids;
-    }
-    async associationsNamed(prop) {
-        return this.world.getThings(this.associationIdsNamed(prop));
-    }
-    async associationNamed(prop) {
-        for (const assoc of this._associations) {
-            if (assoc[0] === prop)
-                return this.world.getThing(assoc[1]);
-        }
-    }
-    isAssociated(prop, tid) {
-        const id = idFor(tid);
-        for (const assoc of this._associations) {
-            if (assoc[0] === prop && assoc[1] === id)
-                return true;
-        }
-        return false;
-    }
-    associationIdNamed(prop) {
-        for (const assoc of this._associations) {
-            if (assoc[0] === prop)
-                return assoc[1];
-        }
-    }
-    checkAssociations() {
-        if (!this.hasOwnProperty('_associations')) {
-            this._associations = this._associations.slice();
-        }
-    }
-    associate(prop, tid, m2m = false) {
-        const id = idFor(tid);
-        this.checkAssociations();
-        if (!m2m)
-            this.dissociateNamed(prop, false);
-        this._associations.push([prop, id]);
-        this.changedAssociations();
-    }
-    dissociate(prop, tid) {
-        const id = idFor(tid);
-        this.checkAssociations();
-        for (let i = 0; i < this._associations.length; i++) {
-            const assoc = this._associations[i];
-            if (assoc[0] === prop && assoc[1] === id) {
-                return this._associations.splice(i, 1);
-            }
-        }
-        this.changedAssociations();
-    }
-    dissociateFrom(tid) {
-        const id = idFor(tid);
-        this.checkAssociations();
-        for (let i = 0; i < this._associations.length; i++) {
-            const assoc = this._associations[i];
-            if (assoc[1] === id) {
-                this._associations.splice(i, 1);
-            }
-        }
-        this.changedAssociations();
-    }
-    dissociateNamed(prop, update = true) {
-        this.checkAssociations();
-        for (let i = 0; i < this._associations.length; i++) {
-            const assoc = this._associations[i];
-            if (assoc[0] === prop) {
-                this._associations.splice(i, 1);
-            }
-        }
-        if (update)
-            this.changedAssociations();
-    }
-    changedAssociations() {
-        this._associationThings = Array.from(new Set(this._associations.map(([, v]) => v)));
-    }
-    isIn(tid) { return this.getLocationId() === getId(tid); }
-    getLocationId() { return this.associationIdNamed('location'); }
-    getLocation() { return this.associationNamed('location'); }
-    setLocation(t) { this.associate('location', t); }
-    getContents() { return this.getAssociated('location'); }
-    getLinks() { return this.getAssociated('linkOwner'); }
-    getLinkOwner() { return this.associationNamed('linkOwner'); }
-    getLinkOwnerId() { return this.associationIdNamed('linkOwner'); }
-    setLinkOwner(t) { this.associate('linkOwner', t); }
-    getOtherLink() { return this.associationNamed('otherLink'); }
-    getOtherLinkId() { return this.associationIdNamed('otherLink'); }
-    setOtherLink(t) { this.associate('otherLink', t); }
     getPrototype() { return this.world.getThing(this._prototype); }
     setPrototype(t) {
         if (t) {
@@ -190,6 +305,7 @@ export class Thing {
             this._prototype = null;
         }
     }
+    isIn(tid) { return this.assocId.location === getId(tid); }
     formatName() {
         return (this.article ? this.article + ' ' : '') + this.fullName;
     }
@@ -201,14 +317,12 @@ export class Thing {
     }
     async find(name, exclude = new Set([])) {
         let found;
-        if (exclude.has(this)) {
+        if (exclude.has(this))
             return null;
-        }
-        else if (this.name.toLowerCase() === name.toLowerCase()) {
+        if (this.name.toLowerCase() === name.toLowerCase())
             return this;
-        }
         exclude.add(this);
-        for (const item of await this.getContents()) {
+        for (const item of await this.refs.location) {
             const result = await item.find(name, exclude);
             if (result && (!found || result._priority > found._priority)) {
                 found = result;
@@ -216,7 +330,7 @@ export class Thing {
         }
         if (found)
             return found;
-        for (const item of await this.getLinks()) {
+        for (const item of await this.refs.linkOwner) {
             const result = await item.find(name, exclude);
             if (result && (!found || result._priority > found._priority)) {
                 found = result;
@@ -224,13 +338,13 @@ export class Thing {
         }
         if (found)
             return found;
-        const loc = await this.getLocation();
+        const loc = await this.assoc.location;
         if (loc) {
             const result = await loc.find(name, exclude);
             if (result)
                 return result;
         }
-        const owner = await this.getLinkOwner();
+        const owner = await this.assoc.linkOwner;
         if (owner) {
             const result = await owner.find(name, exclude);
             if (result)
@@ -247,7 +361,10 @@ export class Thing {
         return eval(`(async function ${args} {
 const cmd = this.cmd.bind(this);
 const cmdf = this.cmdf.bind(this);
+const anyHas = this.anyHas.bind(this);
+const findNearby = this.findNearby.bind(this);
 const doThings = this.doThings.bind(this);
+const me = this.thing.specProxy;
 ${realCode};
 })`);
     }
@@ -366,7 +483,7 @@ export class World {
             this.lobby.setPrototype(this.roomProto);
             this.generatorProto.setPrototype(this.thingProto);
             this.hallOfPrototypes.setPrototype(this.roomProto);
-            this.limbo.setLocation(this.limbo);
+            this.limbo.assoc.location = this.limbo;
             await this.createUser('a', 'a', true);
             this.defaultUser = 'a';
             await this.store();
@@ -451,7 +568,7 @@ export class World {
         this.clockRate = info.clockRate || 2;
     }
     async findPrototype(name) {
-        for (const aproto of await this.hallOfPrototypes.getContents()) {
+        for (const aproto of await this.hallOfPrototypes.refs.location) {
             if (name === aproto.name)
                 return aproto;
         }
@@ -463,7 +580,7 @@ export class World {
             const roomProto = this.roomProto;
             const linkProto = this.linkProto;
             const generatorProto = this.generatorProto;
-            thingProto.setLocation(this.hallOfPrototypes);
+            thingProto.assoc.location = this.hallOfPrototypes;
             thingProto.article = 'the';
             thingProto.contentsFormat = '$This $is here';
             thingProto._contentsEnterFormat = '$forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2';
@@ -471,11 +588,11 @@ export class World {
             thingProto.examineFormat = 'Exits: $links<br>Contents: $contents';
             thingProto.linkFormat = '$This leads to $link';
             thingProto._priority = 0;
-            linkProto.setLocation(this.hallOfPrototypes);
+            linkProto.assoc.location = this.hallOfPrototypes;
             linkProto.article = '';
             linkProto._locked = false;
             linkProto.setMethod('!cmd', '(dir, dest)', `
-                if (!dir._locked || await this.inAny(dir, 'key')) {
+                if (!dir.locked || anyHas(await findNearby(), 'key', dir)) {
                     return this.cmd('go', dir);
                 } else {
                     return this.cmdf('@output $0 "$forme You don\\'t have the key $forothers $Arg tries to go $this to $link but doesn\\'t have the key" me @event me false go $0', dir);
@@ -490,17 +607,17 @@ export class World {
             linkProto._get = `
 @output $0 "$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means..." me @event me false get $0
 `;
-            roomProto.setLocation(this.hallOfPrototypes);
+            roomProto.assoc.location = this.hallOfPrototypes;
             roomProto._closed = true;
             roomProto.setPrototype(thingProto);
-            personProto.setLocation(this.hallOfPrototypes);
+            personProto.assoc.location = this.hallOfPrototypes;
             personProto.setPrototype(thingProto);
             personProto._article = '';
             personProto.examineFormat = 'Carrying: $contents';
             personProto._get = `
 @output $0 "$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't" me @event me false get $0
 `;
-            generatorProto.setLocation(this.hallOfPrototypes);
+            generatorProto.assoc.location = this.hallOfPrototypes;
             generatorProto.setPrototype(thingProto);
             generatorProto._priority = -1;
             generatorProto._get = `
@@ -822,9 +939,11 @@ get %-1
         });
     }
     async getThing(tip) {
-        return this.stamp(await this.basicGetThing(tip));
+        const thing = this.basicGetThing(tip);
+        return thing instanceof Thing ? thing
+            : this.basicGetThing(tip).then(t => this.stamp(t));
     }
-    async basicGetThing(tip) {
+    basicGetThing(tip) {
         let id;
         if (typeof tip === 'number') {
             if (isNaN(tip))
@@ -861,7 +980,7 @@ get %-1
             }
             if (!user.thing) {
                 const thing = await this.createThing(name);
-                thing.setLocation(this.lobby);
+                thing.assoc.location = this.lobby;
                 if (this.personProto)
                     thing.setPrototype(this.personProto);
                 thing.fullName = thingName || name;
@@ -879,10 +998,10 @@ get %-1
         });
     }
     async createThing(name, description) {
-        const t = new Thing(this.nextId++, name, description);
+        const t = new Thing(this, this.nextId++, name, description);
         t.world = this;
         if (this.limbo)
-            t.setLocation(this.limbo);
+            t.assoc.location = this.limbo;
         if (this.thingProto)
             t.setPrototype(this.thingProto);
         this.thingCache.set(t.id, t);
@@ -895,7 +1014,7 @@ get %-1
     async getThings(ids) {
         const things = [];
         for (const id of ids) {
-            things.push(await this.getThing(id));
+            things.push(this.getThing(id));
         }
         return things;
     }
@@ -924,24 +1043,24 @@ get %-1
                 things.delete(thing.id);
                 this.thingCache.delete(thing.id);
                 thing.toasted = true;
-                for (const guts of await thing.getContents()) {
-                    guts.setLocation(this.limbo);
+                for (const guts of await thing.refs.location) {
+                    guts.assoc.location = this.limbo;
                 }
                 for (const associated of await this.getAllAssociated(thing)) {
-                    associated.dissociateFrom(thing);
+                    associated.assoc.dissociateFrom(thing);
                 }
             }
         });
     }
     stamp(thing) {
-        if (thing)
+        if (thing) {
             this.transactionThings.add(thing);
+        }
         return thing;
     }
     stamps(things) {
         for (const t of things) {
-            if (t)
-                this.transactionThings.add(t);
+            this.stamp(t);
         }
         return things;
     }
@@ -978,13 +1097,14 @@ get %-1
                         cpy[prop] = original[prop];
                     }
                 }
+                cpy.makeProxies();
                 cpy._associations = [];
                 cpy._associationThings = [];
                 if (original._associations.length) {
                     for (const [k, v] of original._associations) {
                         cpy._associations.push([k, copies.has(v) ? copies.get(v).id : v]);
                     }
-                    cpy.changedAssociations();
+                    cpy.assoc.changedAssociations();
                 }
                 cpy.originalSpec = {}; // guarantee this will be written out
             }
@@ -995,10 +1115,10 @@ get %-1
     async findConnected(thing, connected) {
         if (!connected.has(thing)) {
             connected.add(thing);
-            for (const item of await thing.getContents()) {
+            for (const item of await thing.refs.location) {
                 await this.findConnected(item, connected);
             }
-            for (const link of await thing.getLinks()) {
+            for (const link of await thing.refs.linkOwner) {
                 await this.findConnected(link, connected);
             }
         }
@@ -1007,7 +1127,7 @@ get %-1
     async cacheThingFor(thingSpec) {
         if (!thingSpec)
             return null;
-        const thing = new Thing(null, '');
+        const thing = new Thing(this, null, '');
         thing.world = this;
         await thing.useSpec(thingSpec);
         this.thingCache.set(thing.id, thing);
@@ -1020,12 +1140,6 @@ get %-1
             specs[i] = thing || await this.cacheThingFor(specs[i]);
         }
         return specs;
-    }
-    async getContents(thing) {
-        const id = getId(thing);
-        return this.stamps(await this.doTransaction(async (things) => {
-            return this.cacheThings(await promiseFor(things.index(locationIndex).getAll(IDBKeyRange.only(id))));
-        }));
     }
     async getAssociated(prop, thing) {
         const id = getId(thing);
@@ -1050,11 +1164,6 @@ get %-1
         const id = getId(thing);
         return this.stamps(await this.doTransaction(async (things) => {
             return this.cacheThings(await promiseFor(things.index(otherLinkIndex).getAll(IDBKeyRange.only(id))));
-        }));
-    }
-    async getLinks(thing) {
-        return this.stamps(await this.doTransaction(async (things) => {
-            return this.cacheThings(await promiseFor(things.index(linkOwnerIndex).getAll(IDBKeyRange.only(thing.id))));
         }));
     }
     async getAncestors(thing, ancestors = []) {
@@ -1406,7 +1515,13 @@ export function jsonObjectsForDb(objectStore, records = []) {
     });
 }
 function idFor(t) {
-    return t instanceof Thing ? t._id : t;
+    if (typeof t === 'number')
+        return t;
+    if (t === null || t === undefined)
+        return null;
+    if (t instanceof Thing)
+        return t._id;
+    throw new Error(`${t} is not a thing or id`);
 }
 export function identity(x) {
     return x;

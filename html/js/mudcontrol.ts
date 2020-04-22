@@ -196,22 +196,52 @@ export const commands = new Map([
         help: ['var1, var2 = value2 var3... ; code...', `Run JavaScript code with optional variable bindings
 
    Note that commas between variable bindings are optional
+   The initial variable values are things looked up by name and bound to specProxies for the things
    You can use ! as a synonym for @js if it's the first character of a command
 
-   The following functions are predefined for convenience:
+   The following are predefined for convenience:
+     me                        specProxy for your thing
+     anyHas(things, property)
+     anyHas(things, property, item)
+                               returns whether any of things is associated with item (defaults to 'me')
+     findNearby()
+     findNearby(thing)         PROMISE for nearby items (thing defaults to your thing)
      cmd(item, ...)            creates a command context
      cmdf(FORMAT, arg, ...)    creates a command context
      doThings(thing..., func)  find things and call func
 
    CommandContexts also support methods cmd() and cmdf() to allow chaining
    return a command context to run a command
+
+   FOUR TYPES OF PROXIES
+
+   SPEC PROXY
+   Arguments to @js and @call are bound to specProxies, not to things. Spec proxies make it convienient
+   to access its persisted properties, so value.name accesses thing._name in the value's thing. You can
+   use vlaue._thing to get the real thing. Both spec proxies and their things support the other three
+   types of proxies, below.
+
+   ASSOC/ASSOCMANY PROXY !!! USES PROMISES !!!
+   thing.assoc lets you access associations with other things by using promises. This means you need
+   to AWAIT values. For example, to get a thing's location, you can say await thing.assoc.location.
+   @dump will list all of a thing's associations and also everything associated with it. You can use
+   thing.assocMany to get array results even if there is only one association a property.
+
+   ASSOCID/ASSOCIDMANY PROXY
+   thing.assocId lets you access associations by THING ID and does not use promises, so you don't need
+   to use await. This means thing.assocId.location returns a NUMBER, NOT A THING. This means you need
+   to AWAIT values, like with assoc proxies. You can use thing.assocIdMany to get array results even if
+   there is only one association a property.
+
+   REFS PROXY !!! USES PROMISES !!!
+   thing.refs lets you access things associated with a thing by using promises. For example,
+   await thing.refs.location will return an array of everything located in thing.
 `]
     })],
     ['@method', new Command({
         help: ['thing name (args...) body', `Define a method on a thing
    The method actually runs in the context of the thing's MudConnection, not the thing itself
-   @call calls the method with whatever arguments it provides
-   This can use CommandContexts, see @js for details.
+   @call calls the method with specProxies for whatever arguments it provides. See @js for details.
 `]
     })],
     ['@dump', new Command({
@@ -345,19 +375,19 @@ export class Descripton {
         if (this.done || !thing || this.visited.has(thing)) return
         this.visited.add(thing)
         this.visitFunc(thing, this)
-        for (const item of await thing.getContents()) {
+        for (const item of await thing.refs.location) {
             await this.propagate(item)
         }
         if (this.visitLinks) {
-            for (const item of await thing.getLinks()) {
-                const otherLink = await thing.getOtherLink()
-                const otherThing = otherLink && await otherLink.getLinkOwner()
+            for (const item of await thing.refs.linkOwner) {
+                const otherLink = await thing.assoc.otherLink
+                const otherThing = otherLink && await otherLink.assoc.linkOwner
 
                 await this.propagate(otherLink)
                 await this.propagate(otherThing)
             }
         }
-        if (!thing._closed || this.ignoreClosed) return this.propagate(await thing.getLocation())
+        if (!thing._closed || this.ignoreClosed) return this.propagate(await thing.assoc.location)
     }
 }
 
@@ -375,7 +405,7 @@ class CommandContext {
 
         for (const item of stringsAndThings) {
             if (item instanceof Thing) {
-                command += ' %' + (item as Thing).id
+                command += ' %' + item.id
             } else {
                 command += item
             }
@@ -420,7 +450,7 @@ class CommandContext {
         } else if (typeof item === 'string') {
             return this.connection.find(item)
         } else if (Array.isArray(item)) {
-            return this.connection.find(item[0] as string, item[1] as Thing, item[2] as string)
+            return this.connection.find(item[0] as string, pxyThing(item[1]), item[2] as string)
         } else {
             throw new Error(`Could not find ${item}`)
         }
@@ -471,7 +501,9 @@ export class MudConnection {
         this.remote = remote
     }
     async close() {
-        this.thing?.setLocation(this.thing.world.limbo)
+        if (this.thing) {
+            this.thing.assoc.location = this.thing.world.limbo
+        }
         connectionMap.delete(this.thing)
         this.world = null
         this.user = null
@@ -632,16 +664,16 @@ export class MudConnection {
                         continue
                     }
                     case 'location': {
-                        result += capitalize(this.formatName(await thing.getLocation()), format)
+                        result += capitalize(this.formatName(await thing.assoc.location), format)
                         continue
                     }
                     case 'owner': {
-                        result += capitalize(this.formatName(await thing.getLinkOwner()), format)
+                        result += capitalize(this.formatName(await thing.assoc.linkOwner), format)
                         continue
                     }
                     case 'link': {
-                        const other = await thing.getOtherLink()
-                        const dest = await other?.getLinkOwner()
+                        const other = await thing.assoc.otherLink
+                        const dest = await other?.assoc.linkOwner
 
                         if (dest) {
                             result += capitalize(this.formatName(dest), format)
@@ -649,7 +681,7 @@ export class MudConnection {
                         continue
                     }
                     case 'contents': {
-                        const contents = await thing.getContents()
+                        const contents = await thing.refs.location
 
                         if (contents.length) {
                             for (const item of contents) {
@@ -660,7 +692,7 @@ export class MudConnection {
                         continue
                     }
                     case 'links': {
-                        const links = await thing.getLinks()
+                        const links = await thing.refs.linkOwner
 
                         if (links.length) {
                             for (const item of links) {
@@ -705,14 +737,14 @@ export class MudConnection {
         const cmd = words[0].toLowerCase()
         let template: string
 
-        for (const item of (await this.thing.getContents()) as any[]) {
+        for (const item of (await this.thing.refs.location) as any[]) {
             template = this.checkCommand(prefix, cmd, item)
             if (template) {
                 return [item, template]
             }
         }
         if (!template) {
-            for (const item of (await this.thing.getLinks()) as any[]) {
+            for (const item of (await this.thing.refs.linkOwner) as any[]) {
                 template = this.checkCommand(prefix, cmd, item)
                 if (template) {
                     return [item, template]
@@ -720,13 +752,13 @@ export class MudConnection {
             }
         }
         if (!template) {
-            const loc = await this.thing.getLocation()
+            const loc = await this.thing.assoc.location
 
             template = this.checkCommand(prefix, cmd, loc)
             if (template) {
                 return [loc, template]
             } else {
-                for (const item of (await loc.getLinks()) as any[]) {
+                for (const item of (await loc.refs.linkOwner) as any[]) {
                     template = this.checkCommand(prefix, cmd, item)
                     if (template) {
                         return [item, template]
@@ -765,9 +797,9 @@ export class MudConnection {
 
                 for (const item of args) {
                     if (item instanceof Thing) {
-                        things.push(item)
+                        things.push(thingPxy(item))
                     } else {
-                        things.push(await this.find(item, undefined, 'thing'))
+                        things.push(thingPxy(await this.find(item, undefined, 'thing')))
                     }
                 }
                 const result = await template.apply(this, things)
@@ -880,15 +912,15 @@ export class MudConnection {
         name = name.trim().toLowerCase()
         if (name[0] !== '%' || this.admin || this.substituting) {
             if (name === 'out' || name === '%out') {
-                const location = await this.thing.getLocation()
+                const location = await this.thing.assoc.location
 
-                result = location && await location.getLocation()
+                result = location && await location.assoc.location
                 if (!result || result === this.world.limbo) {
                     throw new Error('You are not in a container')
                 }
             } else {
                 result = name === 'me' || name === '%me' ? this.thing
-                    : name === 'here' || name === '%here' ? await this.thing.getLocation()
+                    : name === 'here' || name === '%here' ? await this.thing.assoc.location
                         : name === '%limbo' ? this.world.limbo
                             : name === '%lobby' ? this.world.lobby
                                 : name === '%protos' ? this.world.hallOfPrototypes
@@ -897,7 +929,10 @@ export class MudConnection {
                                             : name.match(/^%proto:/) ? await this.world.hallOfPrototypes.find(name.replace(/^%proto:/, ''))
                                                 : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
                                                     : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
-                                                        : await start.find(name[0] === '%' ? name.slice(1) : name, this.thing.isIn(this.world.limbo) ? new Set() : new Set([this.world.limbo]))
+                                                        : start.find(name[0] === '%' ? name.slice(1) : name, this.thing.isIn(this.world.limbo) ? new Set() : new Set([this.world.limbo]))
+                if (result instanceof Promise) {
+                    result = await result
+                }
             }
         }
         if (!result && errTag) {
@@ -976,7 +1011,7 @@ export class MudConnection {
 <br>You can use the login command to change users...
 <br><br>`)
                 mudproto.userThingChanged(this.thing)
-                thing.setLocation(this.world.lobby)
+                thing.assoc.location = this.world.lobby
                 await this.commandDescripton(this.thing, 'has arrived', 'go', [this.world.limbo, this.world.lobby])
                 // tslint:disable-next-line:no-floating-promises
                 await this.look(null, null)
@@ -1011,7 +1046,7 @@ export class MudConnection {
                 }
             })
 
-            if (!startAt) startAt = await this.thing.getLocation()
+            if (!startAt) startAt = await this.thing.assoc.location
             if (excludeActor) desc.visited.add(actor)
             await desc.propagate(startAt)
         }
@@ -1046,7 +1081,7 @@ export class MudConnection {
                 con.event = desc
                 con.conditionResult = this.conditionResult
                 this.acted.add(thing)
-                await con.runCommands(con.substituteCommand(reaction, [thing, ...desc.args]))
+                await con.runCommands(con.substituteCommand(reaction, [thing, ...desc.args].map(thingPxy)))
             } finally {
                 this.event = oldEvent
             }
@@ -1124,35 +1159,47 @@ export class MudConnection {
         if (start._keys.indexOf(lock._id) !== -1) {
             return true
         }
-        for (const item of await start.getContents()) {
+        for (const item of await start.refs.location) {
             if (item._keys.indexOf(lock._id) !== -1) {
                 return true
             }
         }
         return false
     }
+    anyHas(things: Thing[], prop: string, thing = this.thing) {
+        return things.find(t => t.assoc.has(prop, pxyThing(thing)))
+    }
+    async findNearby(thing = this.thing) {
+        const things = [pxyThing(thing)]
+
+        things.push(...await pxyThing(thing).refs.location)
+        return things
+    }
     async inAny(target: Thing, prop: string, thing = this.thing) {
-        return (await this.findAny(prop, thing))?.has(target.id)
+        return (await this.findAny(prop, pxyThing(thing)))?.has(target.id)
     }
     async findAny(prop: string, thing = this.thing) {
         const ids = []
 
-        thing.associationIdsNamed(prop, ids)
-        for (const item of await thing.getContents()) {
-            item.associationIdsNamed(prop, ids)
+        thing.assoc.allIdsNamed(prop, ids)
+        for (const item of await thing.refs.location) {
+            item.assoc.allIdsNamed(prop, ids)
         }
         return new Set(ids)
     }
-    formatValue(value: any) {
+    formatValue(value: any, visited = new Set()) {
         if (value === null) return 'null'
         if (value === undefined) return 'undefined'
+        if (typeof value !== 'object') return JSON.stringify(value)
+        if (visited.has(value)) return 'circularity'
+        visited.add(value)
         if (value instanceof Thing) return `%${(value as Thing).id}`
         if (Array.isArray(value)) {
-            return `[${(value as any[]).map(t => this.formatValue(t)).join(', ')}]`
+            return `[${(value as any[]).map(t => this.formatValue(t, visited)).join(', ')}]`
         } else if (typeof value === 'object') {
-            return `{${Object.keys(value).map(k => k + ': ' + this.formatValue(value[k])).join(', ')}}`
+            return `{${Object.keys(value).map(k => k + ': ' + this.formatValue(value[k], visited)).join(', ')}}`
         }
-        return JSON.stringify(value)
+        return JSON.stringify(value) || String(value)
     }
     // COMMAND
     login(cmdInfo, user, password) {
@@ -1160,7 +1207,7 @@ export class MudConnection {
     }
     // COMMAND
     async look(cmdInfo, target?) {
-        const thing = await (target ? this.find(target, this.thing) : this.thing.getLocation())
+        const thing = await (target ? this.find(target, this.thing) : this.thing.assoc.location)
 
         if (!thing) {
             this.errorNoThing(target)
@@ -1169,7 +1216,7 @@ export class MudConnection {
             this.output(await this.examination(thing))
             return this.commandDescripton(null, `looks at themself`, 'examine', [thing])
         } else if (this.thing.isIn(thing)) {
-            this.output(await this.examination(await this.thing.getLocation()))
+            this.output(await this.examination(await this.thing.assoc.location))
             return this.commandDescripton(null, `looks around`, 'examine', [thing])
         } else {
             this.output(await this.description(thing))
@@ -1204,10 +1251,10 @@ export class MudConnection {
             const cmd = await this.findCommand([directionStr, 'me'], 'go')
             if (cmd) return this.runCommands(cmd)
         }
-        const oldLoc = await this.thing.getLocation()
+        const oldLoc = await this.thing.assoc.location
         const direction = await this.find(directionStr, this.thing, 'direction')
         let location: Thing
-        const linkOwner = direction.getLinkOwnerId()
+        const linkOwner = direction.assocId.linkOwner
         let tmp = direction
         const visited = new Set<Thing>()
 
@@ -1217,7 +1264,7 @@ export class MudConnection {
             if (tmp === this.thing) {
                 throw new Error('You cannot go into something you are holding')
             }
-            tmp = await (tmp.hasAssociation('linkOwner') ? tmp.getLinkOwner() : tmp.getLocation())
+            tmp = await (linkOwner in tmp.assoc ? tmp.assoc.linkOwner : tmp.assoc.location)
         }
         if (!linkOwner) {
             location = direction
@@ -1225,15 +1272,15 @@ export class MudConnection {
             const newPx = this.world.propertyProximity(location, '_contentsEnterFormat')
             const emitter = newPx >= oldPx ? location : oldLoc
             const ctx = formatContexts(newPx >= oldPx ? location._contentsEnterFormat : oldLoc._contentsExitFormat)
-            await this.world.doTransaction(async () => { this.thing.setLocation(location) })
+            await this.world.doTransaction(async () => { this.thing.assoc.location = location })
             ctx.others && await this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing)
             ctx.me && await this.basicFormat(emitter, ctx.me, [this.thing, oldLoc, location])
             ctx.others && await this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing)
         } else {
-            const link = await direction.getOtherLink()
+            const link = await direction.assoc.otherLink
 
             if (link) {
-                const dest = await link.getLinkOwner()
+                const dest = await link.assoc.linkOwner
 
                 if (!dest) {
                     return this.error(`${directionStr} does not lead anywhere`)
@@ -1243,7 +1290,7 @@ export class MudConnection {
             const output = await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location)
             const exitCtx = formatContexts(direction._linkExitFormat)
             exitCtx.others && await this.formatDescripton(direction, exitCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false)
-            await this.world.doTransaction(async () => { this.thing.setLocation(location) })
+            await this.world.doTransaction(async () => { this.thing.assoc.location = location })
             output && this.output(output)
             const enterCtx = formatContexts(direction._linkEnterFormat)
             await this.formatDescripton(link, enterCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false)
@@ -1252,7 +1299,7 @@ export class MudConnection {
     }
     // COMMAND
     async inventory(cmdInfo) {
-        this.output(`<code>You are carrying\n${indent(3, (await this.thing.getContents()).map(item => this.formatName(item)).join('\n'))}</code>`)
+        this.output(`<code>You are carrying\n${indent(3, (await this.thing.refs.location).map(item => this.formatName(item)).join('\n'))}</code>`)
     }
     // COMMAND
     atQuiet() {
@@ -1292,7 +1339,7 @@ export class MudConnection {
     }
     // COMMAND
     async get(cmdInfo, thingStr, ...args: Thing[]) {
-        const location = await this.thing.getLocation()
+        const location = await this.thing.assoc.location
         let loc = location
         let newCommands: any
 
@@ -1316,18 +1363,18 @@ export class MudConnection {
         if (!thing) return this.errorNoThing(thingStr)
         if (thing === this.thing) return this.error(`You just don't get yourself. Some people are that way.`)
         if (thing === location) return this.error(`You just don't get this place. Some people are that way.`)
-        thing.setLocation(this.thing)
+        thing.assoc.location = this.thing
         this.output(`You pick up ${this.formatName(thing)}`)
         return this.commandDescripton(thing, 'picks up $this', 'get', [thing])
     }
     // COMMAND
     async drop(cmdInfo, thingStr) {
         const thing = await this.find(thingStr, this.thing)
-        const loc = await this.thing.getLocation()
+        const loc = await this.thing.assoc.location
 
         if (!thing) return this.errorNoThing(thingStr)
         if (!thing.isIn(this.thing)) return this.error(`You aren't holding ${thingStr}`)
-        await thing.setLocation(loc)
+        thing.assoc.location = loc
         this.output(`You drop ${this.formatName(thing)}`)
         return this.commandDescripton(thing, 'drops $this', 'drop', [thing])
     }
@@ -1378,7 +1425,7 @@ export class MudConnection {
             const hall = this.world.hallOfPrototypes
             const protos = []
 
-            for (const aproto of await hall.getContents()) {
+            for (const aproto of await hall.refs.location) {
                 protos.push(`%${aproto._id} %proto:${aproto.name}`)
             }
             this.error(`<pre>Could not find prototype ${protoStr}
@@ -1396,7 +1443,7 @@ ${protos.join('\n  ')}`)
             } else if (thing._prototype === this.world.linkProto.id) {
                 this.output(`You created a link: ${await this.dumpName(thing)}`)
             } else {
-                thing.setLocation(this.thing)
+                thing.assoc.location = this.thing
                 this.output(`You are holding your new creation: ${await this.dumpName(thing)}`)
             }
         }
@@ -1416,42 +1463,24 @@ ${protos.join('\n  ')}`)
 
         exit1.name = exit1Str
         exit1.setPrototype(linkProto)
-        exit1.setLinkOwner(loc1)
-        exit1.setOtherLink(exit2)
+        exit1.assoc.linkOwner = loc1
+        exit1.assoc.otherLink = exit2
         exit2.name = exit2Str
         exit2.setPrototype(linkProto)
-        exit2.setLinkOwner(loc2)
-        exit2.setOtherLink(exit1)
+        exit2.assoc.linkOwner = loc2
+        exit2.assoc.otherLink = exit1
         this.output(`Linked ${await this.dumpName(loc1)}->${await this.dumpName(exit1)}--${await this.dumpName(exit2)}<-${await this.dumpName(loc2)}`)
-    }
-    // COMMAND
-    async atCall(cmdInfo, thingStr: string, prop: string, ...args: any[]) {
-        const thing = await this.find(thingStr, undefined, 'receiver')
-        const method = thing['!' + prop]
-        const things = await this.findAll(args, undefined, 'thing')
-
-        if (typeof method !== 'function') {
-            this.error(`No function ${thingStr}.${prop}`)
-        } else {
-            const result = await method.apply(this.connectionFor(thing), things)
-
-            if (result instanceof CommandContext) {
-                return result.run()
-            } else {
-                this.output(result + '')
-            }
-        }
     }
     // COMMAND
     async atJs(cmdInfo) {
         const line = dropArgs(1, cmdInfo)
         //const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?[^\s]+)+[\s,]*;)?\s*(.*)\s*$/)
-        const [, varSection, codeSection] = line.match(/^((?:[^;]|\s)*;)?(.*)$/)
+        const [, varSection, codeSection] = line.match(/^((([\s,]*[a-zA-Z]+\s*=\s*)?\s*[a-zA-z%0-9:_]+\s*)+[\s,]*;)?(.*)$/)
         const vars = []
         const values = []
         let code = codeSection
 
-        if (varSection?.match(/^(([\s,]*[a-zA-Z]+\s*=\s*)?[^\s]+)+[\s,]*;/)) {
+        if (varSection?.match(/^(([\s,]*[a-zA-Z]+\s*=\s*)?\s*[a-zA-z%0-9:_]+\s*)+[\s,]*;/)) {
             for (const [, varname, value] of varSection.matchAll(/[,\s]*([a-zA-Z]+)(?:\s*=\s*([^\s;,]+))?/g)) {
                 vars.push(varname)
                 values.push(value || varname)
@@ -1460,7 +1489,7 @@ ${protos.join('\n  ')}`)
             code = line
         }
         // tslint:disable-next-line:only-arrow-functions, no-eval
-        const result = await (this.thing.thingEval('(' + vars.join(', ') + ')', code) as (...args) => any).apply(this, await this.findAll(values, undefined, 'thing'))
+        const result = await (this.thing.thingEval('(' + vars.join(', ') + ')', code) as (...args) => any).apply(this, (await this.findAll(values, undefined, 'thing')).map(t => t?.specProxy))
         if (result instanceof CommandContext) {
             return result.run()
         } else {
@@ -1492,6 +1521,24 @@ ${protos.join('\n  ')}`)
         }
     }
     // COMMAND
+    async atCall(cmdInfo, thingStr: string, prop: string, ...args: any[]) {
+        const thing = await this.find(thingStr, undefined, 'receiver')
+        const method = thing['!' + prop]
+        const things = (await this.findAll(args, undefined, 'thing')).map(t => t?.specProxy)
+
+        if (typeof method !== 'function') {
+            this.error(`No function ${thingStr}.${prop}`)
+        } else {
+            const result = await method.apply(this.connectionFor(thing), things)
+
+            if (result instanceof CommandContext) {
+                return result.run()
+            } else {
+                this.output(result + '')
+            }
+        }
+    }
+    // COMMAND
     async atDump(cmdInfo, thingStr) {
         checkArgs(cmdInfo, arguments)
         const thing = await this.find(thingStr)
@@ -1504,11 +1551,11 @@ ${protos.join('\n  ')}`)
         const fm = (prop, noParens = false) => this.formatDumpMethod(thing, prop, noParens)
         let result = `<span class='code'>${await this.dumpName(thing)}
 ${fp('prototype', true)}: ${thing._prototype ? await this.dumpName(await thing.world.getThing(thing._prototype)) : 'none'}
-${fp('location', true)}--> ${await this.dumpName(thing.getLocationId())}
-${fp('linkOwner', true)}--> ${await this.dumpName(thing.getLinkOwner())}
-${fp('otherLink', true)}--> ${await this.dumpName(thing.getOtherLink())}
-<--(location)--${ await this.dumpThingNames(await thing.getContents())}
-<--(linkOwner)--${ await this.dumpThingNames(await thing.getLinks())}`
+${fp('location', true)}--> ${await this.dumpName(thing.assocId.location)}
+${fp('linkOwner', true)}--> ${await this.dumpName(thing.assoc.linkOwner)}
+${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
+<--(location)--${ await this.dumpThingNames(await thing.refs.location)}
+<--(linkOwner)--${ await this.dumpThingNames(await thing.refs.linkOwner)}`
 
         for (const prop in thing) {
             if (prop === '_associations' || prop === '_associationThings') continue
@@ -1533,7 +1580,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.getOtherLink())}
         const associationMap = new Map<string, Set<Thing>>()
         for (const [k, v] of thing._associations) {
             if (k === 'location' || k === 'linkOwner' || k === 'otherLink') continue
-            if (associationMap.has(k)) associationMap.set(k, new Set())
+            if (!associationMap.has(k)) associationMap.set(k, new Set())
             associationMap.get(k).add(await this.world.getThing(v))
         }
         const associations = Array.from(associationMap.keys())
@@ -1542,7 +1589,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.getOtherLink())}
             result += `\n   ${fp(key)}--> ${Array.from(associationMap.get(key)).map(t => this.formatName(t)).join(' ')}`
         }
         const backlinks = new Map<string, Thing[]>()
-        for (const associate of await thing.getAllAssociated()) {
+        for (const associate of await thing.assoc.refs()) {
             for (const [k, v] of associate._associations) {
                 if (k === 'location' || k === 'linkOwner' || k === 'otherLink' || v !== thing.id) continue
                 if (!backlinks.has(k)) backlinks.set(k, [])
@@ -1615,7 +1662,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.getOtherLink())}
 
         if (!thing) return this.error(`Could not find ${thingStr}`)
         if (!loc) return this.error(`Could not find ${locStr}`)
-        thing.setLocation(loc)
+        thing.assoc.location = loc
         this.output(`You moved ${thingStr} to ${locStr}`)
     }
     // COMMAND
@@ -1748,7 +1795,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.getOtherLink())}
                     this.error('Could not find location ' + value)
                     return
                 }
-                await thing.setLocation(location)
+                thing.assoc.location = location
                 break
             }
             case 'linkowner':
@@ -1758,7 +1805,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.getOtherLink())}
                     this.error('Could not find link owner ' + value)
                     return
                 }
-                await thing.setLinkOwner(owner)
+                thing.assoc.linkOwner = owner
                 break
             case 'otherlink':
                 const other = await this.find(value)
@@ -1767,7 +1814,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.getOtherLink())}
                     this.error('Could not find other link ' + value)
                     return
                 }
-                await thing.setOtherLink(other)
+                thing.assoc.otherLink = other
                 break
             case 'prototype':
                 const proto = await this.find(value, this.world.hallOfPrototypes)
@@ -1902,7 +1949,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.getOtherLink())}
         const hall = this.world.hallOfPrototypes
         const protos = []
 
-        for (const proto of await hall.getContents()) {
+        for (const proto of await hall.refs.location) {
             protos.push(`%${proto._id} %proto:${proto.name}`)
         }
         this.output(
@@ -1924,7 +1971,7 @@ ${protos.join('<br>  ')}
     async atPrototypes() {
         const hall = this.world.hallOfPrototypes
 
-        this.output(`Prototypes:<br><br>${(await hall.getContents()).map(t => this.dumpName(t)).join('<br>')}`)
+        this.output(`Prototypes:<br><br>${(await hall.refs.location).map(t => this.dumpName(t)).join('<br>')}`)
     }
     // COMMAND
     help(cmdInfo, cmd) {
@@ -2041,6 +2088,14 @@ function formatContexts(format: string): any {
         }
     }
     return { others: contexts[0], me: contexts[0] }
+}
+
+function thingPxy(item: any): any {
+    return !(item instanceof Thing) ? item : (item as any)._thing ? item : item.specProxy
+}
+
+function pxyThing(item: any): any {
+    return !(item instanceof Thing) ? item : (item as any)._thing ? (item as any)._thing : item
 }
 
 ////

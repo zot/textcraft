@@ -53,8 +53,8 @@ objects:
     linkMoveFormat: You went $name to $arg3
     linkExitFormat: $Arg1 went $name to $arg3
     get: "\n@output $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me @event me false get $0\n"
-    '!cmd': '["(dir, dest)","\n                if (!dir._locked || await this.inAny(dir, ''_keys'')) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
-    '!go': '["(dir, dest)","\n                if (!dir._locked || await this.inAny(dir, ''_keys'')) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
+    '!cmd': '["(dir, dest)","\n                if (!dir.locked || anyHas(await findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
+    '!go': '["(dir, dest)","\n                if (!dir.locked || anyHas(await findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
     associations: [[location, 2]]
     associationThings: [2]
     closed: true
@@ -71,7 +71,7 @@ objects:
     fullName: generator
     description: This is a thing
     prototype: 3
-    get: "\n@quiet;\n@copy $0;\n@js doThings('$0', '%-1', (orig, cpy)=> cpy.fullName = 'a ' + orig._name);\n@reproto %-1 %proto:thing;\n@loud;\n@output %-1 \"$forme You pick up $this $forothers $Arg picks up $arg2\" me %-1 @event me get %-1\n"
+    get: "\n@quiet;\n@copy $0;\n@js doThings('$0', '%-1', (orig, cpy)=> cpy.fullName = 'a ' + orig._name);\n@reproto %-1 %proto:thing;\n@loud;\nget %-1\n"
     priority: -1
     associations: [[location, 2]]
     associationThings: [2]

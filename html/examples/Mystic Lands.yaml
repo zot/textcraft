@@ -3,6 +3,11 @@ users:
     password: a
     admin: true
     thing: 8
+    id: admin
+  - name: playerOne
+    password: playerOne
+    admin: false
+    id: playerOne
 objects:
   - id: 0
     name: Limbo
@@ -22,7 +27,7 @@ objects:
     description: You are in $this. Many apply for entrance here but few are chosen... <i>and many of the chosen perish</i>. <br><br>Are you here by mistake?<br>
     prototype: 5
     article: the
-    '!react_go': ['(thing, oldLoc, newLoc)', "  if (newLoc == this.thing) {\n    return cmd('@delay @output %event.source \"The gong sounds as $this enter$s the chamber\" @event me act');\n}"]
+    '!react_go': ['(thing, oldLoc, newLoc)', "  if (newLoc == me) {\n    return cmd('@delay @output %event.source \"The gong sounds as $this enter$s the chamber\" @event me act');\n}"]
     associations: [[location, 0]]
     associationThings: [0]
   - id: 2
@@ -61,8 +66,8 @@ objects:
     linkMoveFormat: You went $name to $arg3
     linkExitFormat: $Arg1 went $name to $arg3
     get: "\n@output $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me @event me false get $0\n"
-    '!cmd': '["(dir, dest)","\n                if (!dir._locked || await this.inAny(dir, ''_keys'')) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
-    '!go': '["(dir, dest)","\n                if (!dir._locked || await this.inAny(dir, ''_keys'')) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
+    '!cmd': '["(dir, dest)","\n                if (!dir.locked || anyHas(await findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
+    '!go': '["(dir, dest)","\n                if (!dir.locked || anyHas(await findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
     associations: [[location, 2]]
     associationThings: [2]
     closed: true
@@ -84,7 +89,7 @@ objects:
     description: This is a thing
     prototype: 3
     priority: -1
-    get: "\n@quiet;\n@copy $0;\n@js doThings('$0', '%-1', (orig, cpy)=> cpy.fullName = 'a ' + orig._name);\n@reproto %-1 %proto:thing;\n@loud;\n@output %-1 \"$forme You pick up $this $forothers $Arg picks up $arg2\" me %-1 @event me get %-1\n"
+    get: "\n@quiet;\n@copy $0;\n@js doThings('$0', '%-1', (orig, cpy)=> cpy.fullName = 'a ' + orig._name);\n@reproto %-1 %proto:thing;\n@loud;\nget %-1\n"
     associations: [[location, 2]]
     associationThings: [2]
   - id: 7
@@ -215,6 +220,6 @@ objects:
     roomProto: 4
     personProto: 7
     generatorProto: 6
-    defaultUser: admin
+    defaultUser: playerOne
     clockRate: 2
     version: 1
