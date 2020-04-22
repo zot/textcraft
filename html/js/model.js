@@ -387,13 +387,13 @@ export class Thing {
         }
         if (found)
             return found;
-        const loc = await this.assoc.location._thing;
+        const loc = await this.assoc.location?._thing;
         if (loc) {
             const result = await loc._thing.find(name, exclude);
             if (result)
                 return result;
         }
-        const owner = await this.assoc.linkOwner._thing;
+        const owner = await this.assoc.linkOwner?._thing;
         if (owner) {
             const result = await owner._thing.find(name, exclude);
             if (result)
@@ -415,7 +415,7 @@ const anyHas = this.anyHas.bind(this);
 const findNearby = this.findNearby.bind(this);
 const doThings = this.doThings.bind(this);
 const me = this.thing.specProxy;
-const here = await this.world.getThing(this.thing.assoc.location._thing);
+const here = await this.world.getThing(this.thing.assoc.location?._thing);
 const event = this.event;
 ${realCode};
 })`);

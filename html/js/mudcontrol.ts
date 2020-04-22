@@ -677,17 +677,17 @@ export class MudConnection {
                         continue
                     }
                     case 'location': {
-                        result += capitalize(this.formatName(await thing.assoc.location._thing), format)
+                        result += capitalize(this.formatName(await thing.assoc.location?._thing), format)
                         continue
                     }
                     case 'owner': {
-                        result += capitalize(this.formatName(await thing.assoc.linkOwner._thing), format)
+                        result += capitalize(this.formatName(await thing.assoc.linkOwner?._thing), format)
                         continue
                     }
                     case 'link': {
-                        const other = await thing.assoc.otherLink._thing
+                        const other = await thing.assoc.otherLink?._thing
                         await this.world.sync()
-                        const dest = await other?.assoc.linkOwner._thing
+                        const dest = await other?.assoc.linkOwner?._thing
 
                         if (dest) {
                             result += capitalize(this.formatName(dest), format)
@@ -766,7 +766,7 @@ export class MudConnection {
             }
         }
         if (!template) {
-            const loc = await this.thing.assoc.location._thing
+            const loc = await this.thing.assoc.location?._thing
 
             template = this.checkCommand(prefix, cmd, loc)
             if (template) {
@@ -923,20 +923,20 @@ export class MudConnection {
     async find(name: string, start: Thing = this.thing, errTag: string = '', subst = false): Promise<Thing> {
         let result: Thing
 
-        start = await start._thing
+        start = await start?._thing
         if (!name) return null
         name = name.trim().toLowerCase()
         if (name[0] !== '%' || this.admin || this.substituting || subst) {
             if (name === 'out' || name === '%out') {
-                const location = await this.thing.assoc.location._thing
+                const location = await this.thing.assoc.location?._thing
 
-                result = location && await location.assoc.location._thing
+                result = location && await location.assoc.location?._thing
                 if (!result || result === this.world.limbo) {
                     throw new Error('You are not in a container')
                 }
             } else {
                 result = name === 'me' || name === '%me' ? this.thing
-                    : name === 'here' || name === '%here' ? await this.thing.assoc.location._thing
+                    : name === 'here' || name === '%here' ? await this.thing.assoc.location?._thing
                         : name === '%limbo' ? this.world.limbo
                             : name === '%lobby' ? this.world.lobby
                                 : name === '%protos' ? this.world.hallOfPrototypes
@@ -1063,7 +1063,7 @@ export class MudConnection {
                 }
             })
 
-            if (!startAt) startAt = await this.thing.assoc.location._thing
+            if (!startAt) startAt = await this.thing.assoc.location?._thing
             if (excludeActor) desc.visited.add(actor)
             await desc.propagate(startAt)
         }
@@ -1224,7 +1224,7 @@ export class MudConnection {
     }
     // COMMAND
     async look(cmdInfo, target?) {
-        const thing = await (target ? this.find(target, this.thing) : this.thing.assoc.location._thing)
+        const thing = await (target ? this.find(target, this.thing) : this.thing.assoc.location?._thing)
 
         if (!thing) {
             this.errorNoThing(target)
@@ -1233,7 +1233,7 @@ export class MudConnection {
             this.output(await this.examination(thing))
             return this.commandDescripton(null, `looks at themself`, 'examine', [thing])
         } else if (this.thing.isIn(thing)) {
-            this.output(await this.examination(await this.thing.assoc.location._thing))
+            this.output(await this.examination(await this.thing.assoc.location?._thing))
             return this.commandDescripton(null, `looks around`, 'examine', [thing])
         } else {
             this.output(await this.description(thing))
@@ -1268,7 +1268,7 @@ export class MudConnection {
             const cmd = await this.findCommand([directionStr, 'me'], 'go')
             if (cmd) return this.runCommands(cmd)
         }
-        const oldLoc = await this.thing.assoc.location._thing
+        const oldLoc = await this.thing.assoc.location?._thing
         let direction = await this.find(directionStr, this.thing, 'direction')
         if (!direction) throw new Error(`Go where?`)
         direction = await direction._thing
@@ -1283,10 +1283,10 @@ export class MudConnection {
             if (tmp === this.thing) {
                 throw new Error('You cannot go into something you are holding')
             }
-            tmp = await (linkOwner in tmp.assoc ? tmp.assoc.linkOwner._thing : tmp.assoc.location._thing)
+            tmp = await (linkOwner in tmp.assoc ? tmp.assoc.linkOwner._thing : tmp.assoc.location?._thing)
         }
         if (!linkOwner) {
-            location = await direction._thing
+            location = await direction?._thing
             const oldPx = this.world.propertyProximity(oldLoc, '_contentsExitFormat')
             const newPx = this.world.propertyProximity(location, '_contentsEnterFormat')
             const emitter = newPx >= oldPx ? location : oldLoc
@@ -1296,11 +1296,11 @@ export class MudConnection {
             ctx.me && await this.basicFormat(emitter, ctx.me, [this.thing, oldLoc, location])
             ctx.others && await this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing)
         } else {
-            let link = await direction.assoc.otherLink._thing
+            let link = await direction.assoc.otherLink?._thing
 
             if (link) {
                 link = await link._thing
-                const dest = await link.assoc.linkOwner._thing
+                const dest = await link.assoc.linkOwner?._thing
 
                 if (!dest) {
                     return this.error(`${directionStr} does not lead anywhere`)
@@ -1361,7 +1361,7 @@ export class MudConnection {
     }
     // COMMAND
     async get(cmdInfo, thingStr, ...args: Thing[]) {
-        const location = await this.thing.assoc.location._thing
+        const location = await this.thing.assoc.location?._thing
         let loc = location
         let newCommands: any
 
@@ -1392,7 +1392,7 @@ export class MudConnection {
     // COMMAND
     async drop(cmdInfo, thingStr) {
         const thing = await this.find(thingStr, this.thing)
-        const loc = await this.thing.assoc.location._thing
+        const loc = await this.thing.assoc.location?._thing
 
         if (!thing) return this.errorNoThing(thingStr)
         if (!thing.isIn(this.thing)) return this.error(`You aren't holding ${thingStr}`)
