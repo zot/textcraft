@@ -119,15 +119,13 @@ function deferredThing(world: World, promise: Thing | Thing[] | Promise<Thing | 
                 || prop === 'world' || prop === 'catch' || prop === 'promise') return obj[prop]
             if (prop === 'isDeferred') return true
             if (thing) return thing[prop]
+            //if (path.length % 2 === 1 && prop === '_thing') return promise.then(t => t[prop])
+            if (path.length % 2 === 1 && prop === '_thing') return promise
             // every 2nd prop must be an association prop
             if ((path.length % 2 === 0 === prop in associationProps)
                 // you have to stop after getting refs
                 && !(path.length >= 1 && path[path.length - 2] === 'refs')) {
-                if (prop === '_thing') {
-                    return promise.then(t => t[prop])
-                } else {
-                    return deferredThing(world, promise.then(t => t[prop]), prop, path.slice())
-                }
+                return deferredThing(world, promise.then(t => t[prop]), prop, path.slice())
             }
             throw new Error(`Attempt to use thing before a sync()`)
         },
@@ -173,10 +171,11 @@ class AssociationIdAccessor {
     }
     proxify() { return proxify(this) }
     refsProxy() {
+        const thing = this.thing
         return new Proxy(this, {
             get(obj, prop: string | number | symbol) {
                 if (typeof prop === 'string') {
-                    return obj.refs(prop)
+                    return deferredThing(thing.world, obj.refs(prop), prop, [thing.id, 'refs'], true)
                 } else throw new Error(`Illegal refs property: ${String(prop)}`)
             }
         })
@@ -435,7 +434,7 @@ export class Thing {
         if (exclude.has(this)) return null
         if (this.name.toLowerCase() === name.toLowerCase()) return this
         exclude.add(this)
-        for (const item of await this.refs.location) {
+        for (const item of await this.refs.location._thing) {
             const result = await item.find(name, exclude)
 
             if (result && (!found || result._priority > found._priority)) {
@@ -443,7 +442,7 @@ export class Thing {
             }
         }
         if (found) return found
-        for (const item of await this.refs.linkOwner) {
+        for (const item of await this.refs.linkOwner._thing) {
             const result = await item.find(name, exclude)
 
             if (result && (!found || result._priority > found._priority)) {
@@ -722,7 +721,7 @@ export class World {
         this.clockRate = info.clockRate || 2
     }
     async findPrototype(name: string): Promise<Thing> {
-        for (const aproto of await aw(this.hallOfPrototypes.refs.location as Thing[])) {
+        for (const aproto of await this.hallOfPrototypes.refs.location._thing) {
             if (name === aproto.name) return aproto
         }
     }
@@ -1216,7 +1215,7 @@ get %-1
                 things.delete(thing.id)
                 this.thingCache.delete(thing.id)
                 thing.toasted = true
-                for (const guts of await thing.refs.location) {
+                for (const guts of await thing.refs.location._thing) {
                     guts.assoc.location = this.limbo
                 }
                 for (const associated of await this.getAllAssociated(thing)) {
@@ -1285,10 +1284,10 @@ get %-1
     async findConnected(thing: Thing, connected: Set<Thing>) {
         if (!connected.has(thing)) {
             connected.add(thing)
-            for (const item of await thing.refs.location) {
+            for (const item of await thing.refs.location._thing) {
                 await this.findConnected(item, connected)
             }
-            for (const link of await thing.refs.linkOwner) {
+            for (const link of await thing.refs.linkOwner._thing) {
                 await this.findConnected(link, connected)
             }
         }
