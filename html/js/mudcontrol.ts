@@ -8,9 +8,6 @@ import {
     thingId,
     findSimpleName,
     escape,
-    Deferred,
-    DeferredThing,
-    DeferredThings,
     aw,
 } from './model.js'
 import * as mudproto from './mudproto.js'
@@ -239,7 +236,7 @@ export const commands = new Map([
 
    REFS PROXY !!! USES PROMISES !!!
    thing.refs lets you access things associated with a thing by using promises. For example,
-   await thing.refs.location will return an array of everything located in thing.
+   thing.refs.location will return an array of everything located in thing.
 `]
     })],
     ['@method', new Command({
@@ -375,28 +372,22 @@ export class Descripton {
      * If the thing is open, also propagate to its location
      * If this.visitLinks is true, also propagate through links
      */
-    async propagate(thing: Thing | DeferredThing) {
+    propagate(thing: Thing) {
         const world = this.source.world
 
-        if (!(thing instanceof Thing)) {
-            const d = thing as DeferredThing
-
-            await world.sync()
-            thing = d.thing
-        }
         if (this.done || !thing || this.visited.has(thing)) return
         this.visited.add(thing)
         this.visitFunc(thing, this)
-        for (const item of await thing.refs.location._thing) {
-            await this.propagate(item)
+        for (const item of thing.refs.location) {
+            this.propagate(item)
         }
         if (this.visitLinks) {
-            for (const item of await thing.refs.linkOwner._thing) {
+            for (const item of thing.refs.linkOwner) {
                 const otherLink = thing.assoc.otherLink
                 const otherThing = otherLink && otherLink.assoc.linkOwner
 
-                await this.propagate(otherLink)
-                await this.propagate(otherThing)
+                this.propagate(otherLink)
+                this.propagate(otherThing)
             }
         }
         if (!thing._closed || this.ignoreClosed) return this.propagate(thing.assoc.location)
@@ -494,12 +485,14 @@ export class MudConnection {
     history: any = []
     historyPos = 0
     substituting: boolean
+    pending: Promise<any>[]
 
     constructor(thing?: Thing) {
         this.created = []
         this.thing = thing
         this.outputHandler = () => { }
         const con = this
+        this.pending = []
     }
     cmd(...items: any[]) {
         return new CommandContext(this).cmd(...items)
@@ -544,14 +537,27 @@ export class MudConnection {
         }
         this.failed = false
     }
-    async withResults(otherCon: MudConnection, func: () => Promise<any>) {
+    withResultsSync(otherCon: MudConnection, func: () => void) {
         const oldEvent = this.event
         const oldCondition = this.conditionResult
 
         this.event = otherCon.event
         this.conditionResult = otherCon.conditionResult
         try {
-            await func()
+            func()
+        } finally {
+            this.event = oldEvent
+            this.conditionResult = oldCondition
+        }
+    }
+    withResults(otherCon: MudConnection, func: () => void) {
+        const oldEvent = this.event
+        const oldCondition = this.conditionResult
+
+        this.event = otherCon.event
+        this.conditionResult = otherCon.conditionResult
+        try {
+            func()
         } finally {
             this.event = oldEvent
             this.conditionResult = oldCondition
@@ -573,24 +579,22 @@ export class MudConnection {
 <p>Click on old commands to reuse them`)
         await this.world.start()
     }
-    formatMe(tip: thingId | Thing | Promise<Thing>, str: string, ...args: Thing[]) {
+    formatMe(tip: thingId | Thing, str: string, ...args: Thing[]) {
         const ctx = formatContexts(str)
 
         return ctx.me ? this.basicFormat(tip, ctx.me, args) : ''
     }
     // same as formatOthers(...)
-    format(tip: thingId | Thing | Promise<Thing>, str: string, ...args: Thing[]) {
+    format(tip: thingId | Thing, str: string, ...args: Thing[]) {
         return this.basicFormat(tip, formatContexts(str).others, args)
     }
-    formatOthers(tip: thingId | Thing | Promise<Thing>, str: string, ...args: Thing[]) {
+    formatOthers(tip: thingId | Thing, str: string, ...args: Thing[]) {
         const ctx = formatContexts(str)
 
         return ctx.others ? this.basicFormat(tip, formatContexts(str).others, args) : ''
     }
-    async dumpName(tip: thingId | Thing | Promise<Thing> | DeferredThing) {
-        const thing = await (tip instanceof Promise ? tip
-            : tip instanceof DeferredThing ? tip._thing
-                : this.world.getThing(tip))
+    dumpName(tip: thingId | Thing) {
+        const thing = this.world.getThing(tip)
 
         return thing ? this.formatName(thing, true, true) : 'null'
     }
@@ -614,9 +618,9 @@ export class MudConnection {
 
         return `<span class='method${inherited ? ' inherited' : ''}'><span class='hidden input-text'>@method %${thing.id} ${prop} ${escape(args)} ${escape(body)}</span>${prop}</span>`
     }
-    async basicFormat(tip: thingId | Thing | Promise<Thing>, str: string, args: Thing[]) {
+    basicFormat(tip: thingId | Thing, str: string, args: Thing[]) {
         if (!str) return str
-        const thing = await (tip instanceof Promise ? tip : this.world.getThing(tip))
+        const thing = tip instanceof Thing ? tip : this.world.getThing(tip)
         const adminParts = str.split(/(\s*\$admin\b\s*)/i)
         str = adminParts.length > 1 ? (this.admin && adminParts[2]) || adminParts[0] : str
         const parts = str.split(/( *\$(?:result|event)(?:\.\w*)?| *\$\w*)/i)
@@ -678,17 +682,16 @@ export class MudConnection {
                         continue
                     }
                     case 'location': {
-                        result += capitalize(this.formatName(await thing.assoc.location?._thing), format)
+                        result += capitalize(this.formatName(thing.assoc.location?._thing), format)
                         continue
                     }
                     case 'owner': {
-                        result += capitalize(this.formatName(await thing.assoc.linkOwner?._thing), format)
+                        result += capitalize(this.formatName(thing.assoc.linkOwner?._thing), format)
                         continue
                     }
                     case 'link': {
-                        const other = await thing.assoc.otherLink?._thing
-                        await this.world.sync()
-                        const dest = await other?.assoc.linkOwner?._thing
+                        const other = thing.assoc.otherLink?._thing
+                        const dest = other?.assoc.linkOwner?._thing
 
                         if (dest) {
                             result += capitalize(this.formatName(dest), format)
@@ -696,22 +699,22 @@ export class MudConnection {
                         continue
                     }
                     case 'contents': {
-                        const contents = await thing.refs.location._thing
+                        const contents = thing.refs.location
 
                         if (contents.length) {
                             for (const item of contents) {
-                                result += `<br>&nbsp;&nbsp;${await this.format(item, thing.contentsFormat)}`
+                                result += `<br>&nbsp;&nbsp;${this.format(item, thing.contentsFormat)}`
                             }
                             result += '<br>'
                         }
                         continue
                     }
                     case 'links': {
-                        const links = await thing.refs.linkOwner._thing
+                        const links = thing.refs.linkOwner
 
                         if (links.length) {
                             for (const item of links) {
-                                result += `<br>&nbsp;&nbsp;${await this.format(item, item.linkFormat)}`
+                                result += `<br>&nbsp;&nbsp;${this.format(item, item.linkFormat)}`
                             }
                             result += '<br>'
                         }
@@ -726,21 +729,21 @@ export class MudConnection {
     description(thing: Thing) {
         return this.format(thing, thing.description)
     }
-    async examination(thing: Thing) {
-        const result = await this.description(thing)
+    examination(thing: Thing) {
+        const result = this.description(thing)
 
-        return result + (thing.examineFormat ? `<br>${await this.format(thing, thing.examineFormat)}` : '')
+        return result + (thing.examineFormat ? `<br>${this.format(thing, thing.examineFormat)}` : '')
     }
-    async describe(thing: Thing) {
-        this.output(await this.description(thing))
+    describe(thing: Thing) {
+        this.output(this.description(thing))
     }
     checkCommand(prefix: string, cmd: string, thing: any, checkLocal = cmd === thing.name) {
         return (checkLocal && (thing['_' + prefix] || thing['!' + prefix]))
             || thing[`_${prefix}_${cmd}`]
             || thing[`!${prefix}_${cmd}`]
     }
-    async findCommand(words: string[], prefix = 'cmd') {
-        const result = await this.findTemplate(words, prefix)
+    findCommand(words: string[], prefix = 'cmd') {
+        const result = this.findTemplate(words, prefix)
 
         if (result) {
             const [context, template] = result
@@ -748,18 +751,18 @@ export class MudConnection {
             return this.substituteCommand(template, [`%${context.id}`, ...words])
         }
     }
-    async findTemplate(words: string[], prefix: string) {
+    findTemplate(words: string[], prefix: string) {
         const cmd = words[0].toLowerCase()
         let template: string
 
-        for (const item of (await this.thing.refs.location._thing) as any[]) {
+        for (const item of (this.thing.refs.location) as any[]) {
             template = this.checkCommand(prefix, cmd, item)
             if (template) {
                 return [item, template]
             }
         }
         if (!template) {
-            for (const item of (await this.thing.refs.linkOwner._thing) as any[]) {
+            for (const item of (this.thing.refs.linkOwner) as any[]) {
                 template = this.checkCommand(prefix, cmd, item)
                 if (template) {
                     return [item, template]
@@ -767,13 +770,13 @@ export class MudConnection {
             }
         }
         if (!template) {
-            const loc = await this.thing.assoc.location?._thing
+            const loc = this.thing.assoc.location?._thing
 
             template = this.checkCommand(prefix, cmd, loc)
             if (template) {
                 return [loc, template]
             } else {
-                for (const item of (await loc.refs.linkOwner._thing) as any[]) {
+                for (const item of (loc.refs.linkOwner) as any[]) {
                     template = this.checkCommand(prefix, cmd, item)
                     if (template) {
                         return [item, template]
@@ -807,32 +810,32 @@ export class MudConnection {
             }
             return lines.length > 0 ? lines : null
         } else if (template instanceof Function) {
-            return async () => {
-                const things = []
+            const things = []
 
-                this.substituting = true
-                for (const item of args) {
-                    if (item instanceof Thing) {
-                        things.push(thingPxy(item))
-                    } else {
-                        things.push(thingPxy(await this.find(item, undefined, 'thing', true)))
-                    }
-                }
-                const result = await template.apply(this, things)
-                if (result instanceof CommandContext) {
-                    await result.run()
+            this.substituting = true
+            for (const item of args) {
+                if (item instanceof Thing) {
+                    things.push(thingPxy(item))
+                } else {
+                    things.push(thingPxy(this.find(item, undefined, 'thing', true)))
                 }
             }
+            const result = template.apply(this, things)
+            return result instanceof CommandContext ? [result] : []
         }
     }
-    async runCommands(lines: string[] | (() => any)) {
+    async runCommands(lines: (string | CommandContext)[] | (() => any)) {
         const oldSubstituting = this.substituting
 
         try {
             this.substituting = true
             if (Array.isArray(lines)) {
                 for (const line of lines) {
-                    await this.command(line, true)
+                    if (line instanceof CommandContext) {
+                        await line.run()
+                    } else {
+                        await this.command(line, true)
+                    }
                     if (this.failed) break
                 }
             } else if (lines instanceof Function) {
@@ -866,7 +869,7 @@ export class MudConnection {
                     this.historyPos = this.history.length
                 }
                 if (!this.commands.has(commandName) && this.thing) {
-                    const newCommands = await this.findCommand(words)
+                    const newCommands = this.findCommand(words)
 
                     if (newCommands) return this.runCommands(newCommands)
                 }
@@ -882,7 +885,12 @@ export class MudConnection {
 
                 try {
                     if (!substituted && user) this.muted = 0
-                    await this[command.method]({ command, line, substituted }, ...words.slice(1))
+                    this[command.method]({ command, line, substituted }, ...words.slice(1))
+                    if (this.pending.length) {
+                        const promise = Promise.all(this.pending)
+                        this.pending = []
+                        await promise
+                    }
                 } finally {
                     if (this.muted === 0) this.muted = muted
                     if (!substituted) this.suppressOutput = false
@@ -900,11 +908,11 @@ export class MudConnection {
             mudproto.userThingChanged(this.thing)
         }
     }
-    async findAll(names: string[], start: Thing = this.thing, errTag: string = ''): Promise<Thing[]> {
+    findAll(names: string[], start: Thing = this.thing, errTag: string = ''): Thing[] {
         const result = []
 
         for (const name of names) {
-            result.push(await this.find(name, start, errTag))
+            result.push(this.find(name, start, errTag))
         }
         return result
     }
@@ -913,61 +921,59 @@ export class MudConnection {
 
         return match[1]?.length ? value[match[1]] : value
     }
-    async doThings(...items: any[]) {
+    doThings(...items: any[]) {
         const func = items[items.length - 1]
         if (typeof func !== 'function') {
             throw new Error('Expected function for with')
         }
-        const things = await this.findAll(items.slice(0, items.length - 1), undefined, 'thing')
+        const things = this.findAll(items.slice(0, items.length - 1), undefined, 'thing')
         return func.apply(this, things)
     }
-    async find(name: string, start: Thing = this.thing, errTag: string = '', subst = false): Promise<Thing> {
+    findThing(name: string, start: Thing = this.thing, errTag: string = '', subst = false): Thing {
+        return this.find(name, start, errTag, subst) as Thing
+    }
+    find(name: string, start: Thing = this.thing, errTag: string = '', subst = false): Thing {
         let result: Thing
 
-        start = await start?._thing
+        start = start?._thing
         if (!name) return null
         name = name.trim().toLowerCase()
         if (name[0] !== '%' || this.admin || this.substituting || subst) {
             if (name === 'out' || name === '%out') {
-                const location = await this.thing.assoc.location?._thing
+                const location = this.thing.assoc.location?._thing
 
-                result = location && await location.assoc.location?._thing
+                result = location && location.assoc.location?._thing
                 if (!result || result === this.world.limbo) {
                     throw new Error('You are not in a container')
                 }
             } else {
                 result = name === 'me' || name === '%me' ? this.thing
-                    : name === 'here' || name === '%here' ? await this.thing.assoc.location?._thing
+                    : name === 'here' || name === '%here' ? this.thing.assoc.location?._thing
                         : name === '%limbo' ? this.world.limbo
                             : name === '%lobby' ? this.world.lobby
                                 : name === '%protos' ? this.world.hallOfPrototypes
                                     : name.match(/^%result(\.\w+)?$/) ? this.getResult(name, this.conditionResult)
                                         : name.match(/^%event(\.\w+)?$/) ? this.getResult(name, this.event)
-                                            : name.match(/^%proto:/) ? await this.world.hallOfPrototypes.find(name.replace(/^%proto:/, ''))
+                                            : name.match(/^%proto:/) ? this.world.hallOfPrototypes.find(name.replace(/^%proto:/, ''))
                                                 : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
-                                                    : name.match(/%[0-9]+/) ? await this.world.getThing(Number(name.substring(1)))
+                                                    : name.match(/%[0-9]+/) ? this.world.getThing(Number(name.substring(1)))
                                                         : start.find(name[0] === '%' ? name.slice(1) : name, this.thing.isIn(this.world.limbo) ? new Set() : new Set([this.world.limbo]))
-                if (result instanceof Promise) {
-                    result = await result
-                }
             }
         }
-        if (!result && errTag) {
-            throw new Error(`Could not find ${errTag}: ${name}`)
-        }
-        return await result?._thing
+        result = result?._thing
+        if (!result && errTag) throw new Error(`Could not find ${errTag}: ${name}`)
+        return result
     }
-    async dumpThingNames(things: Thing[] | DeferredThings) {
+    dumpThingNames(things: Thing[]) {
         const items: string[] = []
-        const ts = things instanceof DeferredThings ? await aw(things) : things
 
-        for (const item of ts) {
-            items.push(await this.dumpName(item))
+        for (const item of things) {
+            items.push(this.dumpName(item))
         }
         return items.length ? items.join(', ') : 'nothing'
     }
-    async thingProps(thingStr: string, property: string, value: any, cmd: any) {
-        const thing = await this.find(thingStr)
+    thingProps(thingStr: string, property: string, value: any, cmd: any) {
+        const thing = this.find(thingStr)
         const propMap = new Map()
         const lowerProp = property.toLowerCase()
         let realProp
@@ -1042,67 +1048,61 @@ export class MudConnection {
             this.error(err.message)
         }
     }
-    async commandDescripton(context: Thing, action: string, event: string, args: any[], succeeded = true, prefix = true, excludeActor = true, startAt?: Thing, actor = this.thing) {
+    commandDescripton(context: Thing, action: string, event: string, args: any[], succeeded = true, prefix = true, excludeActor = true, startAt?: Thing, actor = this.thing) {
         return this.formatDescripton(context, action, [], event, args, succeeded, prefix, excludeActor, startAt, actor)
     }
-    async formatDescripton(actionContext: Thing, action: string, actionArgs: any[], event: string, args: any[], succeeded = true, prefix = true, excludeActor = true, startAt?: Thing, actor = this.thing) {
+    formatDescripton(actionContext: Thing, action: string, actionArgs: any[], event: string, args: any[], succeeded = true, prefix = true, excludeActor = true, startAt?: Thing, actor = this.thing) {
         if (!this.suppressOutput) {
-            const desc = new Descripton(actor, event, args, !succeeded, async thing => {
+            const desc = new Descripton(actor, event, args, !succeeded, thing => {
                 const con = connectionMap.get(thing)
 
                 if (con) {
-                    await con.withResults(this, async () => {
+                    con.withResultsSync(this, () => {
                         // run format in each connection so it can deal with admin and names
-                        const format = await con.basicFormat(actionContext, action, actionArgs)
+                        const format = con.basicFormat(actionContext, action, actionArgs)
                         const text = prefix ? `${capitalize(con.formatName(this.thing))} ${format}` : format
 
                         con.output(text)
                     })
                 } else {
                     // process reactions in the main MudConnection
-                    await connection.react(thing, desc)
+                    connection.react(thing, desc)
                 }
             })
 
-            if (!startAt) startAt = await this.thing.assoc.location?._thing
+            if (!startAt) startAt = this.thing.assoc.location?._thing
             if (excludeActor) desc.visited.add(actor)
-            await desc.propagate(startAt)
+            desc.propagate(startAt)
         }
     }
-    async react(thing: Thing, desc: Descripton) {
+    react(thing: Thing, desc: Descripton) {
         if (this.remote) throw new Error(`Attempt to react in a remote connection`)
         const reactPat = new RegExp(`[_!]react_${desc.event.toLowerCase()}`)
         let reacted = false
 
         for (const key in thing) {
             if (key.toLowerCase().match(reactPat)) {
-                await this.doReaction(thing, desc, thing[key])
+                this.doReaction(thing, desc, thing[key])
                 reacted = true
                 break
             }
         }
         if (!reacted && (thing as any)._react) {
-            await connection.doReaction(thing, desc, (thing as any)._react)
+            connection.doReaction(thing, desc, (thing as any)._react)
         }
     }
-    async doReaction(thing: Thing, desc: Descripton, reaction: string | (() => void)) {
+    doReaction(thing: Thing, desc: Descripton, reaction: string | (() => void)) {
         if (this.remote) throw new Error(`Attempt to react in a remote connection`)
         if (this.acted.has(thing) && !this.pendingReactions.has(thing)) {
             this.pendingReactions.set(thing, () => this.doReaction(thing, desc, reaction))
             this.queueTick()
         } else {
-            const oldEvent = this.event
+            const con = this.connectionFor(thing)
 
-            try {
-                const con = this.connectionFor(thing)
-
-                con.event = desc
-                con.conditionResult = this.conditionResult
-                this.acted.add(thing)
-                await con.runCommands(con.substituteCommand(reaction, [thing, ...desc.args].map(thingPxy)))
-            } finally {
-                this.event = oldEvent
-            }
+            con.event = desc
+            con.conditionResult = this.conditionResult
+            this.acted.add(thing)
+            con.pending.push(con.runCommands(con.substituteCommand(reaction, [thing, ...desc.args].map(thingPxy))))
         }
     }
     connectionFor(thing: Thing) {
@@ -1162,9 +1162,10 @@ export class MudConnection {
 
                     if (reaction) {
                         tick.source = ticker
-                        await this.doReaction(ticker, tick, reaction)
+                        this.doReaction(ticker, tick, reaction)
                     }
                 }
+                await Promise.all(this.pending)
             }
             if (ticked) {
                 this.queueTick(targetTime - Date.now(), true)
@@ -1173,11 +1174,11 @@ export class MudConnection {
             }
         }
     }
-    async hasKey(lock: Thing, start: Thing) {
+    hasKey(lock: Thing, start: Thing) {
         if (start._keys.indexOf(lock.id) !== -1) {
             return true
         }
-        for (const item of await start.refs.location._thing) {
+        for (const item of start.refs.location) {
             if (item._keys.indexOf(lock.id) !== -1) {
                 return true
             }
@@ -1187,20 +1188,20 @@ export class MudConnection {
     anyHas(things: Thing[], prop: string, thing = this.thing) {
         return things.find(t => t.assoc.has(prop, pxyThing(thing)))
     }
-    async findNearby(thing = this.thing) {
+    findNearby(thing = this.thing) {
         const things = [pxyThing(thing)]
 
-        things.push(...await pxyThing(thing).refs.location._thing)
+        things.push(...pxyThing(thing).refs.location)
         return things
     }
-    async inAny(target: Thing, prop: string, thing = this.thing) {
-        return (await this.findAny(prop, pxyThing(thing)))?.has(target.id)
+    inAny(target: Thing, prop: string, thing = this.thing) {
+        return (this.findAny(prop, pxyThing(thing)))?.has(target.id)
     }
-    async findAny(prop: string, thing = this.thing) {
+    findAny(prop: string, thing = this.thing) {
         const ids = []
 
         thing.assoc.allIdsNamed(prop, ids)
-        for (const item of await thing.refs.location._thing) {
+        for (const item of thing.refs.location) {
             item.assoc.allIdsNamed(prop, ids)
         }
         return new Set(ids)
@@ -1224,35 +1225,35 @@ export class MudConnection {
         return this.doLogin(user, password, user)
     }
     // COMMAND
-    async look(cmdInfo, target?) {
-        const thing = await (target ? this.find(target, this.thing) : this.thing.assoc.location?._thing)
+    look(cmdInfo, target?) {
+        const thing = target ? this.find(target, this.thing) : this.thing.assoc.location?._thing
 
         if (!thing) {
             this.errorNoThing(target)
             return this.commandDescripton(null, `looks for a ${target} but doesn't see any`, 'look', [], false)
         } else if (thing === this.thing) {
-            this.output(await this.examination(thing))
+            this.output(this.examination(thing))
             return this.commandDescripton(null, `looks at themself`, 'examine', [thing])
         } else if (this.thing.isIn(thing)) {
-            this.output(await this.examination(await this.thing.assoc.location?._thing))
+            this.output(this.examination(thing))
             return this.commandDescripton(null, `looks around`, 'examine', [thing])
         } else {
-            this.output(await this.description(thing))
+            this.output(this.description(thing))
             return this.formatDescripton(null, 'looks at $arg', [thing], 'look', [thing])
         }
     }
     // COMMAND
-    async examine(cmdInfo, target?) {
+    examine(cmdInfo, target?) {
         if (!target) {
             this.error(`What do you want to examine ? `)
         } else {
-            const thing = await this.find(target, this.thing)
+            const thing = this.find(target, this.thing)
 
             if (!thing) {
                 this.errorNoThing(target)
                 return this.commandDescripton(null, `tries to examine a ${target} but doesn't see any`, 'examine', [], false)
             } else {
-                this.output(await this.examination(thing))
+                this.output(this.examination(thing))
                 if (thing === this.thing) {
                     return this.commandDescripton(null, `looks at themself`, 'examine', [thing])
                 } else if (this.thing.isIn(thing)) {
@@ -1264,15 +1265,15 @@ export class MudConnection {
         }
     }
     // COMMAND
-    async go(cmdInfo, directionStr) {
+    go(cmdInfo, directionStr) {
         if (!cmdInfo.substituted) {
-            const cmd = await this.findCommand([directionStr, 'me'], 'go')
+            const cmd = this.findCommand([directionStr, 'me'], 'go')
             if (cmd) return this.runCommands(cmd)
         }
-        const oldLoc = await this.thing.assoc.location?._thing
-        let direction = await this.find(directionStr, this.thing, 'direction')
+        const oldLoc = this.thing.assoc.location?._thing
+        let direction = this.find(directionStr, this.thing, 'direction')
         if (!direction) throw new Error(`Go where?`)
-        direction = await direction._thing
+        direction = direction._thing
         let location: Thing
         const linkOwner = direction.assocId.linkOwner
         let tmp = direction
@@ -1284,45 +1285,45 @@ export class MudConnection {
             if (tmp === this.thing) {
                 throw new Error('You cannot go into something you are holding')
             }
-            tmp = await (linkOwner in tmp.assoc ? tmp.assoc.linkOwner._thing : tmp.assoc.location?._thing)
+            tmp = linkOwner in tmp.assoc ? tmp.assoc.linkOwner._thing : tmp.assoc.location?._thing
         }
         if (!linkOwner) {
-            location = await direction?._thing
+            location = direction?._thing
             const oldPx = this.world.propertyProximity(oldLoc, '_contentsExitFormat')
             const newPx = this.world.propertyProximity(location, '_contentsEnterFormat')
             const emitter = newPx >= oldPx ? location : oldLoc
             const ctx = formatContexts(newPx >= oldPx ? location._contentsEnterFormat : oldLoc._contentsExitFormat)
-            await this.world.doTransaction(async () => { this.thing.assoc.location = location })
-            ctx.others && await this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing)
-            ctx.me && await this.basicFormat(emitter, ctx.me, [this.thing, oldLoc, location])
-            ctx.others && await this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing)
+            this.world.update(() => this.thing.assoc.location = location)
+            ctx.others && this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing)
+            ctx.me && this.basicFormat(emitter, ctx.me, [this.thing, oldLoc, location])
+            ctx.others && this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing)
         } else {
-            let link = await direction.assoc.otherLink?._thing
+            let link = direction.assoc.otherLink?._thing
 
             if (link) {
-                link = await link._thing
-                const dest = await link.assoc.linkOwner?._thing
+                link = link._thing
+                const dest = link.assoc.linkOwner?._thing
 
                 if (!dest) {
                     return this.error(`${directionStr} does not lead anywhere`)
                 }
-                location = await dest._thing
+                location = dest._thing
             }
-            const output = await this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location)
+            const output = this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location)
             const exitCtx = formatContexts(direction._linkExitFormat)
-            exitCtx.others && await this.formatDescripton(direction, exitCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false)
-            await this.world.doTransaction(async () => { this.thing.assoc.location = location })
+            exitCtx.others && this.formatDescripton(direction, exitCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false)
+            this.world.update(() => { this.thing.assoc.location = location })
             output && this.output(output)
             const enterCtx = formatContexts(direction._linkEnterFormat)
             if (link) {
-                await this.formatDescripton(link, enterCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false)
+                this.formatDescripton(link, enterCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false)
             }
         }
-        await this.look(cmdInfo)
+        this.look(cmdInfo)
     }
     // COMMAND
-    async inventory(cmdInfo) {
-        this.output(`<code>You are carrying\n${indent(3, (await this.thing.refs.location._thing).map(item => this.formatName(item)).join('\n'))}</code>`)
+    inventory(cmdInfo) {
+        this.output(`<code>You are carrying\n${indent(3, (this.thing.refs.location).map(item => this.formatName(item)).join('\n'))}</code>`)
     }
     // COMMAND
     atQuiet() {
@@ -1339,10 +1340,10 @@ export class MudConnection {
         this.queueTick(undefined, true)
     }
     // COMMAND
-    async atClock(cmdInfo, rate) {
+    atClock(cmdInfo, rate) {
         if (rate.match(/^[0-9]+$/)) {
             this.world.clockRate = Number(rate)
-            await this.world.store()
+            this.pending.push(this.world.store())
         }
     }
     // COMMAND
@@ -1361,18 +1362,18 @@ export class MudConnection {
         this.output('Unmuted')
     }
     // COMMAND
-    async get(cmdInfo, thingStr, ...args: Thing[]) {
-        const location = await this.thing.assoc.location?._thing
+    get(cmdInfo, thingStr, ...args: Thing[]) {
+        const location = this.thing.assoc.location?._thing
         let loc = location
-        let newCommands: any
+        let newCommands: (string | CommandContext)[]
 
         if (args.length) {
             const [_, name] = findSimpleName(args.join(' '))
 
-            loc = await this.find(name, loc)
+            loc = this.find(name, loc)
             if (!loc) return this.errorNoThing(name)
         }
-        const thing = await this.find(thingStr, loc)
+        const thing = this.find(thingStr, loc)
         if (thing && thing.isIn(this.thing)) {
             return this.error(`You are already holding ${this.formatName(thing)}`)
         } else if (thing && !cmdInfo.substituted) {
@@ -1380,7 +1381,7 @@ export class MudConnection {
             if (cmd) newCommands = this.substituteCommand(cmd, [`%${thing.id}`, ...dropArgs(1, cmdInfo).split(/\s+/)])
         }
         if (!newCommands && !thing && !cmdInfo.substituted) {
-            newCommands = (await this.findCommand(dropArgs(1, cmdInfo).split(/\s+/), 'get')) as any
+            newCommands = (this.findCommand(dropArgs(1, cmdInfo).split(/\s+/), 'get')) as any
         }
         if (newCommands) return this.runCommands(newCommands)
         if (!thing) return this.errorNoThing(thingStr)
@@ -1391,9 +1392,9 @@ export class MudConnection {
         return this.commandDescripton(thing, 'picks up $this', 'get', [thing])
     }
     // COMMAND
-    async drop(cmdInfo, thingStr) {
-        const thing = await this.find(thingStr, this.thing)
-        const loc = await this.thing.assoc.location?._thing
+    drop(cmdInfo, thingStr) {
+        const thing = this.find(thingStr, this.thing)
+        const loc = this.thing.assoc.location?._thing
 
         if (!thing) return this.errorNoThing(thingStr)
         if (!thing.isIn(this.thing)) return this.error(`You aren't holding ${thingStr}`)
@@ -1402,13 +1403,13 @@ export class MudConnection {
         return this.commandDescripton(thing, 'drops $this', 'drop', [thing])
     }
     // COMMAND
-    async atSay(cmdInfo, text, ...args) {
+    atSay(cmdInfo, text, ...args) {
         if (text[0] === '"') text = text.substring(1, text.length - 1)
         const ctx = formatContexts(text)
 
-        args = await this.findAll(args, undefined, 'thing')
-        ctx.me && this.output(`You say, "${await this.basicFormat(this.thing, ctx.me, args)}"`)
-        ctx.others && await this.formatDescripton(this.thing, `says, "${ctx.others}"`, args, 'say', [text])
+        args = this.findAll(args, undefined, 'thing')
+        ctx.me && this.output(`You say, "${this.basicFormat(this.thing, ctx.me, args)}"`)
+        ctx.others && this.formatDescripton(this.thing, `says, "${ctx.others}"`, args, 'say', [text])
     }
     // COMMAND
     async say(cmdInfo, ...words: string[]) {
@@ -1419,7 +1420,7 @@ export class MudConnection {
     }
     // COMMAND
     async whisper(cmdInfo, thingStr: string, ...words: string[]) {
-        const thing = await this.find(thingStr)
+        const thing = this.find(thingStr)
         const text = escape(dropArgs(2, cmdInfo))
 
         if (!thing) return this.errorNoThing(thingStr)
@@ -1433,22 +1434,22 @@ export class MudConnection {
         return this.commandDescripton(this.thing, '$quote <i>$this ${text}</i>', 'act', [text], true, false, false)
     }
     // COMMAND
-    async gesture(cmdInfo, thingStr: string, ...words: string[]) {
-        const thing = await this.find(thingStr)
+    gesture(cmdInfo, thingStr: string, ...words: string[]) {
+        const thing = this.find(thingStr)
         const text = escape(dropArgs(2, cmdInfo))
 
         if (!thing) return this.errorNoThing(thingStr)
-        await this.formatDescripton(this.thing, '$quote <i>$this ${text} at $arg</i>', [thing], 'act', [text, thing], true, false, false)
+        this.formatDescripton(this.thing, '$quote <i>$this ${text} at $arg</i>', [thing], 'act', [text, thing], true, false, false)
     }
     // COMMAND
-    async atCreate(cmdInfo, protoStr, name) {
-        const proto = await this.find(protoStr, this.world.hallOfPrototypes)
+    atCreate(cmdInfo, protoStr, name) {
+        const proto = this.find(protoStr, this.world.hallOfPrototypes)
 
         if (!proto) {
             const hall = this.world.hallOfPrototypes
             const protos = []
 
-            for (const aproto of await hall.refs.location._thing) {
+            for (const aproto of hall.refs.location) {
                 protos.push(`%${aproto.id} %proto:${aproto.name}`)
             }
             this.error(`<pre>Could not find prototype ${protoStr}
@@ -1456,33 +1457,33 @@ Prototypes:
 ${protos.join('\n  ')}`)
         } else {
             const fullname = dropArgs(2, cmdInfo)
-            const thing = await this.world.createThing(fullname)
+            const thing = this.world.createThing(fullname)
 
             thing.setPrototype(proto)
             this.created.push(thing)
             if (this.created.length > 100) this.created = this.created.slice(this.created.length - 50)
             if (thing._prototype === this.world.roomProto.id) {
-                this.output(`You created a room: ${await this.dumpName(thing)}`)
+                this.output(`You created a room: ${this.dumpName(thing)}`)
             } else if (thing._prototype === this.world.linkProto.id) {
-                this.output(`You created a link: ${await this.dumpName(thing)}`)
+                this.output(`You created a link: ${this.dumpName(thing)}`)
             } else {
                 thing.assoc.location = this.thing
-                this.output(`You are holding your new creation: ${await this.dumpName(thing)}`)
+                this.output(`You are holding your new creation: ${this.dumpName(thing)}`)
             }
         }
     }
     // COMMAND
-    async getPrototype(name: string) {
+    getPrototype(name: string) {
         return this.find(name, this.world.hallOfPrototypes, `${name} prototype`)
     }
     // COMMAND
-    async atLink(cmdInfo, loc1Str, exit1Str, exit2Str, loc2Str) {
+    atLink(cmdInfo, loc1Str, exit1Str, exit2Str, loc2Str) {
         checkArgs(cmdInfo, arguments)
-        const loc1 = await this.find(loc1Str, this.thing, 'location1')
-        const loc2 = await this.find(loc2Str, this.thing, 'location2')
-        const linkProto = await this.getPrototype('link')
-        const exit1 = await this.world.createThing(exit1Str)
-        const exit2 = await this.world.createThing(exit2Str)
+        const loc1 = this.find(loc1Str, this.thing, 'location1')
+        const loc2 = this.find(loc2Str, this.thing, 'location2')
+        const linkProto = this.getPrototype('link')
+        const exit1 = this.world.createThing(exit1Str)
+        const exit2 = this.world.createThing(exit2Str)
 
         exit1.name = exit1Str
         exit1.setPrototype(linkProto)
@@ -1492,10 +1493,10 @@ ${protos.join('\n  ')}`)
         exit2.setPrototype(linkProto)
         exit2.assoc.linkOwner = loc2
         exit2.assoc.otherLink = exit1
-        this.output(`Linked ${await this.dumpName(loc1)}->${await this.dumpName(exit1)}--${await this.dumpName(exit2)}<-${await this.dumpName(loc2)}`)
+        this.output(`Linked ${this.dumpName(loc1)}->${this.dumpName(exit1)}--${this.dumpName(exit2)}<-${this.dumpName(loc2)}`)
     }
     // COMMAND
-    async atJs(cmdInfo) {
+    atJs(cmdInfo) {
         const line = dropArgs(1, cmdInfo)
         //const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?[^\s]+)+[\s,]*;)?\s*(.*)\s*$/)
         const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?\s*[a-zA-z0-9%][a-zA-Z0-9:_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*\s*)+[\s,]*;)?(.*)$/)
@@ -1507,13 +1508,13 @@ ${protos.join('\n  ')}`)
         if (varSection) {
             for (const [, varname, path] of varSection.matchAll(/[,\s]*(?:([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*)?([a-zA-Z%_][a-zA-Z_0-9:]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*)/g)) {
                 const components = path.split(/\s*\.\s*/)
-                let value = await this.find(components[0], undefined, 'thing')
+                let value = this.find(components[0], undefined, 'thing')
 
                 vars.push(varname || `___arg${argN++}`)
                 for (const component of components.slice(1)) {
                     value = value[component]
                 }
-                values.push(value instanceof Deferred ? await (value._thing as any) : value)
+                values.push(value)
             }
         } else {
             code = line
@@ -1521,7 +1522,7 @@ ${protos.join('\n  ')}`)
             if (semis) code = code.substring(semis[0].length)
         }
         // tslint:disable-next-line:only-arrow-functions, no-eval
-        const result = await (this.thing.thingEval('(' + vars.join(', ') + ')', code) as (...args) => any).apply(this, values.map(t => t?._thing ? t?._thing.specProxy : t))
+        const result = (this.thing.thingEval('(' + vars.join(', ') + ')', code) as (...args) => any).apply(this, values.map(t => t?._thing ? t?._thing.specProxy : t))
         if (result instanceof CommandContext) {
             return result.run()
         } else {
@@ -1529,8 +1530,8 @@ ${protos.join('\n  ')}`)
         }
     }
     // COMMAND
-    async atMethod(cmdInfo, thingStr, prop) {
-        const thing = await this.find(thingStr, undefined, 'receiver')
+    atMethod(cmdInfo, thingStr, prop) {
+        const thing = this.find(thingStr, undefined, 'receiver')
         const code = dropArgs(3, cmdInfo)
         const realProp = '!' + prop
 
@@ -1553,15 +1554,15 @@ ${protos.join('\n  ')}`)
         }
     }
     // COMMAND
-    async atCall(cmdInfo, thingStr: string, prop: string, ...args: any[]) {
-        const thing = await this.find(thingStr, undefined, 'receiver')
+    atCall(cmdInfo, thingStr: string, prop: string, ...args: any[]) {
+        const thing = this.find(thingStr, undefined, 'receiver')
         const method = thing['!' + prop]
-        const things = (await this.findAll(args, undefined, 'thing')).map(t => t?.specProxy)
+        const things = (this.findAll(args, undefined, 'thing')).map(t => t?.specProxy)
 
         if (typeof method !== 'function') {
             this.error(`No function ${thingStr}.${prop}`)
         } else {
-            const result = await method.apply(this.connectionFor(thing), things)
+            const result = method.apply(this.connectionFor(thing), things)
 
             if (result instanceof CommandContext) {
                 return result.run()
@@ -1571,9 +1572,9 @@ ${protos.join('\n  ')}`)
         }
     }
     // COMMAND
-    async atDump(cmdInfo, thingStr) {
+    atDump(cmdInfo, thingStr) {
         checkArgs(cmdInfo, arguments)
-        const thing = await this.find(thingStr)
+        const thing = this.find(thingStr)
         if (!thing) return this.error('could not find ' + thingStr)
         console.log('DUMPING ', thing)
         const spec = thing.spec()
@@ -1581,13 +1582,13 @@ ${protos.join('\n  ')}`)
         const allKeys = []
         const fp = (prop, noParens = false) => this.formatDumpProperty(thing, prop, noParens)
         const fm = (prop, noParens = false) => this.formatDumpMethod(thing, prop, noParens)
-        let result = `<span class='code'>${await this.dumpName(thing)}
-${fp('prototype', true)}: ${thing._prototype ? await this.dumpName(thing.world.getThing(thing._prototype)) : 'none'}
-${fp('location', true)}--> ${await this.dumpName(thing.assocId.location)}
-${fp('linkOwner', true)}--> ${await this.dumpName(thing.assoc.linkOwner)}
-${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
-<--(location)--${ await this.dumpThingNames(await thing.refs.location._thing)}
-<--(linkOwner)--${ await this.dumpThingNames(await thing.refs.linkOwner._thing)}`
+        let result = `<span class='code'>${this.dumpName(thing)}
+${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThing(thing._prototype)) : 'none'}
+${fp('location', true)}--> ${this.dumpName(thing.assocId.location)}
+${fp('linkOwner', true)}--> ${this.dumpName(thing.assoc.linkOwner)}
+${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
+<--(location)--${this.dumpThingNames(thing.refs.location)}
+<--(linkOwner)--${ this.dumpThingNames(thing.refs.linkOwner)}`
 
         for (const prop in thing) {
             if (prop === '_associations' || prop === '_associationThings') continue
@@ -1613,7 +1614,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         for (const [k, v] of thing._associations) {
             if (k === 'location' || k === 'linkOwner' || k === 'otherLink') continue
             if (!associationMap.has(k)) associationMap.set(k, new Set())
-            associationMap.get(k).add(await this.world.getThing(v))
+            associationMap.get(k).add(this.world.getThing(v))
         }
         const associations = Array.from(associationMap.keys())
         associations.sort()
@@ -1621,7 +1622,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
             result += `\n   ${fp(key)} --> ${Array.from(associationMap.get(key)).map(t => this.formatName(t)).join(' ')} `
         }
         const backlinks = new Map<string, Thing[]>()
-        for (const associate of await thing.assoc.refs()) {
+        for (const associate of thing.assoc.refs()) {
             for (const [k, v] of associate._associations) {
                 if (k === 'location' || k === 'linkOwner' || k === 'otherLink' || v !== thing.id) continue
                 if (!backlinks.has(k)) backlinks.set(k, [])
@@ -1629,39 +1630,39 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
             }
         }
         for (const link of backlinks.keys()) {
-            result += `\n < --(${link})--${await this.dumpThingNames(backlinks.get(link))} `
+            result += `\n < --(${link})--${this.dumpThingNames(backlinks.get(link))} `
         }
         result += '</span>'
         this.output(result)
     }
     // COMMAND
-    async atOutput(cmdInfo: any /*, actor, text, arg..., @event, actor, event, arg...*/) {
+    atOutput(cmdInfo: any /*, actor, text, arg..., @event, actor, event, arg...*/) {
         const words = splitQuotedWords(dropArgs(1, cmdInfo))
         // tslint:disable-next-line:prefer-const
         let [contextStr, text] = words
         if (text[0] === '"') text = JSON.parse(text)
         const ctx = formatContexts(text)
-        const context = await this.find(contextStr, undefined, 'context')
+        const context = this.find(contextStr, undefined, 'context')
         const evtIndex = words.findIndex(w => w.toLowerCase() === '@event')
         if (evtIndex === -1 || words.length - evtIndex < 3) {
             throw new Error('@output needs @event actor eventType')
         }
         // tslint:disable-next-line:prefer-const
         let [actorStr, ...eventArgs] = words.slice(evtIndex + 1)
-        const actor = await this.find(actorStr, undefined, 'actor')
+        const actor = this.find(actorStr, undefined, 'actor')
         const formatWords = words.slice(2, evtIndex)
-        const formatArgs = formatWords.length ? await this.findAll(formatWords) : []
+        const formatArgs = formatWords.length ? this.findAll(formatWords) : []
         let output = false
 
         if (ctx.me) {
             if (connection.thing === actor) {
-                const forMe = await connection.formatMe(context, text, ...formatArgs)
+                const forMe = connection.formatMe(context, text, ...formatArgs)
                 connection.output(forMe)
                 output = true
             } else {
                 for (const [thing, con] of connectionMap) {
                     if (thing === actor) {
-                        const forMe = await connection.formatMe(actor, text, ...formatArgs)
+                        const forMe = connection.formatMe(actor, text, ...formatArgs)
                         con.output(forMe)
                         output = true
                         break
@@ -1682,15 +1683,15 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
                 const word = eventArgs[i]
 
                 eventArgs[i] = word[0] === '"' ? JSON.parse(word[0])
-                    : (await this.find(word)) || word
+                    : (this.find(word)) || word
             }
             return this.formatDescripton(context, ctx.others, formatArgs, event, eventArgs, succeeded, false, output, null, actor)
         }
     }
     // COMMAND
     async atMove(cmdInfo: any, thingStr: string, locStr: string) {
-        const thing = await this.find(thingStr)
-        const loc = await this.find(locStr)
+        const thing = this.find(thingStr)
+        const loc = this.find(locStr)
 
         if (!thing) return this.error(`Could not find ${thingStr} `)
         if (!loc) return this.error(`Could not find ${locStr} `)
@@ -1699,7 +1700,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
     }
     // COMMAND
     async atAs(cmdInfo: any, thingStr: string) {
-        const thing = await this.find(thingStr, this.thing, 'actor')
+        const thing = this.find(thingStr, this.thing, 'actor')
         let con = connectionMap.get(thing)
         const cmd = dropArgs(2, cmdInfo)
 
@@ -1713,17 +1714,17 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         return con.command(cmd, false, true)
     }
     // COMMAND
-    async atAdmin(cmdInfo: any, thingStr: string, toggle: string) {
+    atAdmin(cmdInfo: any, thingStr: string, toggle: string) {
         checkArgs(cmdInfo, arguments)
-        const thing = await this.find(thingStr)
+        const thing = this.find(thingStr)
         if (!thing) return this.error(`Could not find ${thingStr} `)
         const con = connectionMap.get(thing)
         const boolVal = toggle.toLowerCase() in { t: true, true: true }
-        const user = await this.world.getUserForThing(thing)
+        const user = this.world.getUserForThing(thing)
 
         if (user.admin !== boolVal) {
             user.admin = boolVal
-            await this.world.putUser(user)
+            this.pending.push(this.world.putUser(user))
             if (con) con.admin = boolVal
             if (boolVal) con.output(`${this.formatName(this.thing)} just upgraded you`)
         }
@@ -1732,8 +1733,8 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
     // COMMAND
     async atAdd(cmdInfo: any, thingStr: string, property: string, thing2Str: string) {
         checkArgs(cmdInfo, arguments)
-        const thing = await this.find(thingStr, this.thing, 'thing')
-        const thing2 = await this.find(thing2Str, this.thing, 'thing2')
+        const thing = this.find(thingStr, this.thing, 'thing')
+        const thing2 = this.find(thing2Str, this.thing, 'thing2')
         const prop = '_' + property.toLowerCase()
 
         if (!Array.isArray(thing[prop]) && !addableProperties.has(prop)) {
@@ -1752,8 +1753,8 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
     // COMMAND
     async atRemove(cmdInfo: any, thingStr: string, property: string, thing2Str: string) {
         checkArgs(cmdInfo, arguments)
-        const thing = await this.find(thingStr, this.thing, 'thing')
-        const thing2 = await this.find(thing2Str, this.thing, 'thing2')
+        const thing = this.find(thingStr, this.thing, 'thing')
+        const thing2 = this.find(thing2Str, this.thing, 'thing2')
         const prop = '_' + property.toLowerCase()
 
         if (!Array.isArray(thing[prop]) && !addableProperties.has(prop)) {
@@ -1770,18 +1771,18 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
     // COMMAND
     async atReproto(cmdInfo: any, thingStr: string, protoStr: string) {
         checkArgs(cmdInfo, arguments)
-        const thing = await this.find(thingStr, this.thing, 'thing')
-        const proto = await this.find(protoStr, this.thing, 'prototype');
+        const thing = this.find(thingStr, this.thing, 'thing')
+        const proto = this.find(protoStr, this.thing, 'prototype');
         (thing as any).__proto__ = proto
         thing._prototype = proto.id
         this.output(`You changed the prototype of ${this.formatName(thing)} to ${this.formatName(proto)} `)
     }
     // COMMAND
-    async atInstances(cmdInfo: any, protoStr: string) {
-        const proto = await this.find(protoStr, this.thing, 'prototype');
+    atInstances(cmdInfo: any, protoStr: string) {
+        const proto = this.find(protoStr, this.thing, 'prototype');
         let result = `< pre > Instances of ${this.formatName(proto)}: `
 
-        for (const inst of await this.world.getInstances(proto)) {
+        for (const inst of this.world.getInstances(proto)) {
             result += `\n   ${this.formatName(inst)} `
         }
         this.output(result + '</pre>')
@@ -1802,9 +1803,9 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         return this.atSet(cmdInfo, thingStr, property, Number(value))
     }
     // COMMAND
-    async atSet(cmdInfo: any, thingStr: string, property: string, value: any) {
+    atSet(cmdInfo: any, thingStr: string, property: string, value: any) {
         checkArgs(cmdInfo, arguments)
-        const [thing, lowerProp, realProp, val] = await this.thingProps(thingStr, property, value, cmdInfo)
+        const [thing, lowerProp, realProp, val] = this.thingProps(thingStr, property, value, cmdInfo)
         value = val
         if (!thing) return
         if (addableProperties.has(realProp)) return this.error(`Cannot set ${property} `)
@@ -1821,7 +1822,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
                 break
             }
             case 'location': {
-                const location = await this.find(value)
+                const location = this.find(value)
 
                 if (!location) {
                     this.error('Could not find location ' + value)
@@ -1831,7 +1832,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
                 break
             }
             case 'linkowner':
-                const owner = await this.find(value)
+                const owner = this.find(value)
 
                 if (!owner) {
                     this.error('Could not find link owner ' + value)
@@ -1840,7 +1841,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
                 thing.assoc.linkOwner = owner
                 break
             case 'otherlink':
-                const other = await this.find(value)
+                const other = this.find(value)
 
                 if (!other) {
                     this.error('Could not find other link ' + value)
@@ -1849,13 +1850,13 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
                 thing.assoc.otherLink = other
                 break
             case 'prototype':
-                const proto = await this.find(value, this.world.hallOfPrototypes)
+                const proto = this.find(value, this.world.hallOfPrototypes)
 
                 if (!proto) {
                     this.error('Could not find prototype ' + value)
                     return
                 }
-                await thing.setPrototype(proto)
+                thing.setPrototype(proto)
                 break
             default:
                 if (value instanceof Thing) value = value.id
@@ -1864,10 +1865,18 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         }
         this.output(`set ${thingStr} ${property} to ${value} `)
     }
-    async atCopy(cmdInfo: any, thingStr: string, force: string) {
+    atCopy(cmdInfo: any, thingStr: string, force: string) {
         checkArgs(cmdInfo, arguments)
-        const thing = await this.find(thingStr, this.thing, 'thing')
-        const connected = await thing.findConnected()
+        const connected = new Set<Thing>()
+        const thing = this.find(thingStr, this.thing, 'thing') as Thing
+
+        thing.findConnected(connected)
+        this.checkConnected(thingStr, connected, force && force.toLowerCase() === 'force')
+        const newThing = thing.copy(connected) as Thing
+        this.created.push(newThing)
+        this.output(`You copied ${this.formatName(thing)} to your inventory`)
+    }
+    checkConnected(thingStr: string, connected: Set<Thing>, force: boolean) {
         if (!force) {
             for (const item of connected) {
                 if (item === this.world.limbo) {
@@ -1881,18 +1890,16 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
                 }
             }
         }
-        const newThing = await thing.copy(connected)
-        this.created.push(newThing)
-        this.output(`You copied ${this.formatName(thing)} to your inventory`)
     }
-    async atToast(cmdInfo: any, thingStr: string) {
+    atToast(cmdInfo: any, thingStr: string) {
         checkArgs(cmdInfo, arguments)
-        const things = await this.findAll([...arguments].slice(1), this.thing, 'thing')
+        const things = this.findAll([...arguments].slice(1), this.thing, 'thing')
         let out = ''
         const all = new Set<Thing>()
 
-        for await (const thing of things) {
-            const connected = await thing.findConnected()
+        for (const thing of things) {
+            const connected = new Set<Thing>()
+            thing.findConnected(connected)
             for (const item of connected) {
                 if (item === this.world.limbo) {
                     throw new Error(`${this.formatName(thing)} is connected to Limbo`)
@@ -1905,7 +1912,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
                 }
                 all.add(item)
             }
-            out += `< div > You toasted ${this.formatName(thing)} `
+            out += `<div> You toasted ${this.formatName(thing)} `
             if (connected.size > 1) {
                 const num = connected.size - 1
 
@@ -1913,7 +1920,7 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
             }
             out += '<\div>'
         }
-        await this.world.toast(all)
+        this.pending.push(this.world.toast(all))
         this.output(out)
     }
     // COMMAND
@@ -1921,15 +1928,15 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         if (this.world.transactionPromise) {
             // tslint:disable-next-line:no-floating-promises
             this.world.transactionPromise
-                .then(() => setTimeout(async () => await this.command(dropArgs(1, cmdInfo)), 1))
+                .then(() => setTimeout(async () => this.command(dropArgs(1, cmdInfo)), 1))
         } else {
-            setTimeout(async () => await this.command(dropArgs(1, cmdInfo)), 1)
+            setTimeout(async () => this.command(dropArgs(1, cmdInfo)), 1)
         }
     }
     // COMMAND
-    async atBluepill(cmdInfo) {
+    atBluepill(cmdInfo) {
         const thingStr = dropArgs(1, cmdInfo)
-        const thing = thingStr ? (await this.find(thingStr, this.thing)) : this.thing
+        const thing = thingStr ? this.find(thingStr, this.thing) : this.thing
         const con = thing && connectionMap.get(thing)
 
         if (con) {
@@ -1940,9 +1947,9 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         }
     }
     // COMMAND
-    async atRedpill(cmdInfo) {
+    atRedpill(cmdInfo) {
         const thingStr = dropArgs(1, cmdInfo)
-        const thing = thingStr ? (await this.find(thingStr, this.thing)) : this.thing
+        const thing = thingStr ? this.find(thingStr, this.thing) : this.thing
         const con = thing && connectionMap.get(thing)
 
         if (con) {
@@ -1953,9 +1960,9 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         }
     }
     // COMMAND
-    async atDel(cmdInfo, thingStr, property) {
+    atDel(cmdInfo, thingStr, property) {
         checkArgs(cmdInfo, arguments)
-        const [thing, lowerProp, realProp, value, propMap] = await this.thingProps(thingStr, property, undefined, cmdInfo)
+        const [thing, lowerProp, realProp, value, propMap] = this.thingProps(thingStr, property, undefined, cmdInfo)
 
         if (!thing) return
         if (!propMap.has(lowerProp)) {
@@ -1969,28 +1976,28 @@ ${fp('otherLink', true)}--> ${await this.dumpName(thing.assoc.otherLink)}
         this.output(`deleted ${property} from ${thing.name}`)
     }
     // COMMAND
-    async atFind(cmdInfo, target, startStr) {
+    atFind(cmdInfo, target, startStr) {
         checkArgs(cmdInfo, arguments)
-        const start = startStr ? await this.find(startStr, this.thing, 'location') : this.thing
-        const thing = await this.find(target, start, 'target')
+        const start = startStr ? this.find(startStr, this.thing, 'location') : this.thing
+        const thing = this.find(target, start, 'target')
 
-        this.output(await this.dumpName(thing))
+        this.output(this.dumpName(thing))
     }
     // COMMAND
     async atInfo() {
         const hall = this.world.hallOfPrototypes
         const protos = []
 
-        for (const proto of await hall.refs.location._thing) {
+        for (const proto of hall.refs.location) {
             protos.push(`%${proto.id} %proto:${proto.name}`)
         }
         this.output(
             `<pre>Name: ${this.world.name}
 Your user name: ${this.user}${this.admin ? ' (admin)' : ''}
-You: ${await this.dumpName(this.thing)}
-lobby: ${await this.dumpName(this.world.lobby)}
-limbo: ${await this.dumpName(this.world.limbo)}
-hall of prototypes: ${await this.dumpName(this.world.hallOfPrototypes)}
+You: ${this.dumpName(this.thing)}
+lobby: ${this.dumpName(this.world.lobby)}
+limbo: ${this.dumpName(this.world.limbo)}
+hall of prototypes: ${this.dumpName(this.world.hallOfPrototypes)}
 clock rate: ${this.world.clockRate}
 the clock is ${this.stopClock ? 'stopped' : 'running'}
 there ${this.tickers.size === 1 ? 'is 1 ticker' : 'are ' + this.tickers.size + ' tickers'}
@@ -2003,7 +2010,7 @@ ${protos.join('<br>  ')}
     async atPrototypes() {
         const hall = this.world.hallOfPrototypes
 
-        this.output(`Prototypes:<br><br>${(await hall.refs.location._thing).map(t => this.dumpName(t)).join('<br>')}`)
+        this.output(`Prototypes:<br><br>${(hall.refs.location).map(t => this.dumpName(t)).join('<br>')}`)
     }
     // COMMAND
     help(cmdInfo, cmd) {
@@ -2130,6 +2137,14 @@ function pxyThing(item: any): any {
     return !(item instanceof Thing) ? item : (item as any)._thing || item
 }
 
+function checkThing(thing: Thing) {
+    if (thing && !(thing instanceof Thing)) throw new Error()
+}
+
+function synchronousError() {
+    return new Error('There are no promises because the world is synchronous')
+}
+
 ////
 //// CONTROL API
 ////
@@ -2184,7 +2199,7 @@ export function myThing() {
 
 export async function updateUser(user) {
     if (user.thing && connection) {
-        const thing = await connection.world.getThing(user.thing)
+        const thing = connection.world.getThing(user.thing)
         const con = connectionMap.get(thing)
 
         if (con) con.admin = user.admin

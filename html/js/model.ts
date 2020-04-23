@@ -175,7 +175,9 @@ class AssociationIdAccessor {
         return new Proxy(this, {
             get(obj, prop: string | number | symbol) {
                 if (typeof prop === 'string') {
-                    return deferredThing(thing.world, obj.refs(prop), prop, [thing.id, 'refs'], true)
+                    const result = obj.refs(prop);
+                    (result as any)._thing = result // TODO transition
+                    return result
                 } else throw new Error(`Illegal refs property: ${String(prop)}`)
             }
         })
@@ -202,7 +204,7 @@ class AssociationIdAccessor {
         this.changedAssociations()
     }
     add(prop: string, tid: thingId | Thing) { this.set(prop, tid, true) }
-    refs(prop: string): Promise<Thing[]> {
+    refs(prop: string): Thing[] {
         return prop ? this.thing.world.getAssociated(prop, this.thing)
             : this.thing.world.getAllAssociated(this.thing)
     }
@@ -422,43 +424,43 @@ export class Thing {
     formatName() {
         return (this.article ? this.article + ' ' : '') + this.fullName
     }
-    async findConnected() {
-        return await this.world.findConnected(this, new Set<Thing>())
+    findConnected(connected = new Set<Thing>()) {
+        return this.world.findConnected(this, connected)
     }
-    async copy(connected?: Set<Thing>) {
-        return this.world.stamp(await this.world.copyThing(this, connected))
+    copy(connected?: Set<Thing>) {
+        return this.world.copyThing(this, connected)
     }
-    async find(name: string, exclude = new Set([])) {
+    find(name: string, exclude = new Set([])) {
         let found: Thing
 
         if (exclude.has(this)) return null
         if (this.name.toLowerCase() === name.toLowerCase()) return this
         exclude.add(this)
-        for (const item of await this.refs.location._thing) {
-            const result = await item.find(name, exclude)
+        for (const item of this.refs.location._thing) {
+            const result = item.find(name, exclude)
 
             if (result && (!found || result._priority > found._priority)) {
                 found = result
             }
         }
         if (found) return found
-        for (const item of await this.refs.linkOwner._thing) {
-            const result = await item.find(name, exclude)
+        for (const item of this.refs.linkOwner._thing) {
+            const result = item.find(name, exclude)
 
             if (result && (!found || result._priority > found._priority)) {
                 found = result
             }
         }
         if (found) return found
-        const loc = await this.assoc.location?._thing
+        const loc = this.assoc.location?._thing
         if (loc) {
-            const result = await loc._thing.find(name, exclude)
+            const result = loc._thing.find(name, exclude)
 
             if (result) return result
         }
-        const owner = await this.assoc.linkOwner?._thing
+        const owner = this.assoc.linkOwner?._thing
         if (owner) {
-            const result = await owner._thing.find(name, exclude)
+            const result = owner._thing.find(name, exclude)
 
             if (result) return result
         }
@@ -471,27 +473,32 @@ export class Thing {
         const realCode = code.match(/[;{}]/) ? code : 'return ' + code
 
         // tslint:disable-next-line:only-arrow-functions, no-eval
-        return eval(`(async function ${args} {
-const sync = this.world.sync.bind(this.world);
+        return eval(`(function ${args} {
 const cmd = this.cmd.bind(this);
 const cmdf = this.cmdf.bind(this);
 const anyHas = this.anyHas.bind(this);
 const findNearby = this.findNearby.bind(this);
 const doThings = this.doThings.bind(this);
 const me = this.thing.specProxy;
-const here = await this.world.getThing(this.thing.assoc.location?._thing);
+const here = this.world.getThing(this.thing.assoc.location?._thing);
 const event = this.event;
 ${realCode};
 })`)
     }
     setMethod(prop, args, code) {
-        const method = this.thingEval(args, code)
-
-        method._code = JSON.stringify([args, code])
-        this[prop] = method
+        try {
+            const method = this.thingEval(args, code)
+            method._code = JSON.stringify([args, code])
+            this[prop] = method
+        } catch (err) {
+            this[prop] = { _code: JSON.stringify([args, code]) }
+            console.error(`Error loading method
+@method %${this.id} ${prop} ${args} ${code}`, err)
+        }
     }
     isDirty(spec: any) {
         const original = this.originalSpec
+        if (!original) return true
         const keys = new Set(Object.keys(spec))
 
         if (keys.size !== Object.keys(original).length) return true
@@ -504,7 +511,7 @@ ${realCode};
         }
         return keys.size > 0
     }
-    spec() {
+    spec(): any {
         const spec = {}
 
         for (const prop of Object.keys(this)) {
@@ -524,6 +531,33 @@ ${realCode};
             if (value && typeof value === 'object') {
                 spec[k] = JSON.parse(JSON.stringify(value))
             }
+        }
+    }
+    useSpecSync(spec: any, specs: Map<thingId, any>) {
+        for (const prop of Object.keys(spec)) {
+            if (prop[0] === '!') {
+                let codeSpec = spec[prop]
+
+                if (Array.isArray(spec[prop])) { // rewrite arrays to strings for faster isDirty
+                    spec[prop] = JSON.stringify(codeSpec)
+                } else {
+                    codeSpec = JSON.parse(spec[prop])
+                }
+                const [args, code] = codeSpec
+                this.setMethod(prop, args, code)
+            } else {
+                this['_' + prop] = spec[prop]
+            }
+        }
+        // this must be below the above code because setSpec changes spec to avoid aliasing
+        this.setSpec(spec)
+        if (spec.prototype) {
+            const prototype = this.world.getThingSync(spec.prototype, specs)
+
+            if (!prototype) {
+                throw new Error('Could not find prototype ' + spec.prototype)
+            }
+            (this as any).__proto__ = prototype
         }
     }
     async useSpec(spec: any) {
@@ -575,6 +609,7 @@ export class World {
     nextId: number
     storage: MudStorage
     thingCache: Map<thingId, Thing>
+    userCache: Map<string, any>
     txn: IDBTransaction
     thingStore: IDBObjectStore
     userStore: IDBObjectStore
@@ -587,14 +622,23 @@ export class World {
     transactionThings: Set<Thing>;
     transactionPromise: Promise<any>;
     deferred: Set<Promise<any>>;
+    prototypeIndex: Map<number, Set<number>>;
+    associationIndex: Map<string, Map<number, Set<number>>>;
+    basicAssociationIndex: Map<number, Set<number>>;
+    userIndex: Map<number, string>
 
     constructor(name: string, stg: MudStorage) {
         this.setName(name)
         this.storage = stg
         this.thingCache = new Map()
+        this.userCache = new Map()
         this.transactionThings = new Set()
         this.nextId = 0
         this.deferred = new Set()
+        this.prototypeIndex = new Map()
+        this.associationIndex = new Map()
+        this.basicAssociationIndex = new Map()
+        this.userIndex = new Map()
     }
     async start() {
         for (const extension of await this.getExtensions()) {
@@ -619,14 +663,14 @@ export class World {
     }
     initDb() {
         return this.checkDbs(async () => {
-            this.limbo = await this.createThing('Limbo', 'You are floating in $this<br>$links<br><br>$contents')
-            this.lobby = await this.createThing('Lobby', 'You are in $this')
-            this.hallOfPrototypes = await this.createThing('Hall of Prototypes')
-            this.thingProto = await this.createThing('thing', 'This is $this')
-            this.linkProto = await this.createThing('link', '$This to $link')
-            this.roomProto = await this.createThing('room', 'You are in $this')
-            this.generatorProto = await this.createThing('generator', 'This is a thing')
-            this.personProto = await this.createThing('person', '$This $is only a dude')
+            this.limbo = this.createThing('Limbo', 'You are floating in $this<br>$links<br><br>$contents')
+            this.lobby = this.createThing('Lobby', 'You are in $this')
+            this.hallOfPrototypes = this.createThing('Hall of Prototypes')
+            this.thingProto = this.createThing('thing', 'This is $this')
+            this.linkProto = this.createThing('link', '$This to $link')
+            this.roomProto = this.createThing('room', 'You are in $this')
+            this.generatorProto = this.createThing('generator', 'This is a thing')
+            this.personProto = this.createThing('person', '$This $is only a dude')
             this.limbo.setPrototype(this.roomProto)
             this.limbo._article = ''
             this.lobby.setPrototype(this.roomProto)
@@ -708,16 +752,26 @@ export class World {
         }, true)
     }
     async useInfo(info) {
+        const specs = new Map()
+
+        await doAll(this.thingStore, async s => specs.set(s.id, s))
+        await doAll(this.userStore, async u => {
+            this.userCache.set(u.name, u)
+            if (u.thing) this.userIndex.set(u.thing, u.name)
+        })
+        for (const [, spec] of specs) {
+            this.indexThing(this.cacheThingSync(spec, specs))
+        }
         this.nextId = info.nextId
         this.defaultUser = info.defaultUser
-        this.lobby = await this.getThing(info.lobby)
-        this.limbo = await this.getThing(info.limbo)
-        this.hallOfPrototypes = await this.getThing(info.hallOfPrototypes)
-        this.thingProto = await this.getThing(info.thingProto)
-        this.personProto = await this.getThing(info.personProto)
-        this.roomProto = (await this.getThing(info.roomProto)) || await this.findPrototype('room')
-        this.linkProto = (await this.getThing(info.linkProto)) || await this.findPrototype('link')
-        this.generatorProto = (await this.getThing(info.generatorProto)) || await this.findPrototype('generatorProto')
+        this.lobby = this.getThing(info.lobby)
+        this.limbo = this.getThing(info.limbo)
+        this.hallOfPrototypes = this.getThing(info.hallOfPrototypes)
+        this.thingProto = this.getThing(info.thingProto)
+        this.personProto = this.getThing(info.personProto)
+        this.roomProto = this.getThing(info.roomProto) || await this.findPrototype('room')
+        this.linkProto = this.getThing(info.linkProto) || await this.findPrototype('link')
+        this.generatorProto = this.getThing(info.generatorProto) || await this.findPrototype('generatorProto')
         this.clockRate = info.clockRate || 2
     }
     async findPrototype(name: string): Promise<Thing> {
@@ -745,7 +799,7 @@ export class World {
             linkProto.article = '';
             (linkProto as any)._locked = false
             linkProto.setMethod('!cmd', '(dir, dest)', `
-                if (!dir.locked || anyHas(await findNearby(), 'key', dir)) {
+                if (!dir.locked || anyHas(findNearby(), 'key', dir)) {
                     return this.cmd('go', dir);
                 } else {
                     return this.cmdf('@output $0 "$forme You don\\'t have the key $forothers $Arg tries to go $this to $link but doesn\\'t have the key" me @event me false go $0', dir);
@@ -832,35 +886,111 @@ get %-1
             try {
                 result = await this.processTransaction(func)
             } finally {
-                if (this.transactionThings.size > 0) {
-                    //let count = 0
-
-                    for (const thing of this.transactionThings) {
-                        if (!thing.toasted) {
-                            const spec = thing.spec()
-
-                            if (thing.isDirty(spec)) {
-                                //count++
-                                thing.setSpec(spec)
-                                this.thingStore.put(spec)
-                            }
-                        }
-                    }
-                    //console.log(`Wrote ${count} of ${this.transactionThings.size} things`)
-                }
+                this.storeDirty(oldThings)
                 if (oldId !== this.nextId && !allowIdChange) {
                     // tslint:disable-next-line:no-floating-promises
                     this.store()
                 }
-                await txnPromise
+                //await txnPromise
                 this.txn = null
                 this.thingStore = oldThingStore
                 this.userStore = oldUserStore
                 this.transactionPromise = oldTxnPromise
-                this.transactionThings = oldThings
             }
-            return result
+            return txnPromise.then(() => result)
+            //return result
         }
+    }
+    storeDirty(oldThings: Set<Thing>) {
+        try {
+            for (const thing of this.transactionThings) {
+                if (!thing.toasted) {
+                    const spec = thing.spec()
+
+                    if (thing.isDirty(spec)) {
+                        this.reindexThing(thing, spec)
+                        thing.setSpec(spec)
+                        this.thingStore.put(spec)
+                    }
+                }
+            }
+        } finally {
+            this.transactionThings = oldThings
+        }
+    }
+    update(func: () => any) {
+        const oldThings = this.transactionThings
+
+        try {
+            func()
+        } finally {
+            this.storeDirty(oldThings)
+        }
+    }
+    indexThing(thing: Thing) {
+        this.mapSetAdd(thing._prototype, thing.id, this.prototypeIndex)
+        if (thing._associations) {
+            for (const [key, value] of thing._associations) {
+                this.mapMapSetAdd(key, value, thing.id, this.associationIndex)
+                this.mapSetAdd(value, thing.id, this.basicAssociationIndex)
+            }
+        }
+    }
+    reindexThing(thing: Thing, spec: any) {
+        const oldSpec = thing.originalSpec
+        const oldRefs = new Set<number>()
+        const oldRefMap = new Map<string, Set<number>>()
+        const newRefs = new Set<number>()
+        const newRefMap = new Map<string, Set<number>>()
+
+        if (oldSpec?.prototype !== spec.prototype) {
+            oldSpec && this.prototypeIndex.get(oldSpec.prototype)?.delete(thing.id)
+            this.mapSetAdd(spec.prototype, thing.id, this.prototypeIndex)
+        }
+        oldSpec && this.findRefs(oldSpec.associations, oldRefs, oldRefMap)
+        this.findRefs(spec.associations, newRefs, newRefMap)
+        for (const [k, v] of oldRefMap) {
+            for (const n of v) {
+                if (!newRefMap.get(k)?.has(n)) this.associationIndex.get(k)?.get(n)?.delete(thing.id)
+            }
+        }
+        for (const [k, v] of newRefMap) {
+            for (const n of v) {
+                if (!oldRefMap.get(k)?.has(n)) this.mapMapSetAdd(k, n, thing.id, this.associationIndex)
+            }
+        }
+        for (const ref of oldRefs) {
+            if (!newRefs.has(ref)) this.basicAssociationIndex.get(ref)?.delete(thing.id)
+        }
+        for (const ref of newRefs) {
+            if (!oldRefs.has(ref)) this.mapSetAdd(ref, thing.id, this.basicAssociationIndex)
+        }
+    }
+    findRefs(assoc: [string, number][], refs: Set<number>, refMap: Map<string, Set<number>>) {
+        if (assoc) {
+            for (const [key, value] of assoc) {
+                this.mapSetAdd(key, value, refMap)
+                refs.add(value)
+            }
+        }
+    }
+    mapMapSetAdd<K, MK>(k1: K, k2: MK, value: number, map: Map<K, Map<MK, Set<number>>>) {
+        let submap = map.get(k1)
+
+        if (!submap) {
+            submap = new Map()
+            map.set(k1, submap)
+        }
+        this.mapSetAdd(k2, value, submap)
+    }
+    mapSetAdd<K>(key: K, value: number, map: Map<K, Set<number>>) {
+        let set = map.get(key)
+
+        if (!set) {
+            set = new Set()
+            map.set(key, set)
+        }
+        set.add(value)
     }
     async addExtension(ext: Extension) {
         if (!this.db().objectStoreNames.contains(this.extensionsName)) {
@@ -933,9 +1063,7 @@ get %-1
         return this.doTransaction(async (store, users, txn) => await promiseFor(users.get(name)))
     }
     getUserForThing(ti: thingId | Thing) {
-        return this.doTransaction(async (store, users, txn) => {
-            return promiseFor(users.index(userThingIndex).get(idFor(ti)))
-        })
+        return this.userCache.get(this.userIndex.get(idFor(ti)))
     }
     deleteUser(name: string) {
         return this.doTransaction(async (store, users, txn) => {
@@ -991,9 +1119,7 @@ get %-1
             for (; ;) {
                 const name = randomName('user')
 
-                if (!await this.getUser(name)) {
-                    return name;
-                }
+                if (!this.getUser(name)) return name;
             }
         })
     }
@@ -1012,6 +1138,7 @@ get %-1
         })
     }
     async putUser(user: any) {
+        this.indexUser(user)
         return promiseFor(this.userStore.put(user))
     }
     putThing(thing: Thing) {
@@ -1020,7 +1147,16 @@ get %-1
         thing.setSpec(spec)
         return promiseFor(this.thingStore.put(spec))
     }
+    indexUser(user: any) {
+        this.userCache.set(user.name, user)
+        if (user.thing) this.userIndex.set(user.thing, user.name)
+    }
     async replaceUsers(newUsers: any[]) {
+        this.userCache = new Map()
+        this.userIndex = new Map()
+        for (const u of newUsers) {
+            this.indexUser(u)
+        }
         return this.doTransaction(async (store, users, txn) => {
             await deleteAll(users)
             return Promise.all(newUsers.map(u => this.putUser(u)))
@@ -1115,18 +1251,17 @@ get %-1
             return (t as any)
         }
     }
+    getThingSync(tid: thingId | Thing, specs?: Map<thingId, any>) {
+        if (tid instanceof Thing) return this.stamp(tid)
+        if (tid === null || (typeof tid === 'number' && isNaN(tid))) return null
+        let thing = this.thingCache.get(tid)
+        if (!thing) thing = this.cacheThingSync?.(specs.get(tid), specs)
+        return thing && this.stamp(thing)
+    }
     getThing(tid: thingId | Thing) {
         if (tid instanceof Thing) return this.stamp(tid)
         if (tid === null || (typeof tid === 'number' && isNaN(tid))) return null
-        const cached = this.thingCache.get(tid)
-
-        if (cached) return cached
-        return this.doTransaction(async (store) => {
-            const thing = await this.cacheThingFor(await promiseFor(store.get(tid)))
-
-            this.stamp(thing)
-            return thing
-        })
+        return this.thingCache.get(tid)
     }
     authenticate(name: string, passwd: string, thingName: string, noauthentication = false) {
         return this.doTransaction(async (store, users, txn) => {
@@ -1140,7 +1275,7 @@ get %-1
                 throw new Error('Bad user or password')
             }
             if (!user.thing) {
-                const thing = await this.createThing(name)
+                const thing = this.createThing(name)
 
                 thing.assoc.location = this.lobby
                 if (this.personProto) thing.setPrototype(this.personProto)
@@ -1158,7 +1293,7 @@ get %-1
             }
         })
     }
-    async createThing(name: string, description?) {
+    createThing(name: string, description?) {
         const t = new Thing(this, this.nextId++, name, description)
 
         t.world = this
@@ -1166,27 +1301,22 @@ get %-1
         if (this.thingProto) t.setPrototype(this.thingProto)
         this.thingCache.set(t.id, t)
         this.watcher?.(t)
-        await this.doTransaction(async () => {
-            return await this.putThing(t)
-        })
+        this.stamp(t)
         return t
     }
     getThings(ids: thingId[]): Promise<Thing[]> | Thing[] {
         const things = []
-        const promises = []
 
-        for (let i = 0; i < ids.length; i++) {
-            const id = ids[i]
+        for (const id of ids) {
             const thing = this.getThing(id)
 
             if (thing instanceof Thing) {
                 things.push(thing)
             } else {
-                things.push(null)
-                promises.push(thing.then(t => things[i] = t))
+                throw new Error(`No thing for id ${id}`)
             }
         }
-        return promises.length ? Promise.all(promises).then(() => things) : things
+        return things
     }
     getPrototypes() {
         return this.doTransaction(async (things) => {
@@ -1197,12 +1327,7 @@ get %-1
         })
     }
     getInstances(proto: Thing) {
-        return this.doTransaction(async (things) => {
-            const result = []
-
-            await doAll(things.index(prototypeIndex), async t => result.push(t.id), IDBKeyRange.only(proto.id))
-            return this.getThings(result)
-        })
+        return [...this.prototypeIndex.get(proto.id)].map(t => this.getThing(t))
     }
     async toast(toasted: Set<Thing>) {
         return this.doTransaction(async (things) => {
@@ -1212,7 +1337,11 @@ get %-1
                 if (protos.has(thing)) throw new Error(`Attempt to toast prototype ${thing.id}, change references first`)
             }
             for (const thing of toasted) {
+                const spec = thing.spec()
+
                 things.delete(thing.id)
+                spec.associations = []
+                this.reindexThing(thing, spec)
                 this.thingCache.delete(thing.id)
                 thing.toasted = true
                 for (const guts of await thing.refs.location._thing) {
@@ -1236,62 +1365,75 @@ get %-1
         }
         return things
     }
-    async copyThing(thing: Thing, connected = new Set<Thing>()) {
+    copyThing(thing: Thing, connected = new Set<Thing>()) {
+        const originals = new Map<number, Thing>()
+        const copies = new Map<number, Thing>()
+
         thing = thing._thing
-        return this.doTransaction(async () => {
-            await this.findConnected(thing, connected)
-            const originals = new Map<number, Thing>()
-            const copies = new Map<number, Thing>()
-            for (const conThing of connected) {
-                const cpy = await this.createThing(conThing.name)
-                originals.set(conThing._id, conThing)
-                copies.set(conThing._id, cpy)
-                const id = cpy._id;
-                (cpy as any).__proto__ = (conThing as any).__proto__
-                cpy._id = id
-                this.transactionThings.add(cpy)
-            }
-            for (const [id, cpy] of copies) {
-                const original = originals.get(id)
-                for (const prop of Object.keys(original)) {
-                    if (prop === '_associations' || prop === '_associationThings') {
-                        continue
-                    } else if (copies.has(original[prop])) { // probably an id
-                        cpy[prop] = copies.get(original[prop])?.id
-                    } else if (original[prop] instanceof Set) {
-                        cpy[prop] = new Set([...original[prop]].map(t => copies.get(t) || t))
-                    } else if (Array.isArray(original[prop])) {
-                        cpy[prop] = [...original[prop]].map(t => copies.get(t) || t)
-                    } else {
-                        cpy[prop] = original[prop]
-                    }
-                }
-                cpy.makeProxies()
-                cpy._associations = []
-                cpy._associationThings = []
-                if (original._associations.length) {
-                    for (const [k, v] of original._associations) {
-                        cpy._associations.push([k, copies.has(v) ? copies.get(v).id : v])
-                    }
-                    cpy.assoc.changedAssociations()
-                }
-                cpy.originalSpec = {} // guarantee this will be written out
-            }
-            const thingCopy = copies.get(thing.id)
-            return thingCopy
-        })
+        this.findConnected(thing, connected)
+        this.copyConnected(connected, originals, copies)
+        return copies.get(thing.id)
     }
-    async findConnected(thing: Thing, connected: Set<Thing>) {
+    copyConnected(connected: Set<Thing>, originals: Map<number, Thing>, copies: Map<number, Thing>) {
+        for (const conThing of connected) {
+            const cpy = this.createThing(conThing.name)
+            originals.set(conThing._id, conThing)
+            copies.set(conThing._id, cpy)
+            const id = cpy._id;
+            (cpy as any).__proto__ = (conThing as any).__proto__
+            cpy._id = id
+            this.transactionThings.add(cpy)
+        }
+        for (const [id, cpy] of copies) {
+            const original = originals.get(id)
+            for (const prop of Object.keys(original)) {
+                if (prop === '_associations' || prop === '_associationThings') {
+                    continue
+                } else if (copies.has(original[prop])) { // probably an id
+                    cpy[prop] = copies.get(original[prop])?.id
+                } else if (original[prop] instanceof Set) {
+                    cpy[prop] = new Set([...original[prop]].map(t => copies.get(t) || t))
+                } else if (Array.isArray(original[prop])) {
+                    cpy[prop] = [...original[prop]].map(t => copies.get(t) || t)
+                } else {
+                    cpy[prop] = original[prop]
+                }
+            }
+            cpy.makeProxies()
+            cpy._associations = []
+            cpy._associationThings = []
+            if (original._associations.length) {
+                for (const [k, v] of original._associations) {
+                    cpy._associations.push([k, copies.has(v) ? copies.get(v).id : v])
+                }
+                cpy.assoc.changedAssociations()
+            }
+            cpy.originalSpec = {} // guarantee this will be written out
+        }
+    }
+    findConnected(thing: Thing, connected: Set<Thing>) {
+        if (!connected.has(thing)) {
+            connected.add(thing)
+            for (const item of thing.refs.location._thing) {
+                // tslint:disable-next-line:no-floating-promises
+                this.findConnected(item, connected)
+            }
+            for (const link of thing.refs.linkOwner._thing) {
+                // tslint:disable-next-line:no-floating-promises
+                this.findConnected(link, connected)
+            }
+        }
+    }
+    async findConnectedAsync(thing: Thing, connected: Set<Thing>) {
         if (!connected.has(thing)) {
             connected.add(thing)
             for (const item of await thing.refs.location._thing) {
-                await this.findConnected(item, connected)
+                await this.findConnectedAsync(item, connected)
             }
             for (const link of await thing.refs.linkOwner._thing) {
-                await this.findConnected(link, connected)
+                await this.findConnectedAsync(link, connected)
             }
         }
-        return connected
     }
     async cacheThingFor(thingSpec) {
         if (!thingSpec) return null
@@ -1299,6 +1441,16 @@ get %-1
 
         thing.world = this
         await thing.useSpec(thingSpec)
+        this.thingCache.set(thing.id, thing)
+        this.watcher?.(thing)
+        return thing
+    }
+    cacheThingSync(thingSpec: any, specs?: Map<thingId, any>) {
+        if (!thingSpec) return null
+        const thing = new Thing(this, null, '')
+
+        thing.world = this
+        thing.useSpecSync(thingSpec, specs)
         this.thingCache.set(thing.id, thing)
         this.watcher?.(thing)
         return thing
@@ -1311,26 +1463,33 @@ get %-1
         }
         return specs
     }
-    async getAssociated(prop: string, thing: thingId | Thing): Promise<Thing[]> {
+    getAssociated(prop: string, thing: thingId | Thing): Thing[] {
         const id = getId(thing)
-        const key = [prop, id]
+        const things = []
+        const ids = this.associationIndex.get(prop)?.get(id)
 
-        return this.stamps(await this.doTransaction(async (things) => {
-            if (!things.indexNames.contains(associationIndex)) {
-                return []
+        if (ids) {
+            for (const assocId of ids) {
+                const athing = this.getThingSync(assocId)
+
+                if (athing) things.push(athing)
             }
-            return this.cacheThings(await promiseFor(things.index(associationIndex).getAll(IDBKeyRange.only(key))))
-        }))
+        }
+        return things
     }
-    async getAllAssociated(thing: thingId | Thing): Promise<Thing[]> {
+    getAllAssociated(thing: thingId | Thing): Thing[] {
         const id = getId(thing)
+        const things = []
+        const ids = this.basicAssociationIndex.get(id)
 
-        return this.stamps(await this.doTransaction(async (things) => {
-            if (!things.indexNames.contains(basicAssociationIndex)) {
-                return []
+        if (ids) {
+            for (const assocId of ids) {
+                const athing = this.getThingSync(assocId)
+
+                if (athing) things.push(athing)
             }
-            return this.cacheThings(await promiseFor(things.index(basicAssociationIndex).getAll(IDBKeyRange.only(id))))
-        }))
+        }
+        return things
     }
     async getOthers(thing: thingId | Thing): Promise<Thing[]> {
         const id = getId(thing)

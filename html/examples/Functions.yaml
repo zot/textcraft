@@ -49,8 +49,8 @@ objects:
     linkMoveFormat: You went $name to $arg3
     linkExitFormat: $Arg1 went $name to $arg3
     get: "\n@output $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me @event me false get $0\n"
-    '!cmd': '["(dir, dest)","\n                if (!dir.locked || anyHas(await findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
-    '!go': '["(dir, dest)","\n                if (!dir.locked || anyHas(await findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
+    '!cmd': '["(dir, dest)","\n                if (!dir.locked || anyHas(findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
+    '!go': '["(dir, dest)","\n                if (!dir.locked || anyHas(findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
     associations: [[location, 2]]
     associationThings: [2]
     closed: true
