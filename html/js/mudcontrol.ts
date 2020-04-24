@@ -8,7 +8,6 @@ import {
     thingId,
     findSimpleName,
     escape,
-    aw,
 } from './model.js'
 import * as mudproto from './mudproto.js'
 
@@ -441,7 +440,7 @@ class CommandContext {
         this.commands.push(command)
         return this
     }
-    async run() {
+    run() {
         if (!this.executed) {
             this.executed = true
             return this.connection.runCommands(this.commands)
@@ -824,7 +823,7 @@ export class MudConnection {
             return result instanceof CommandContext ? [result] : []
         }
     }
-    async runCommands(lines: (string | CommandContext)[] | (() => any)) {
+    runCommands(lines: (string | CommandContext)[] | (() => any)) {
         const oldSubstituting = this.substituting
 
         try {
@@ -832,9 +831,9 @@ export class MudConnection {
             if (Array.isArray(lines)) {
                 for (const line of lines) {
                     if (line instanceof CommandContext) {
-                        await line.run()
+                        line.run()
                     } else {
-                        await this.command(line, true)
+                        this.command(line, true)
                     }
                     if (this.failed) break
                 }
@@ -845,7 +844,27 @@ export class MudConnection {
             this.substituting = oldSubstituting
         }
     }
-    async command(line: string, substituted = false, user = false) {
+    // execute toplevel commands inside transactions so they will automatically store any dirty objects
+    async toplevelCommand(line: string, user = false) {
+        await this.world.doTransaction(async () => {
+            if (this.command(line, false, user)) {
+                if (this.pending.length) {
+                    const promise = Promise.all(this.pending)
+                    this.pending = []
+                    await promise
+                }
+            }
+        })
+            .catch(err => {
+                console.log(err)
+                this.error(err.message)
+            })
+        if (this.thing?.name !== this.myName) {
+            this.myName = this.thing.name
+            mudproto.userThingChanged(this.thing)
+        }
+    }
+    command(line: string, substituted = false, user = false) {
         const originalLine = line
         if (!line.trim()) return
         if (line[0] === '"' || line[0] === "'") {
@@ -860,52 +879,37 @@ export class MudConnection {
         const words = splitQuotedWords(line)
         const commandName = words[0].toLowerCase()
 
-        // execute command inside a transaction so it will automatically store any dirty objects
-        await this.world.doTransaction(async () => {
-            if (!substituted) {
-                this.output('<div class="input">&gt; <span class="input-text">' + escape(originalLine) + '</span></div>')
-                if (this.history[this.historyPos - 1] !== originalLine) {
-                    this.history.push(originalLine)
-                    this.historyPos = this.history.length
-                }
-                if (!this.commands.has(commandName) && this.thing) {
-                    const newCommands = this.findCommand(words)
-
-                    if (newCommands) return this.runCommands(newCommands)
-                }
+        if (!substituted) {
+            this.output('<div class="input">&gt; <span class="input-text">' + escape(originalLine) + '</span></div>')
+            if (this.history[this.historyPos - 1] !== originalLine) {
+                this.history.push(originalLine)
+                this.historyPos = this.history.length
             }
-            if (this.thing ? this.commands.has(commandName) : commandName === 'login' || commandName === 'help') {
-                let command = this.commands.get(commandName)
+            if (!this.commands.has(commandName) && this.thing) {
+                const newCommands = this.findCommand(words)
 
-                if (command.alt) command = this.commands.get(command.alt)
-                if (command?.admin && !this.admin && !substituted) {
-                    return this.error('Unknown command: ' + words[0])
-                }
-                const muted = this.muted
-
-                try {
-                    if (!substituted && user) this.muted = 0
-                    this[command.method]({ command, line, substituted }, ...words.slice(1))
-                    if (this.pending.length) {
-                        const promise = Promise.all(this.pending)
-                        this.pending = []
-                        await promise
-                    }
-                } finally {
-                    if (this.muted === 0) this.muted = muted
-                    if (!substituted) this.suppressOutput = false
-                }
-            } else {
-                this.output('Unknown command: ' + words[0])
+                if (newCommands) return this.runCommands(newCommands)
             }
-        })
-            .catch(err => {
-                console.log(err)
-                this.error(err.message)
-            })
-        if (this.thing?.name !== this.myName) {
-            this.myName = this.thing.name
-            mudproto.userThingChanged(this.thing)
+        }
+        if (this.thing ? this.commands.has(commandName) : commandName === 'login' || commandName === 'help') {
+            let command = this.commands.get(commandName)
+
+            if (command.alt) command = this.commands.get(command.alt)
+            if (command?.admin && !this.admin && !substituted) {
+                return this.error('Unknown command: ' + words[0])
+            }
+            const muted = this.muted
+
+            if (!substituted && user) this.muted = 0
+            try {
+                this[command.method]({ command, line, substituted }, ...words.slice(1))
+                return true
+            } finally {
+                if (this.muted === 0) this.muted = muted
+                if (!substituted) this.suppressOutput = false
+            }
+        } else {
+            this.output('Unknown command: ' + words[0])
         }
     }
     findAll(names: string[], start: Thing = this.thing, errTag: string = ''): Thing[] {
@@ -1036,9 +1040,9 @@ export class MudConnection {
 <br><br>`)
                 mudproto.userThingChanged(this.thing)
                 thing.assoc.location = this.world.lobby
-                await this.commandDescripton(this.thing, 'has arrived', 'go', [this.world.limbo, this.world.lobby])
+                this.commandDescripton(this.thing, 'has arrived', 'go', [this.world.limbo, this.world.lobby])
                 // tslint:disable-next-line:no-floating-promises
-                await this.look(null, null)
+                this.look(null, null)
                 if (!this.remote) {
                     this.stopClock = false
                     this.queueTick()
@@ -1155,17 +1159,21 @@ export class MudConnection {
                 }
             }
             if (this.tickers.size) {
-                const tick = new Descripton(null, 'tick', [], false, () => { })
+                await this.world.doTransaction(async () => {
+                    const tick = new Descripton(null, 'tick', [], false, () => { })
 
-                for (const ticker of this.tickers) {
-                    const reaction = (ticker as any)._react_tick
+                    for (const ticker of this.tickers) {
+                        const reaction = (ticker as any)._react_tick
 
-                    if (reaction) {
-                        tick.source = ticker
-                        this.doReaction(ticker, tick, reaction)
+                        if (reaction) {
+                            tick.source = ticker
+                            this.doReaction(ticker, tick, reaction)
+                        }
                     }
-                }
-                await Promise.all(this.pending)
+                    const promise = Promise.all(this.pending)
+                    this.pending = []
+                    await promise
+                })
             }
             if (ticked) {
                 this.queueTick(targetTime - Date.now(), true)
@@ -1689,7 +1697,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         }
     }
     // COMMAND
-    async atMove(cmdInfo: any, thingStr: string, locStr: string) {
+    atMove(cmdInfo: any, thingStr: string, locStr: string) {
         const thing = this.find(thingStr)
         const loc = this.find(locStr)
 
@@ -1699,7 +1707,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         this.output(`You moved ${thingStr} to ${locStr} `)
     }
     // COMMAND
-    async atAs(cmdInfo: any, thingStr: string) {
+    atAs(cmdInfo: any, thingStr: string) {
         const thing = this.find(thingStr, this.thing, 'actor')
         let con = connectionMap.get(thing)
         const cmd = dropArgs(2, cmdInfo)
@@ -1731,7 +1739,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         this.output(`You just ${toggle ? 'upgraded' : 'downgraded'} ${thingStr} `)
     }
     // COMMAND
-    async atAdd(cmdInfo: any, thingStr: string, property: string, thing2Str: string) {
+    atAdd(cmdInfo: any, thingStr: string, property: string, thing2Str: string) {
         checkArgs(cmdInfo, arguments)
         const thing = this.find(thingStr, this.thing, 'thing')
         const thing2 = this.find(thing2Str, this.thing, 'thing2')
@@ -1751,7 +1759,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         }
     }
     // COMMAND
-    async atRemove(cmdInfo: any, thingStr: string, property: string, thing2Str: string) {
+    atRemove(cmdInfo: any, thingStr: string, property: string, thing2Str: string) {
         checkArgs(cmdInfo, arguments)
         const thing = this.find(thingStr, this.thing, 'thing')
         const thing2 = this.find(thing2Str, this.thing, 'thing2')
@@ -1769,7 +1777,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         }
     }
     // COMMAND
-    async atReproto(cmdInfo: any, thingStr: string, protoStr: string) {
+    atReproto(cmdInfo: any, thingStr: string, protoStr: string) {
         checkArgs(cmdInfo, arguments)
         const thing = this.find(thingStr, this.thing, 'thing')
         const proto = this.find(protoStr, this.thing, 'prototype');
@@ -2158,7 +2166,7 @@ function synchronousError() {
  */
 export async function executeCommand(text: string) {
     if (roleTracker.value === RoleState.Solo || roleTracker.value === RoleState.Host) {
-        await connection.command(text, false, true)
+        await connection.toplevelCommand(text, true)
     } else if (peerTracker.value !== PeerState.disconnected && mudTracker.value === MudState.Playing) {
         mudproto.command(text)
     }

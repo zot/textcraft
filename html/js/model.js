@@ -40,75 +40,6 @@ const associationProps = {
     refs: true,
     _thing: true,
 };
-export class Deferred {
-    constructor(world, promise) {
-        this.world = world;
-        this.promise = promise.then(t => this.thing = t);
-    }
-    then(func) {
-        return this.promise.then.apply(this.promise, arguments);
-    }
-    catch(func) {
-        return this.promise.catch.apply(this.promise, arguments);
-    }
-    toString() {
-        return `[a Deferred Thing]`;
-    }
-}
-export class DeferredThing extends Deferred {
-    constructor(world, promise) {
-        super(world, promise);
-    }
-}
-export class DeferredThings extends Deferred {
-    constructor(world, promise) {
-        super(world, promise);
-    }
-}
-function deferredThing(world, promise, item, path = [], array) {
-    if (promise instanceof Thing || Array.isArray(promise))
-        return promise;
-    let thing = null;
-    world.addDeferred(promise);
-    path.push(item);
-    // tslint:disable-next-line:no-floating-promises
-    promise.then(t => {
-        thing = t;
-        world.removeDeferred(promise);
-    });
-    return new Proxy(array ? new DeferredThings(world, promise) : new DeferredThing(world, promise), {
-        get(obj, prop) {
-            if (prop === 'toString' || prop === 'then' || prop === 'thing' || prop === 'length'
-                || prop === 'world' || prop === 'catch' || prop === 'promise')
-                return obj[prop];
-            if (prop === 'isDeferred')
-                return true;
-            if (thing)
-                return thing[prop];
-            //if (path.length % 2 === 1 && prop === '_thing') return promise.then(t => t[prop])
-            if (path.length % 2 === 1 && prop === '_thing')
-                return promise;
-            // every 2nd prop must be an association prop
-            if ((path.length % 2 === 0 === prop in associationProps)
-                // you have to stop after getting refs
-                && !(path.length >= 1 && path[path.length - 2] === 'refs')) {
-                return deferredThing(world, promise.then(t => t[prop]), prop, path.slice());
-            }
-            throw new Error(`Attempt to use thing before a sync()`);
-        },
-        set(obj, prop, value) {
-            if (!thing)
-                throw new Error(`Attempt to use thing before a sync()`);
-            thing[prop] = value;
-            return true;
-        },
-        has(obj, prop) {
-            if (!thing)
-                throw new Error(`Attempt to use thing before a sync()`);
-            return prop in thing;
-        }
-    });
-}
 function proxify(accessor) {
     return new Proxy(accessor, {
         get(obj, prop) {
@@ -191,9 +122,7 @@ class AssociationIdAccessor {
         }
     }
     allNamed(prop) {
-        const things = this.thing.world.getThings(this.allIdsNamed(prop));
-        return things instanceof Promise ? deferredThing(this.thing.world, things, this.thing.id, [], true)
-            : things;
+        return this.thing.world.getThings(this.allIdsNamed(prop));
     }
     named(prop) {
         const id = this.idNamed(prop);
@@ -251,9 +180,7 @@ class AssociationIdAccessor {
 }
 class AssociationAccessor extends AssociationIdAccessor {
     get(prop) {
-        const result = this.allNamed(prop);
-        return Array.isArray(result) ? this.selectResult(result)
-            : deferredThing(this.thing.world, result.then(a => this.selectResult(a)), this.thing.id);
+        return this.selectResult(this.allNamed(prop));
     }
 }
 /*
@@ -1138,12 +1065,6 @@ get %-1
     removeDeferred(promise) {
         this.deferred.delete(promise);
     }
-    async sync(t) {
-        if (this.deferred.size) {
-            await Promise.all(Array.from(this.deferred));
-            return t;
-        }
-    }
     getThingSync(tid, specs) {
         if (tid instanceof Thing)
             return this.stamp(tid);
@@ -1989,12 +1910,5 @@ export function registerExtension(id, onStarted, onLoggedIn) {
     onStarted?.(activeWorld, connection);
     ext.onLoggedIn = onLoggedIn;
     ext.succeed?.();
-}
-export async function aw(t) {
-    if (t instanceof DeferredThing || t instanceof DeferredThings) {
-        await t.world.sync();
-        return t.thing;
-    }
-    return t;
 }
 //# sourceMappingURL=model.js.map

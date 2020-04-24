@@ -61,86 +61,6 @@ const associationProps = {
 
 type propType = string | number | symbol
 
-export class Deferred {
-    world: World
-    promise: Promise<Thing>;
-    length: number
-    isDeferred: boolean
-    thing: Thing
-
-    constructor(world, promise) {
-        this.world = world
-        this.promise = promise.then(t => this.thing = t)
-    }
-    then(func) {
-        return this.promise.then.apply(this.promise, arguments)
-    }
-    catch(func) {
-        return this.promise.catch.apply(this.promise, arguments)
-    }
-    toString() {
-        return `[a Deferred Thing]`
-    }
-}
-export class DeferredThing extends Deferred {
-    _thing: Promise<Thing>
-
-    constructor(world, promise) {
-        super(world, promise)
-    }
-}
-
-export class DeferredThings extends Deferred {
-    _thing: Promise<Thing[]>
-
-    constructor(world, promise) {
-        super(world, promise)
-    }
-}
-
-function deferredThing(world: World, promise: Thing, item: propType, path?: any[]): Thing
-function deferredThing(world: World, promise: Promise<Thing | Thing[]>, item: propType, path?: any[]): DeferredThing
-function deferredThing(world: World, promise: Thing[], item: propType, path?: any[]): Thing[]
-function deferredThing(world: World, promise: Promise<Thing | Thing[]>, item: propType, path?: any[], array?: boolean): DeferredThings
-function deferredThing(world: World, promise: Thing | Thing[] | Promise<Thing | Thing[]>, item: propType, path = [], array?: boolean): DeferredThing | DeferredThings | Thing | Thing[] {
-    if (promise instanceof Thing || Array.isArray(promise)) return promise
-    let thing: Thing | Thing[] = null
-
-    world.addDeferred(promise)
-    path.push(item)
-    // tslint:disable-next-line:no-floating-promises
-    promise.then(t => {
-        thing = t
-        world.removeDeferred(promise)
-    })
-    return new Proxy(array ? new DeferredThings(world, promise) : new DeferredThing(world, promise), {
-        get(obj, prop) {
-            if (prop === 'toString' || prop === 'then' || prop === 'thing' || prop === 'length'
-                || prop === 'world' || prop === 'catch' || prop === 'promise') return obj[prop]
-            if (prop === 'isDeferred') return true
-            if (thing) return thing[prop]
-            //if (path.length % 2 === 1 && prop === '_thing') return promise.then(t => t[prop])
-            if (path.length % 2 === 1 && prop === '_thing') return promise
-            // every 2nd prop must be an association prop
-            if ((path.length % 2 === 0 === prop in associationProps)
-                // you have to stop after getting refs
-                && !(path.length >= 1 && path[path.length - 2] === 'refs')) {
-                return deferredThing(world, promise.then(t => t[prop]), prop, path.slice())
-            }
-            throw new Error(`Attempt to use thing before a sync()`)
-        },
-        set(obj, prop, value) {
-            if (!thing) throw new Error(`Attempt to use thing before a sync()`)
-            thing[prop] = value
-            return true
-        },
-        has(obj, prop) {
-            if (!thing) throw new Error(`Attempt to use thing before a sync()`)
-            return prop in thing
-        }
-    })
-}
-
 function proxify(accessor: any) {
     return new Proxy<AssociationIdAccessor>(accessor, {
         get(obj: AssociationIdAccessor, prop: string | number | symbol) {
@@ -219,11 +139,8 @@ class AssociationIdAccessor {
             if (assoc[0] === prop) return assoc[1] as number
         }
     }
-    allNamed(prop: string): DeferredThings | Thing[] {
-        const things = this.thing.world.getThings(this.allIdsNamed(prop))
-
-        return things instanceof Promise ? deferredThing(this.thing.world, things, this.thing.id, [], true)
-            : things
+    allNamed(prop: string): Thing[] {
+        return this.thing.world.getThings(this.allIdsNamed(prop))
     }
     named(prop: string) {
         const id = this.idNamed(prop)
@@ -286,10 +203,7 @@ class AssociationIdAccessor {
 
 class AssociationAccessor extends AssociationIdAccessor {
     get(prop: string) {
-        const result = this.allNamed(prop)
-
-        return Array.isArray(result) ? this.selectResult(result)
-            : deferredThing(this.thing.world, result.then(a => this.selectResult(a)), this.thing.id)
+        return this.selectResult(this.allNamed(prop))
     }
 }
 
@@ -1243,14 +1157,6 @@ get %-1
     removeDeferred(promise: Promise<any>) {
         this.deferred.delete(promise)
     }
-    async sync(t?: Thing | DeferredThing): Promise<Thing>
-    async sync(t: Thing[] | DeferredThings): Promise<Thing[]>
-    async sync(t?: Thing | Thing[] | DeferredThing | DeferredThings): Promise<Thing | Thing[]> {
-        if (this.deferred.size) {
-            await Promise.all(Array.from(this.deferred))
-            return (t as any)
-        }
-    }
     getThingSync(tid: thingId | Thing, specs?: Map<thingId, any>) {
         if (tid instanceof Thing) return this.stamp(tid)
         if (tid === null || (typeof tid === 'number' && isNaN(tid))) return null
@@ -1304,7 +1210,7 @@ get %-1
         this.stamp(t)
         return t
     }
-    getThings(ids: thingId[]): Promise<Thing[]> | Thing[] {
+    getThings(ids: thingId[]): Thing[] {
         const things = []
 
         for (const id of ids) {
@@ -2133,14 +2039,4 @@ export function registerExtension(id: number, onStarted: (world: World, con: Mud
     onStarted?.(activeWorld, connection)
     ext.onLoggedIn = onLoggedIn
     ext.succeed?.()
-}
-
-export function aw(t: Thing | DeferredThing): Promise<Thing>
-export function aw(t: Thing[] | DeferredThings): Promise<Thing[]>
-export async function aw(t: Thing | Thing[] | DeferredThing | DeferredThings): Promise<Thing | Thing[]> {
-    if (t instanceof DeferredThing || t instanceof DeferredThings) {
-        await t.world.sync()
-        return t.thing
-    }
-    return t
 }

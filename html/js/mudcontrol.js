@@ -399,7 +399,7 @@ class CommandContext {
         this.commands.push(command);
         return this;
     }
-    async run() {
+    run() {
         if (!this.executed) {
             this.executed = true;
             return this.connection.runCommands(this.commands);
@@ -750,17 +750,17 @@ export class MudConnection {
             return result instanceof CommandContext ? [result] : [];
         }
     }
-    async runCommands(lines) {
+    runCommands(lines) {
         const oldSubstituting = this.substituting;
         try {
             this.substituting = true;
             if (Array.isArray(lines)) {
                 for (const line of lines) {
                     if (line instanceof CommandContext) {
-                        await line.run();
+                        line.run();
                     }
                     else {
-                        await this.command(line, true);
+                        this.command(line, true);
                     }
                     if (this.failed)
                         break;
@@ -774,7 +774,27 @@ export class MudConnection {
             this.substituting = oldSubstituting;
         }
     }
-    async command(line, substituted = false, user = false) {
+    // execute toplevel commands inside transactions so they will automatically store any dirty objects
+    async toplevelCommand(line, user = false) {
+        await this.world.doTransaction(async () => {
+            if (this.command(line, false, user)) {
+                if (this.pending.length) {
+                    const promise = Promise.all(this.pending);
+                    this.pending = [];
+                    await promise;
+                }
+            }
+        })
+            .catch(err => {
+            console.log(err);
+            this.error(err.message);
+        });
+        if (this.thing?.name !== this.myName) {
+            this.myName = this.thing.name;
+            mudproto.userThingChanged(this.thing);
+        }
+    }
+    command(line, substituted = false, user = false) {
         const originalLine = line;
         if (!line.trim())
             return;
@@ -792,56 +812,41 @@ export class MudConnection {
         }
         const words = splitQuotedWords(line);
         const commandName = words[0].toLowerCase();
-        // execute command inside a transaction so it will automatically store any dirty objects
-        await this.world.doTransaction(async () => {
-            if (!substituted) {
-                this.output('<div class="input">&gt; <span class="input-text">' + escape(originalLine) + '</span></div>');
-                if (this.history[this.historyPos - 1] !== originalLine) {
-                    this.history.push(originalLine);
-                    this.historyPos = this.history.length;
-                }
-                if (!this.commands.has(commandName) && this.thing) {
-                    const newCommands = this.findCommand(words);
-                    if (newCommands)
-                        return this.runCommands(newCommands);
-                }
+        if (!substituted) {
+            this.output('<div class="input">&gt; <span class="input-text">' + escape(originalLine) + '</span></div>');
+            if (this.history[this.historyPos - 1] !== originalLine) {
+                this.history.push(originalLine);
+                this.historyPos = this.history.length;
             }
-            if (this.thing ? this.commands.has(commandName) : commandName === 'login' || commandName === 'help') {
-                let command = this.commands.get(commandName);
-                if (command.alt)
-                    command = this.commands.get(command.alt);
-                if (command?.admin && !this.admin && !substituted) {
-                    return this.error('Unknown command: ' + words[0]);
-                }
-                const muted = this.muted;
-                try {
-                    if (!substituted && user)
-                        this.muted = 0;
-                    this[command.method]({ command, line, substituted }, ...words.slice(1));
-                    if (this.pending.length) {
-                        const promise = Promise.all(this.pending);
-                        this.pending = [];
-                        await promise;
-                    }
-                }
-                finally {
-                    if (this.muted === 0)
-                        this.muted = muted;
-                    if (!substituted)
-                        this.suppressOutput = false;
-                }
+            if (!this.commands.has(commandName) && this.thing) {
+                const newCommands = this.findCommand(words);
+                if (newCommands)
+                    return this.runCommands(newCommands);
             }
-            else {
-                this.output('Unknown command: ' + words[0]);
+        }
+        if (this.thing ? this.commands.has(commandName) : commandName === 'login' || commandName === 'help') {
+            let command = this.commands.get(commandName);
+            if (command.alt)
+                command = this.commands.get(command.alt);
+            if (command?.admin && !this.admin && !substituted) {
+                return this.error('Unknown command: ' + words[0]);
             }
-        })
-            .catch(err => {
-            console.log(err);
-            this.error(err.message);
-        });
-        if (this.thing?.name !== this.myName) {
-            this.myName = this.thing.name;
-            mudproto.userThingChanged(this.thing);
+            const muted = this.muted;
+            if (!substituted && user)
+                this.muted = 0;
+            try {
+                this[command.method]({ command, line, substituted }, ...words.slice(1));
+                return true;
+            }
+            finally {
+                if (this.muted === 0)
+                    this.muted = muted;
+                if (!substituted)
+                    this.suppressOutput = false;
+            }
+        }
+        else {
+            this.output('Unknown command: ' + words[0]);
         }
     }
     findAll(names, start = this.thing, errTag = '') {
@@ -973,9 +978,9 @@ export class MudConnection {
 <br><br>`);
                 mudproto.userThingChanged(this.thing);
                 thing.assoc.location = this.world.lobby;
-                await this.commandDescripton(this.thing, 'has arrived', 'go', [this.world.limbo, this.world.lobby]);
+                this.commandDescripton(this.thing, 'has arrived', 'go', [this.world.limbo, this.world.lobby]);
                 // tslint:disable-next-line:no-floating-promises
-                await this.look(null, null);
+                this.look(null, null);
                 if (!this.remote) {
                     this.stopClock = false;
                     this.queueTick();
@@ -1094,15 +1099,19 @@ export class MudConnection {
                 }
             }
             if (this.tickers.size) {
-                const tick = new Descripton(null, 'tick', [], false, () => { });
-                for (const ticker of this.tickers) {
-                    const reaction = ticker._react_tick;
-                    if (reaction) {
-                        tick.source = ticker;
-                        this.doReaction(ticker, tick, reaction);
+                await this.world.doTransaction(async () => {
+                    const tick = new Descripton(null, 'tick', [], false, () => { });
+                    for (const ticker of this.tickers) {
+                        const reaction = ticker._react_tick;
+                        if (reaction) {
+                            tick.source = ticker;
+                            this.doReaction(ticker, tick, reaction);
+                        }
                     }
-                }
-                await Promise.all(this.pending);
+                    const promise = Promise.all(this.pending);
+                    this.pending = [];
+                    await promise;
+                });
             }
             if (ticked) {
                 this.queueTick(targetTime - Date.now(), true);
@@ -1647,7 +1656,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         }
     }
     // COMMAND
-    async atMove(cmdInfo, thingStr, locStr) {
+    atMove(cmdInfo, thingStr, locStr) {
         const thing = this.find(thingStr);
         const loc = this.find(locStr);
         if (!thing)
@@ -1658,7 +1667,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         this.output(`You moved ${thingStr} to ${locStr} `);
     }
     // COMMAND
-    async atAs(cmdInfo, thingStr) {
+    atAs(cmdInfo, thingStr) {
         const thing = this.find(thingStr, this.thing, 'actor');
         let con = connectionMap.get(thing);
         const cmd = dropArgs(2, cmdInfo);
@@ -1692,7 +1701,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         this.output(`You just ${toggle ? 'upgraded' : 'downgraded'} ${thingStr} `);
     }
     // COMMAND
-    async atAdd(cmdInfo, thingStr, property, thing2Str) {
+    atAdd(cmdInfo, thingStr, property, thing2Str) {
         checkArgs(cmdInfo, arguments);
         const thing = this.find(thingStr, this.thing, 'thing');
         const thing2 = this.find(thing2Str, this.thing, 'thing2');
@@ -1714,7 +1723,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         }
     }
     // COMMAND
-    async atRemove(cmdInfo, thingStr, property, thing2Str) {
+    atRemove(cmdInfo, thingStr, property, thing2Str) {
         checkArgs(cmdInfo, arguments);
         const thing = this.find(thingStr, this.thing, 'thing');
         const thing2 = this.find(thing2Str, this.thing, 'thing2');
@@ -1732,7 +1741,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         }
     }
     // COMMAND
-    async atReproto(cmdInfo, thingStr, protoStr) {
+    atReproto(cmdInfo, thingStr, protoStr) {
         checkArgs(cmdInfo, arguments);
         const thing = this.find(thingStr, this.thing, 'thing');
         const proto = this.find(protoStr, this.thing, 'prototype');
@@ -2104,7 +2113,7 @@ function synchronousError() {
  */
 export async function executeCommand(text) {
     if (roleTracker.value === RoleState.Solo || roleTracker.value === RoleState.Host) {
-        await connection.command(text, false, true);
+        await connection.toplevelCommand(text, true);
     }
     else if (peerTracker.value !== PeerState.disconnected && mudTracker.value === MudState.Playing) {
         mudproto.command(text);
