@@ -745,7 +745,7 @@ export class World {
             (generatorProto as any)._get = `
 @quiet;
 @copy $0;
-@js doThings('$0', '%-1', (orig, cpy)=> cpy.fullName = 'a ' + orig._name);
+@js orig = $0, cpy = %-1; cpy.fullName = 'a ' + orig._name
 @reproto %-1 %proto:thing;
 @loud;
 get %-1
