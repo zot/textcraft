@@ -193,7 +193,7 @@ export const commands = new Map([
     ['drop', new Command({ help: ['thing', `drop something you are carrying`] })],
     ['@call', new Command({ help: ['thing.property arg...', `Call a method on a thing`] })],
     ['@js', new Command({
-        help: ['var1, var2 = value2 var3... ; code...', `Run JavaScript code with optional variable bindings
+        help: ['var1 = thing1, var2 = thing2... ; code...', `Run JavaScript code with optional variable bindings
 
    Note that commas between variable bindings are optional
    The initial variable values are things looked up by name and bound to specProxies for the things

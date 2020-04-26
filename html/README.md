@@ -134,20 +134,56 @@ Here are all of the current commands and the current help documentation:
 @find thing                                    --  Find a thing
 @find thing location                           --  Find a thing from a location
 @info                                          --  List important information
-@js var1 var2 = value2 var3... ; code...       --  Run JavaScript code with optional variable bindings
+@instances proto                               --  Display all instances
+@js var1 = thing1, var2 = thing2... ; code...  --  Run JavaScript code with optional variable bindings
 
+   Note that commas between variable bindings are optional
+   The initial variable values are things looked up by name and bound to specProxies for the things
    You can use ! as a synonym for @js if it's the first character of a command
 
-   In this code you can use cmd(...) and cmdf(template, ...) to create a CommandContext
-   CommandContexts also support cmd() and cmdf() to chain commands
-   a CommandContext result will automatically run
+   The following are predefined for convenience:
+     me                        specProxy for your thing
+     anyHas(things, property)
+     anyHas(things, property, item)
+                               returns whether any of things is associated with item (defaults to 'me')
+     findNearby()
+     findNearby(thing)         PROMISE for nearby items (thing defaults to your thing)
+     cmd(item, ...)            creates a command context
+     cmdf(FORMAT, arg, ...)    creates a command context
+     doThings(thing..., func)  find things and call func
+
+   CommandContexts also support methods cmd() and cmdf() to allow chaining
+   return a command context to run a command
+
+   FOUR TYPES OF PROXIES
+
+   SPEC PROXY
+   Arguments to @js and @call are bound to specProxies, not to things. Spec proxies make it convienient
+   to access its persisted properties, so value.name accesses thing._name in the value's thing. You can
+   use vlaue._thing to get the real thing. Both spec proxies and their things support the other three
+   types of proxies, below.
+
+   ASSOC/ASSOCMANY PROXY !!! USES PROMISES !!!
+   thing.assoc lets you access associations with other things by using promises. This means you need
+   to AWAIT values. For example, to get a thing's location, you can say await thing.assoc.location.
+   @dump will list all of a thing's associations and also everything associated with it. You can use
+   thing.assocMany to get array results even if there is only one association a property.
+
+   ASSOCID/ASSOCIDMANY PROXY
+   thing.assocId lets you access associations by THING ID and does not use promises, so you don't need
+   to use await. This means thing.assocId.location returns a NUMBER, NOT A THING. This means you need
+   to AWAIT values, like with assoc proxies. You can use thing.assocIdMany to get array results even if
+   there is only one association a property.
+
+   REFS PROXY !!! USES PROMISES !!!
+   thing.refs lets you access things associated with a thing by using promises. For example,
+   thing.refs.location will return an array of everything located in thing.
 
 @link loc1 link1 link2 loc2                    --  create links between two things
 @loud                                          --  enable all output for this command
 @method thing name (args...) body              --  Define a method on a thing
    The method actually runs in the context of the thing's MudConnection, not the thing itself
-   @call calls the method with whatever arguments it provides
-   This can use CommandContexts, see @js for details.
+   @call calls the method with specProxies for whatever arguments it provides. See @js for details.
 
 @move thing location                           --  Move a thing
 @mute                                          --  temporarily silence all output commands that are not yours
@@ -240,6 +276,7 @@ You can use %result to refer to the result of the active successful if-condition
 You can use %result.PROPERTY to refer to a property of the result (including numeric indexes)
 You can use %event to refer to the current event (descripton)
 You can use %event.PROPERTY to refer to a property of the current event (descripton)
+You can use %NAME as a synonym of NAME for convenience, this helps when using %thing as a command
 
 To make something into a prototype, move it to %protos
 
@@ -283,7 +320,7 @@ strings with $event.PROPERTY. In methods, this.event refers to the current event
 
 Example, this will make a box react to people arriving in its location:
 
-@method box react_go (thing, oldLoc, newLoc) newLoc.id == this._location && cmd('say Hello %event.source!')
+@method box react_go (thing, oldLoc, newLoc) this.thing.isIn(newLoc) && cmd('say Hello %event.source!')
 
 
 EVENT PROPERTIES:
