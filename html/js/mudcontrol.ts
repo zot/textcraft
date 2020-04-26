@@ -1507,7 +1507,7 @@ ${protos.join('\n  ')}`)
     atJs(cmdInfo) {
         const line = dropArgs(1, cmdInfo)
         //const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?[^\s]+)+[\s,]*;)?\s*(.*)\s*$/)
-        const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?\s*[a-zA-z0-9%][a-zA-Z0-9:_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*\s*)+[\s,]*;)?(.*)$/)
+        const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z_][a-zA-Z_0-9]+\s*=\s*)?\s*[a-zA-z0-9%][a-zA-Z0-9:_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)+[\s,]*;)?(.*)$/)
         const vars = []
         const values = []
         let code = codeSection
@@ -1997,7 +1997,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         const protos = []
 
         for (const proto of hall.refs.location) {
-            protos.push(`%${proto.id} %proto:${proto.name}`)
+            protos.push(`<span class='thing'>%${proto.id}</span> <span class='thing'>%proto:${proto.name}</span>`)
         }
         this.output(
             `<pre>Name: ${this.world.name}

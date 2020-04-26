@@ -701,6 +701,7 @@ export class World {
             const linkProto = this.linkProto
             const generatorProto = this.generatorProto
 
+            this.stamps([thingProto, personProto, roomProto, linkProto, generatorProto])
             thingProto.assoc.location = this.hallOfPrototypes
             thingProto.article = 'the'
             thingProto.contentsFormat = '$This $is here'
