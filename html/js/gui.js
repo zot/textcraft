@@ -4,6 +4,8 @@ import * as mudcontrol from './mudcontrol.js';
 import * as storagecontrol from './storagecontrol.js';
 import * as mudproto from './mudproto.js';
 const jsyaml = window.jsyaml;
+let history = [];
+let historyPos = 0;
 let nextId = 0;
 export const exampleMuds = `
 Here are some example MUDs you can try:
@@ -182,6 +184,7 @@ async function activateMud(world) {
     $('#mud-output').innerHTML = '';
     sectionTracker.setValue(SectionState.Mud);
     roleTracker.setValue(RoleState.Solo);
+    resetHistory();
     await mudcontrol.runMud(world, text => {
         addMudOutput('<div>' + text + '</div>');
     });
@@ -470,11 +473,24 @@ export function okCancel(div, okSel, cancelSel, focusSel, validate) {
 export function setMudOutput(html) {
     $('#mud-output').innerHTML = html;
 }
+export function resetHistory() {
+    history = [];
+    historyPos = 0;
+}
 export function addMudOutput(html) {
     parseHtml(html, $('#mud-output'), (el) => {
         for (const node of $findAll(el, '.input, .property, .method')) {
+            const input = $find(node, '.input-text').textContent.trim();
+            if (node.classList.contains('input')) {
+                if (history[historyPos - 1] !== input) {
+                    history.push(input);
+                    historyPos = history.length;
+                }
+            }
             node.onclick = () => {
-                $('#mud-command').value = $find(node, '.input-text').textContent.trim();
+                $('#mud-command').value = input;
+                if (input.indexOf('\n'))
+                    $('#mud-view').classList.add('large-output');
                 $('#mud-command').select();
                 $('#mud-command').focus();
             };
@@ -706,12 +722,12 @@ export function start() {
         const livinLarge = $('#mud-view').classList.contains('large-output');
         const modified = evt.shiftKey || evt.ctrlKey || evt.metaKey;
         if (mudTracker.value === MudState.Playing) {
-            if (evt.key === 'ArrowUp' && con.historyPos > 0 && !livinLarge) {
-                field.value = con.history[--con.historyPos];
+            if (evt.key === 'ArrowUp' && historyPos > 0 && !livinLarge) {
+                field.value = history[--historyPos];
                 setTimeout(() => field.select(), 1);
             }
-            else if (evt.key === 'ArrowDown' && con.historyPos < con.history.length && !livinLarge) {
-                field.value = con.history[++con.historyPos] || '';
+            else if (evt.key === 'ArrowDown' && historyPos < history.length && !livinLarge) {
+                field.value = history[++historyPos] || '';
                 setTimeout(() => field.select(), 1);
             }
             else if (evt.key === 'Enter' && modified) {

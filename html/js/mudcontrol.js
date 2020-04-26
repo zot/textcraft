@@ -178,6 +178,10 @@ export const commands = new Map([
 
    The following are predefined for convenience:
      me                        specProxy for your thing
+     here                      specProxy for your location
+     event                     the current event (if there is one)
+     inAny(property, item)     returns whether anything nearby has item in property
+                               Synonym for anyHas(findNearby(), property, item)
      anyHas(things, property)
      anyHas(things, property, item)
                                returns whether any of things is associated with item (defaults to 'me')
@@ -188,7 +192,7 @@ export const commands = new Map([
      doThings(thing..., func)  find things and call func
 
    CommandContexts also support methods cmd() and cmdf() to allow chaining
-   return a command context to run a command
+   If you return a command context, the system will run it
 
    FOUR TYPES OF PROXIES
 
@@ -429,8 +433,6 @@ export class MudConnection {
         this.ticking = false;
         this.stopClock = true;
         this.tickers = new Set();
-        this.history = [];
-        this.historyPos = 0;
         this.created = [];
         this.thing = thing;
         this.outputHandler = () => { };
@@ -467,18 +469,17 @@ export class MudConnection {
     error(text) {
         const oldSup = this.suppressOutput;
         this.suppressOutput = false;
-        this.output('<div class="error">' + text + '</div>');
         this.failed = true;
+        this.output('<div class="error">' + text + '</div>');
         this.suppressOutput = oldSup;
     }
     errorNoThing(thing) {
         this.error(`You don't see any ${thing} here`);
     }
     output(text) {
-        if (!this.suppressOutput && this.muted < 1) {
+        if ((!this.suppressOutput && this.muted < 1) || this.failed) {
             this.outputHandler(text.match(/^</) ? text : `<div>${text}</div>`);
         }
-        this.failed = false;
     }
     withResultsSync(otherCon, func) {
         const oldEvent = this.event;
@@ -717,7 +718,7 @@ export class MudConnection {
         if (typeof template === 'string') {
             const lines = [];
             const words = args.map(a => a instanceof Thing ? `%${a.id}` : a);
-            for (const line of template.split(/;/)) {
+            for (const line of template.split(/\n/)) {
                 const parts = line.split(/( *\$\w*)/);
                 let newCmd = '';
                 for (const part of parts) {
@@ -784,6 +785,7 @@ export class MudConnection {
                     await promise;
                 }
             }
+            this.failed = false;
         })
             .catch(err => {
             console.log(err);
@@ -814,10 +816,6 @@ export class MudConnection {
         const commandName = words[0].toLowerCase();
         if (!substituted) {
             this.output('<div class="input">&gt; <span class="input-text">' + escape(originalLine) + '</span></div>');
-            if (this.history[this.historyPos - 1] !== originalLine) {
-                this.history.push(originalLine);
-                this.historyPos = this.history.length;
-            }
             if (!this.commands.has(commandName) && this.thing) {
                 const newCommands = this.findCommand(words);
                 if (newCommands)
@@ -835,7 +833,7 @@ export class MudConnection {
             if (!substituted && user)
                 this.muted = 0;
             try {
-                this[command.method]({ command, line, substituted }, ...words.slice(1));
+                this.world.update(() => this[command.method]({ command, line, substituted }, ...words.slice(1)));
                 return true;
             }
             finally {
@@ -846,7 +844,7 @@ export class MudConnection {
             }
         }
         else {
-            this.output('Unknown command: ' + words[0]);
+            this.error('Unknown command: ' + words[0]);
         }
     }
     findAll(names, start = this.thing, errTag = '') {
@@ -902,6 +900,8 @@ export class MudConnection {
         result = result?._thing;
         if (!result && errTag)
             throw new Error(`Could not find ${errTag}: ${name}`);
+        if (result instanceof Thing)
+            this.world.stamp(result);
         return result;
     }
     dumpThingNames(things) {
@@ -1140,7 +1140,7 @@ export class MudConnection {
         things.push(...pxyThing(thing).refs.location);
         return things;
     }
-    inAny(target, prop, thing = this.thing) {
+    inAny(prop, target, thing = this.thing) {
         return (this.findAny(prop, pxyThing(thing)))?.has(target.id);
     }
     findAny(prop, thing = this.thing) {
@@ -1173,7 +1173,7 @@ export class MudConnection {
     }
     // COMMAND
     login(cmdInfo, user, password) {
-        return this.doLogin(user, password, user);
+        setTimeout(() => this.doLogin(user, password, user), 1);
     }
     // COMMAND
     look(cmdInfo, target) {
@@ -1392,7 +1392,7 @@ export class MudConnection {
     // COMMAND
     async act(cmdInfo, ...words) {
         const text = escape(dropArgs(1, cmdInfo));
-        return this.commandDescripton(this.thing, '$quote <i>$this ${text}</i>', 'act', [text], true, false, false);
+        return this.commandDescripton(this.thing, `<i>$quote ${this.formatName(this.thing)} ${text}</i>`, 'act', [text], true, false, false);
     }
     // COMMAND
     gesture(cmdInfo, thingStr, ...words) {
@@ -1460,13 +1460,13 @@ ${protos.join('\n  ')}`);
     atJs(cmdInfo) {
         const line = dropArgs(1, cmdInfo);
         //const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z]+\s*=\s*)?[^\s]+)+[\s,]*;)?\s*(.*)\s*$/)
-        const [, varSection, codeSection] = line.match(/^((?:(?:[\s,]*[a-zA-Z_][a-zA-Z_0-9]+\s*=\s*)?\s*[a-zA-z0-9%][a-zA-Z0-9:_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)+[\s,]*;)?(.*)$/);
+        const [, varSection, codeSection] = line.match(/^((?:[\s,]*[a-zA-Z_][a-zA-Z_0-9]*\s*=\s*(?:%-[0-9]|[a-zA-z0-9%][a-zA-Z0-9:_]*)(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)+[\s,]*;)?(.*)$/);
         const vars = [];
         const values = [];
         let code = codeSection;
         let argN = 1;
         if (varSection) {
-            for (const [, varname, path] of varSection.matchAll(/[,\s]*(?:([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*)?([a-zA-Z%_][a-zA-Z_0-9:]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*)/g)) {
+            for (const [, varname, path] of varSection.matchAll(/[,\s]*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([a-zA-Z%_]-?[a-zA-Z_0-9:]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*)/g)) {
                 const components = path.split(/\s*\.\s*/);
                 let value = this.find(components[0], undefined, 'thing');
                 vars.push(varname || `___arg${argN++}`);
@@ -1699,6 +1699,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
                 con.output(`${this.formatName(this.thing)} just upgraded you`);
         }
         this.output(`You just ${toggle ? 'upgraded' : 'downgraded'} ${thingStr} `);
+        con.verboseNames = boolVal;
     }
     // COMMAND
     atAdd(cmdInfo, thingStr, property, thing2Str) {
@@ -1843,6 +1844,7 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         this.checkConnected(thingStr, connected, force && force.toLowerCase() === 'force');
         const newThing = thing.copy(connected);
         this.created.push(newThing);
+        newThing.assoc.location = this.thing;
         this.output(`You copied ${this.formatName(thing)} to your inventory`);
     }
     checkConnected(thingStr, connected, force) {

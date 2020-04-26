@@ -1,0 +1,124 @@
+objects:
+  - article: ''
+    associationThings: [0]
+    associations: [[location, 0]]
+    description: You are floating in $this<br>$links<br><br>$contents
+    fullName: Limbo
+    id: 0
+    name: Limbo
+    prototype: 5
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: You are in $this
+    fullName: Lobby
+    id: 1
+    name: Lobby
+    prototype: 5
+  - associationThings: [0]
+    associations: [[location, 0]]
+    fullName: Hall of Prototypes
+    id: 2
+    name: hall
+    prototype: 5
+  - article: the
+    associationThings: [2]
+    associations: [[location, 2]]
+    contentsEnterFormat: $forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2
+    contentsExitFormat: $forme You leave $this to $arg3 $forothers $Arg leaves $this to $arg3
+    contentsFormat: $This $is here
+    description: This is $this
+    examineFormat: 'Exits: $links<br>Contents: $contents'
+    fullName: thing
+    id: 3
+    linkFormat: $This leads to $link
+    name: thing
+    priority: 0
+  - '!cmd': '["(dir, dest)","\n                if (!dir.locked || inAny(''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
+    '!go': '["(dir, dest)","\n                if (!dir.locked || inAny(''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
+    article: ''
+    associationThings: [2]
+    associations: [[location, 2]]
+    description: $This to $link
+    fullName: link
+    get: "\n@output $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me @event me false get $0\n"
+    id: 4
+    linkEnterFormat: $Arg1 entered $arg3
+    linkExitFormat: $Arg1 went $name to $arg3
+    linkMoveFormat: You went $name to $arg3
+    locked: false
+    name: link
+    prototype: 3
+  - associationThings: [2]
+    associations: [[location, 2]]
+    closed: true
+    description: You are in $this
+    fullName: room
+    id: 5
+    name: room
+    prototype: 3
+  - associationThings: [2]
+    associations: [[location, 2]]
+    description: This is a thing
+    fullName: generator
+    get: "\n@quiet\n@copy $0\n@js orig = $0, cpy = %-1; cpy.fullName = 'a ' + orig.name\n@reproto %-1 %proto:thing\ndrop %-1\n@loud\nget %-1\n"
+    id: 6
+    name: generator
+    priority: -1
+    prototype: 3
+  - article: ''
+    associationThings: [2]
+    associations: [[location, 2]]
+    description: $This $is only a dude
+    examineFormat: 'Carrying: $contents'
+    fullName: person
+    get: "\n@output $0 \"$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't\" me @event me false get $0\n"
+    id: 7
+    name: person
+    prototype: 3
+  - article: a
+    associationThings: [1]
+    associations: [[location, 1]]
+    fullName: ''
+    id: 8
+    name: a
+    prototype: 7
+  - associationThings: [2]
+    associations: [[location, 2]]
+    fullName: pgenerator
+    get: "\n@quiet\n@js orig = $0; if (!orig.group) throw new Error(`${orig.name} needs a group property`);\n@copy $0\n@js orig = $0, cpy = %-1; debugger; cpy.fullName = 'a ' + orig.name; cpy.assoc[orig.group] = me; cpy.assoc[cpy.name] = me;\n@reproto %-1 %proto:thing\ndrop %-1\n@loud\nget %-1"
+    id: 9
+    name: pgenerator
+    prototype: 6
+  - associationThings: [2]
+    associations: [[location, 2]]
+    fullName: tombthing
+    group: tomb
+    id: 10
+    name: tombthing
+    prototype: 9
+  - article: a
+    associationThings: [1]
+    associations: [[location, 1]]
+    fullName: pile of rusty keys
+    id: 13
+    name: key
+    prototype: 10
+  - clockRate: 2
+    defaultUser: a
+    generatorProto: 6
+    hallOfPrototypes: 2
+    id: info
+    limbo: 0
+    linkProto: 4
+    lobby: 1
+    name: Personal Things
+    nextId: 15
+    personProto: 7
+    roomProto: 4
+    thingProto: 3
+    version: 1
+users:
+  - admin: true
+    name: a
+    password: a
+    thing: 8

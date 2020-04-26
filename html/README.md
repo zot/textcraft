@@ -39,6 +39,8 @@ Shift-click or right-click and choose "Save link as..." to save these to your di
 
 <div id='muds'></div>
 
+Here are all of the [example MUDs](http://localhost:8888/examples/)
+
 # Using the MUD
 
 1. Start by creating or uploading a MUD (using the Create or Upload buttons)

@@ -60,6 +60,33 @@ function proxify(accessor) {
         },
     });
 }
+class SpecProxyHandler {
+    get(obj, prop) {
+        if (typeof prop === 'number' || typeof prop === 'symbol') {
+            throw new Error('You can only get string properties on things');
+        }
+        if (prop === '_thing')
+            return obj;
+        if (prop === 'assoc' || prop === 'assocId' || prop === 'refs'
+            || prop === 'assocMany' || prop === 'assocIdMany') {
+            return obj[prop];
+        }
+        return obj[prop[0] === '!' ? prop : '_' + prop];
+    }
+    set(obj, prop, value) {
+        if (typeof prop === 'number' || typeof prop === 'symbol') {
+            throw new Error('You can only set string properties on things');
+        }
+        if (prop === 'associations' || prop === 'associationThings'
+            || prop === 'prototype' || prop === 'id'
+            || prop === 'assoc' || prop === 'assocId' || prop === 'refs'
+            || prop === 'assocMany' || prop === 'assocIdMany') {
+            throw new Error(`You can't set ${prop}`);
+        }
+        obj[prop[0] === '!' ? prop : '_' + prop] = value;
+        return true;
+    }
+}
 class AssociationIdAccessor {
     constructor(thing, many = false) {
         this.thing = thing;
@@ -77,6 +104,10 @@ class AssociationIdAccessor {
                 }
                 else
                     throw new Error(`Illegal refs property: ${String(prop)}`);
+            },
+            set(obj, prop, value) {
+                /// replace old references with new ones, like setting contents
+                return true;
             }
         });
     }
@@ -221,31 +252,7 @@ export class Thing {
         this.assocId = new AssociationIdAccessor(this).proxify();
         this.assocIdMany = new AssociationIdAccessor(this, true).proxify();
         this.refs = this.assoc.refsProxy();
-        this.specProxy = new Proxy(this, {
-            get(obj, prop) {
-                if (typeof prop === 'number' || typeof prop === 'symbol') {
-                    throw new Error('You can only get string properties on things');
-                }
-                if (prop === '_thing')
-                    return obj;
-                if (prop === 'assoc' || prop === 'assocId' || prop === 'refs') {
-                    return obj[prop];
-                }
-                return obj[prop[0] === '!' ? prop : '_' + prop];
-            },
-            set(obj, prop, value) {
-                if (typeof prop === 'number' || typeof prop === 'symbol') {
-                    throw new Error('You can only set string properties on things');
-                }
-                if (prop === 'associations' || prop === 'associationThings'
-                    || prop === 'prototype' || prop === 'id'
-                    || prop === 'assoc' || prop === 'assocId' || prop === 'refs') {
-                    throw new Error(`You can't set ${prop}`);
-                }
-                obj[prop[0] === '!' ? prop : '_' + prop] = value;
-                return true;
-            }
-        });
+        this.specProxy = new Proxy(this, new SpecProxyHandler());
     }
     get id() { return this._id; }
     get article() { return this._article; }
@@ -336,14 +343,15 @@ export class Thing {
         const realCode = code.match(/[;{}]/) ? code : 'return ' + code;
         // tslint:disable-next-line:only-arrow-functions, no-eval
         return eval(`(function ${args} {
-const cmd = this.cmd.bind(this);
-const cmdf = this.cmdf.bind(this);
-const anyHas = this.anyHas.bind(this);
-const findNearby = this.findNearby.bind(this);
-const doThings = this.doThings.bind(this);
 const me = this.thing.specProxy;
 const here = this.world.getThing(this.thing.assoc.location?._thing);
 const event = this.event;
+const cmd = this.cmd.bind(this);
+const cmdf = this.cmdf.bind(this);
+const anyHas = this.anyHas.bind(this);
+const inAny = this.inAny.bind(this);
+const findNearby = this.findNearby.bind(this);
+const doThings = this.doThings.bind(this);
 ${realCode};
 })`);
     }
@@ -627,7 +635,7 @@ export class World {
             linkProto.article = '';
             linkProto._locked = false;
             linkProto.setMethod('!cmd', '(dir, dest)', `
-                if (!dir.locked || anyHas(findNearby(), 'key', dir)) {
+                if (!dir.locked || inAny('key', dir)) {
                     return this.cmd('go', dir);
                 } else {
                     return this.cmdf('@output $0 "$forme You don\\'t have the key $forothers $Arg tries to go $this to $link but doesn\\'t have the key" me @event me false go $0', dir);
@@ -656,11 +664,12 @@ export class World {
             generatorProto.setPrototype(thingProto);
             generatorProto._priority = -1;
             generatorProto._get = `
-@quiet;
-@copy $0;
-@js orig = $0, cpy = %-1; cpy.fullName = 'a ' + orig._name
-@reproto %-1 %proto:thing;
-@loud;
+@quiet
+@copy $0
+@js orig = $0, cpy = %-1; cpy.fullName = 'a ' + orig.name
+@reproto %-1 %proto:thing
+drop %-1
+@loud
 get %-1
 `;
         });
@@ -1081,7 +1090,7 @@ get %-1
             return this.stamp(tid);
         if (tid === null || (typeof tid === 'number' && isNaN(tid)))
             return null;
-        return this.thingCache.get(tid);
+        return this.stamp(this.thingCache.get(tid));
     }
     authenticate(name, passwd, thingName, noauthentication = false) {
         return this.doTransaction(async (store, users, txn) => {
@@ -1199,7 +1208,7 @@ get %-1
             const id = cpy._id;
             cpy.__proto__ = conThing.__proto__;
             cpy._id = id;
-            this.transactionThings.add(cpy);
+            this.stamp(cpy);
         }
         for (const [id, cpy] of copies) {
             const original = originals.get(id);
@@ -1635,7 +1644,7 @@ async function getTipId(tip) {
     }
 }
 export function blobForYamlObject(object) {
-    return new Blob([jsyaml.dump(object, { flowLevel: 3 })], { type: 'text/yaml' });
+    return new Blob([jsyaml.dump(object, { flowLevel: 3, sortKeys: true })], { type: 'text/yaml' });
 }
 export function blobForJsonObjects(objects) {
     return new Blob(objects, { type: 'application/json' });
@@ -1669,7 +1678,7 @@ function idFor(t) {
     if (t === null || t === undefined)
         return null;
     if (t instanceof Thing)
-        return t._id;
+        return t._thing._id;
     throw new Error(`${t} is not a thing or id`);
 }
 export function identity(x) {

@@ -365,7 +365,7 @@ class HostStrategy extends Strategy {
     }
     // mud API message
     async command(info, { text }) {
-        return this.mudConnections.get(info.peerID).command(text)
+        return this.mudConnections.get(info.peerID).toplevelCommand(text)
     }
 }
 
@@ -550,6 +550,7 @@ class GuestStrategy extends Strategy {
         return peerTracker.value === PeerState.connectedToHost
     }
     connectedToHost(conID, protocol, peerID) {
+        gui.resetHistory()
         roleTracker.setValue(RoleState.Guest)
         gui.connectedToHost(peerID)
         this.sendObject(this.mudConnection, { name: 'requestMudConnection', user: peer.storage.profile.name })
