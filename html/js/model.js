@@ -106,8 +106,14 @@ class AssociationIdAccessor {
                     throw new Error(`Illegal refs property: ${String(prop)}`);
             },
             set(obj, prop, value) {
-                /// replace old references with new ones, like setting contents
-                return true;
+                if (typeof prop === 'string'
+                    && Array.isArray(value) && value.length === 0) {
+                    for (const ref of this.refs(prop)) {
+                        ref.assoc.dissociate(prop, thing);
+                    }
+                    return true;
+                }
+                throw new Error(`Refs can currently only be assigned []`);
             }
         });
     }

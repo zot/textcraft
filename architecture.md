@@ -30,9 +30,10 @@ below).
 If you do happen to use assoc to access a many-valued association, it will return an array.
 
 You use thing.refs.NAME to get the things that refer back to this thing through their NAME association.
-So to get the contents of a room, you say room.assoc.location. Assigning to refs will change
-associations in other things. So thing.refs.location = [] will remove thing from everything located in
-it.
+So to get the contents of a room, you say room.assoc.location. You can remove all refs of a particular
+type to a thing by assigning thing.refs.NAME = []. Assigning it any other value is currently an error
+because there is no way to know whether to delete old values for those refs (associations don't currently
+track cardinality).
 
 # Standard rooms
 
