@@ -67,8 +67,13 @@ class SpecProxyHandler {
         }
         if (prop === '_thing')
             return obj;
-        if (prop === 'assoc' || prop === 'assocId' || prop === 'refs'
-            || prop === 'assocMany' || prop === 'assocIdMany') {
+        if (prop === 'assoc')
+            return obj.specAssoc;
+        if (prop === 'assocMany')
+            return obj.specAssocMany;
+        if (prop === 'refs')
+            return obj.specRefs;
+        if (prop === 'assocId' || prop === 'refs' || prop === 'assocIdMany') {
             return obj[prop];
         }
         return obj[prop[0] === '!' ? prop : '_' + prop];
@@ -83,6 +88,8 @@ class SpecProxyHandler {
             || prop === 'assocMany' || prop === 'assocIdMany') {
             throw new Error(`You can't set ${prop}`);
         }
+        if (prop === 'fullName')
+            return obj.fullName = value;
         obj[prop[0] === '!' ? prop : '_' + prop] = value;
         return true;
     }
@@ -208,7 +215,6 @@ class AssociationIdAccessor {
         this.thing._associationThings = Array.from(new Set(this.thing._associations.map(([, v]) => v)));
     }
     selectResult(result) {
-        result = result.map(t => t instanceof Thing ? t._thing.specProxy : t);
         return this.many ? result
             : !result || result.length === 0 ? null
                 : result.length === 1 ? result[0]
@@ -218,6 +224,35 @@ class AssociationIdAccessor {
 class AssociationAccessor extends AssociationIdAccessor {
     get(prop) {
         return this.selectResult(this.allNamed(prop));
+    }
+}
+class SpecAssociationAccessor extends AssociationIdAccessor {
+    get(prop) {
+        return this.selectResult(this.allNamed(prop).map(t => t.specProxy));
+    }
+    refsProxy() {
+        const thing = this.thing;
+        return new Proxy(this, {
+            get(obj, prop) {
+                if (typeof prop === 'string') {
+                    const result = obj.refs(prop).map(t => t.specProxy);
+                    result._thing = result; // TODO transition
+                    return result;
+                }
+                else
+                    throw new Error(`Illegal refs property: ${String(prop)}`);
+            },
+            set(obj, prop, value) {
+                if (typeof prop === 'string'
+                    && Array.isArray(value) && value.length === 0) {
+                    for (const ref of this.refs(prop)) {
+                        ref.assoc.dissociate(prop, thing);
+                    }
+                    return true;
+                }
+                throw new Error(`Refs can currently only be assigned []`);
+            }
+        });
     }
 }
 /*
@@ -255,9 +290,12 @@ export class Thing {
     makeProxies() {
         this.assoc = new AssociationAccessor(this).proxify();
         this.assocMany = new AssociationAccessor(this, true).proxify();
+        this.specAssoc = new SpecAssociationAccessor(this).proxify();
+        this.specAssocMany = new SpecAssociationAccessor(this, true).proxify();
         this.assocId = new AssociationIdAccessor(this).proxify();
         this.assocIdMany = new AssociationIdAccessor(this, true).proxify();
         this.refs = this.assoc.refsProxy();
+        this.specRefs = this.specAssoc.refsProxy();
         this.specProxy = new Proxy(this, new SpecProxyHandler());
     }
     get id() { return this._id; }
@@ -305,42 +343,37 @@ export class Thing {
     copy(connected) {
         return this.world.copyThing(this, connected);
     }
-    find(name, exclude = new Set([])) {
-        let found;
+    nearby(exclude = new Set(), usePriority = true) {
+        const found = [];
+        this._thing.subnearby(found, exclude);
+        const result = usePriority ? priority(found) : found;
+        return this === this._thing ? result : result.map(t => t.specProxy);
+    }
+    subnearby(found, exclude) {
         if (exclude.has(this))
-            return null;
-        if (this.name.toLowerCase() === name.toLowerCase())
-            return this;
+            return;
         exclude.add(this);
-        for (const item of this.refs.location._thing) {
-            const result = item.find(name, exclude);
-            if (result && (!found || result._priority > found._priority)) {
-                found = result;
-            }
+        found.push(this);
+        for (const item of this.refs.location) {
+            if (!exclude.has(item))
+                found.push(item);
         }
-        if (found)
-            return found;
-        for (const item of this.refs.linkOwner._thing) {
-            const result = item.find(name, exclude);
-            if (result && (!found || result._priority > found._priority)) {
-                found = result;
-            }
+        for (const item of this.refs.linkOwner) {
+            if (!exclude.has(item))
+                found.push(item);
         }
-        if (found)
-            return found;
-        const loc = this.assoc.location?._thing;
-        if (loc) {
-            const result = loc._thing.find(name, exclude);
-            if (result)
-                return result;
+        if (this.assoc.location?._closed && this.assoc.location.assoc.location) {
+            exclude.add(this.assoc.location.assoc.location);
         }
-        const owner = this.assoc.linkOwner?._thing;
-        if (owner) {
-            const result = owner._thing.find(name, exclude);
-            if (result)
-                return result;
+        this.assoc.location?.subnearby(found, exclude);
+        this.assoc.linkOwner?.subnearby(found, exclude);
+    }
+    find(condition, exclude = new Set()) {
+        if (typeof condition === 'string') {
+            const name = condition.toLowerCase();
+            condition = t => t.name.toLowerCase() === name;
         }
-        return null;
+        return this._thing.nearby(exclude).find(condition);
     }
     store() {
         return this.world.putThing(this);
@@ -350,7 +383,8 @@ export class Thing {
         // tslint:disable-next-line:only-arrow-functions, no-eval
         return eval(`(function ${args} {
 const me = this.thing.specProxy;
-const here = this.world.getThing(this.thing.assoc.location?._thing);
+let here = this.world.getThing(this.thing.assoc.location);
+here = here && here.specProxy;
 const event = this.event;
 const cmd = this.cmd.bind(this);
 const cmdf = this.cmdf.bind(this);
@@ -632,30 +666,35 @@ export class World {
             thingProto.assoc.location = this.hallOfPrototypes;
             thingProto.article = 'the';
             thingProto.contentsFormat = '$This $is here';
-            thingProto._contentsEnterFormat = '$forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2';
-            thingProto._contentsExitFormat = '$forme You leave $this to $arg3 $forothers $Arg leaves $this to $arg3';
             thingProto.examineFormat = 'Exits: $links<br>Contents: $contents';
             thingProto.linkFormat = '$This leads to $link';
+            thingProto.setMethod('!go', '()', `
+                if (event.destination && event.destination._thing.isIn(here) && event.destination.closed) {
+                    return cmd("@fail %event.thing \\"$forme You can\\'t go into $event.destination $forothers $event.actor tries to go into %event.destination but can\\'t\\"")
+                } else if (here._thing.isIn(event.destination) && here.closed) {
+                    return cmd("@fail %event.thing \\"$forme You can\\'t leave $event.origin $forothers $event.actor tries to leave %event.origin but can\\'t\\"")
+                }
+`);
             thingProto._priority = 0;
             linkProto.assoc.location = this.hallOfPrototypes;
             linkProto.article = '';
             linkProto._locked = false;
-            linkProto.setMethod('!cmd', '(dir, dest)', `
-                if (!dir.locked || inAny('key', dir)) {
-                    return this.cmd('go', dir);
-                } else {
-                    return this.cmdf('@output $0 "$forme You don\\'t have the key $forothers $Arg tries to go $this to $link but doesn\\'t have the key" me @event me false go $0', dir);
+            linkProto.setMethod('!go', '()', `
+                if (event.direction.locked && !inAny('key', event.direction._thing)) {
+                    return cmd("@fail %event.thing \\"$forme You don\\'t have the key $forothers $Arg tries to go $event.direction to $event.destination but doesn\\'t have the key\\"");
                 }
 `);
-            linkProto['!go'] = linkProto['!cmd'];
             delete linkProto._cmd;
             delete linkProto._go;
+            delete linkProto['!cmd'];
+            if (linkProto['!react_newgo'])
+                linkProto['!react_go'] = linkProto['!react_newgo'];
             linkProto._linkEnterFormat = '$Arg1 entered $arg3';
             linkProto._linkMoveFormat = 'You went $name to $arg3';
             linkProto._linkExitFormat = '$Arg1 went $name to $arg3';
             linkProto._get = `
-@output $0 "$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means..." me @event me false get $0
-`;
+        @output $0 "$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means..." me @event me false get $0
+            `;
             roomProto.assoc.location = this.hallOfPrototypes;
             roomProto._closed = true;
             roomProto.setPrototype(thingProto);
@@ -663,20 +702,22 @@ export class World {
             personProto.setPrototype(thingProto);
             personProto._article = '';
             personProto.examineFormat = 'Carrying: $contents';
-            personProto._get = `
-@output $0 "$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't" me @event me false get $0
-`;
+            personProto.setMethod('!get', '(thisThing)', `
+                if (event.thing === thisThing) {
+                    event.emitFail(event.actor, "$forme You can't pick up $event.thing! $forothers $event.actor tries to pick up $this but can't", [], false, event.actor)
+               }
+`);
             generatorProto.assoc.location = this.hallOfPrototypes;
             generatorProto.setPrototype(thingProto);
             generatorProto._priority = -1;
             generatorProto._get = `
-@quiet
-@copy $0
-@js orig = $0, cpy = %-1; cpy.fullName = 'a ' + orig.name
-@reproto %-1 %proto:thing
-drop %-1
-@loud
-get %-1
+        @quiet
+        @copy $0
+        @js orig = $0, cpy = %-1; debugger; cpy.fullName = 'a ' + orig.name
+        @reproto %-1 %proto:thing
+        drop %-1
+        @js copy = %-1; event.thing = copy
+        @loud
 `;
         });
     }
@@ -1109,8 +1150,9 @@ get %-1
             else if (!(user && (noauthentication || user.password === passwd))) {
                 throw new Error('Bad user or password');
             }
-            if (!user.thing) {
-                const thing = this.createThing(name);
+            let thing = user.thing && await this.getThing(user.thing);
+            if (!thing) {
+                thing = this.createThing(name);
                 thing.assoc.location = this.lobby;
                 if (this.personProto)
                     thing.setPrototype(this.personProto);
@@ -1120,7 +1162,6 @@ get %-1
                 return [thing, user.admin];
             }
             else {
-                const thing = await this.getThing(user.thing);
                 if (thing.name === name && thingName) {
                     thing.fullName = thingName;
                 }
@@ -1359,7 +1400,7 @@ get %-1
     propertyProximity(obj, prop) {
         let count = 1;
         let found = false;
-        while (obj !== this.thingProto) {
+        while (obj && obj !== this.thingProto) {
             if (found) {
                 count++;
             }
@@ -1650,7 +1691,7 @@ async function getTipId(tip) {
     }
 }
 export function blobForYamlObject(object) {
-    return new Blob([jsyaml.dump(object, { flowLevel: 3, sortKeys: true })], { type: 'text/yaml' });
+    return new Blob([jsyaml.dump(object, { noCompatMode: true, flowLevel: 3, sortKeys: true })], { type: 'text/yaml' });
 }
 export function blobForJsonObjects(objects) {
     return new Blob(objects, { type: 'application/json' });
@@ -1926,5 +1967,8 @@ export function registerExtension(id, onStarted, onLoggedIn) {
     onStarted?.(activeWorld, connection);
     ext.onLoggedIn = onLoggedIn;
     ext.succeed?.();
+}
+export function priority(things) {
+    return things.sort((a, b) => b._priority - a._priority);
 }
 //# sourceMappingURL=model.js.map

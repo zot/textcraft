@@ -308,23 +308,19 @@ export async function editWorld(worldName) {
             showMuds();
             return;
         }
-        if (name !== world.name) {
-            await model.storage.renameWorld(world.name, name);
-            showMuds();
-        }
-        if (!processUsers) {
-            for (const childDiv of userList.children) {
-                const childNameField = $find(childDiv, '[name=mud-user-name]');
-                const passwordField = $find(childDiv, '[name=mud-user-password]');
-                const adminCheckbox = $find(childDiv, '[name=mud-user-admin]');
-                const defaultCheckbox = $find(div, '[name=mud-user-default]');
-                if (childDiv.originalUser.name !== childNameField.value
-                    || childDiv.originalUser.password !== passwordField.value
-                    || childDiv.originalUser.admin !== adminCheckbox.checked
-                    || defaultCheckbox.checked !== (world.defaultUser === childDiv.originalUser.name)) {
-                    processUsers = true;
-                    break;
-                }
+        for (const childDiv of userList.children) {
+            const childNameField = $find(childDiv, '[name=mud-user-name]');
+            const passwordField = $find(childDiv, '[name=mud-user-password]');
+            const adminCheckbox = $find(childDiv, '[name=mud-user-admin]');
+            const defaultCheckbox = $find(childDiv, '[name=mud-user-default]');
+            if (childDiv.originalUser.name !== childNameField.value
+                || childDiv.originalUser.password !== passwordField.value
+                || childDiv.originalUser.admin !== adminCheckbox.checked) {
+                processUsers = true;
+            }
+            if (defaultCheckbox.checked && (world.defaultUser !== childNameField.name)) {
+                world.defaultUser = childNameField.value;
+                await world.doTransaction(() => world.store());
             }
         }
         if (processUsers) {
@@ -334,9 +330,6 @@ export async function editWorld(worldName) {
                 user.name = $find(childDiv, '[name=mud-user-name]').value;
                 user.password = $find(childDiv, '[name=mud-user-password]').value;
                 user.admin = $find(childDiv, '[name=mud-user-admin]').checked;
-                if ($find(childDiv, '[name=mud-user-default]').checked) {
-                    world.defaultUser = user.name;
-                }
                 newUsers.push(user);
                 await mudcontrol.updateUser(user);
             }
@@ -354,10 +347,52 @@ export async function editWorld(worldName) {
             world.close();
         }
         changes.extensions.clear();
+        if (name !== world.name) {
+            await model.storage.renameWorld(world.name, name);
+            showMuds();
+        }
     };
-    const validate = () => {
+    function validate() {
         return true;
-    };
+    }
+    async function preventAbort() {
+        const users = new Map();
+        for (const user of await world.getAllUsers()) {
+            users.set(user.name, user);
+        }
+        if (deleted)
+            return false;
+        if (nameField.value !== world.name)
+            return `World name will not change from ${world.name} to ${nameField.value}`;
+        for (const childDiv of userList.children) {
+            const user = childDiv.originalUser;
+            const childNameField = $find(childDiv, '[name=mud-user-name]');
+            const passwordField = $find(childDiv, '[name=mud-user-password]');
+            const adminCheckbox = $find(childDiv, '[name=mud-user-admin]');
+            const defaultCheckbox = $find(childDiv, '[name=mud-user-default]');
+            users.delete(user.name);
+            if (user.name !== childNameField.value) {
+                return `User ${user.name} name will not change to ${childNameField.value}`;
+            }
+            if (user.password !== passwordField.value) {
+                return `User ${user.name} password changed from ${user.password} to ${passwordField.value}`;
+            }
+            if (user.admin !== adminCheckbox.checked) {
+                return `User ${user.name} will ${user.admin ? 'not become' : 'remain'} an admin`;
+            }
+            if (defaultCheckbox.checked && world.defaultUser !== childNameField.value) {
+                return `Default user will not change to ${childNameField.value}`;
+            }
+        }
+        if (users.size > 0) {
+            const deletedUsers = [];
+            for (const [name, user] of users) {
+                deletedUsers.push(name);
+            }
+            return `The following user${deletedUsers.length > 1 ? 's' : ''} will not be deleted: ${deletedUsers.join(', ')}`;
+        }
+        return false;
+    }
     for (const user of await world.getAllUsers()) {
         const itemDiv = userItem(world, user, () => processUsers = true);
         userList.appendChild(itemDiv);
@@ -402,7 +437,7 @@ export async function editWorld(worldName) {
     };
     try {
         dialog: for (;;) {
-            await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]', validate);
+            await okCancel(div, '[name=save]', '[name=cancel]', '[name=mud-name]', validate, preventAbort);
             if (!deleted) {
                 const userNames = new Set();
                 for (const childDiv of userList.children) {
@@ -436,6 +471,7 @@ function userItem(world, user, processUsersFunc) {
     nameField.value = name;
     passwordField.value = password;
     adminCheckbox.checked = !!admin;
+    defaultCheckbox.value = name;
     defaultCheckbox.checked = world.defaultUser === user.name;
     $find(div, '[name=delete-user]').onclick = async (evt) => {
         evt.stopPropagation();
@@ -444,7 +480,7 @@ function userItem(world, user, processUsersFunc) {
     };
     return div;
 }
-export function okCancel(div, okSel, cancelSel, focusSel, validate) {
+export function okCancel(div, okSel, cancelSel, focusSel, validate, preventAbort) {
     document.body.appendChild(div);
     focusSel && setTimeout(() => {
         console.log('focusing ', focusSel, $find(div, focusSel));
@@ -452,10 +488,16 @@ export function okCancel(div, okSel, cancelSel, focusSel, validate) {
         $find(div, focusSel)?.focus();
     }, 1);
     return new Promise((succeed, fail) => {
-        div.onclick = evt => {
-            if (evt.target === div) {
+        async function cancel() {
+            const msg = await preventAbort();
+            if (!msg || confirm(`Cancel?\n\n${msg}`)) {
                 div.remove();
                 fail();
+            }
+        }
+        div.onclick = evt => {
+            if (evt.target === div) {
+                return cancel();
             }
         };
         $find(div, okSel).onclick = () => {
@@ -464,10 +506,7 @@ export function okCancel(div, okSel, cancelSel, focusSel, validate) {
                 succeed();
             }
         };
-        $find(div, cancelSel).onclick = () => {
-            div.remove();
-            fail();
-        };
+        $find(div, cancelSel).onclick = () => cancel();
     });
 }
 export function setMudOutput(html) {
@@ -481,6 +520,7 @@ export function addMudOutput(html) {
     parseHtml(html, $('#mud-output'), (el) => {
         for (const node of $findAll(el, '.input, .property, .method')) {
             const input = $find(node, '.input-text').textContent.trim();
+            const selection = $find(node, '.input-text .select')?.textContent.trim();
             if (node.classList.contains('input')) {
                 if (history[historyPos - 1] !== input) {
                     history.push(input);
@@ -489,9 +529,19 @@ export function addMudOutput(html) {
             }
             node.onclick = () => {
                 $('#mud-command').value = input;
-                if (input.indexOf('\n'))
+                if (input.indexOf('\n') !== -1) {
                     $('#mud-view').classList.add('large-output');
-                $('#mud-command').select();
+                }
+                else {
+                    $('#mud-view').classList.remove('large-output');
+                }
+                if (selection) {
+                    $('#mud-command').selectionStart = input.length - selection.length;
+                    $('#mud-command').selectionEnd = input.length;
+                }
+                else {
+                    $('#mud-command').select();
+                }
                 $('#mud-command').focus();
             };
         }
@@ -729,6 +779,10 @@ export function start() {
             else if (evt.key === 'ArrowDown' && historyPos < history.length && !livinLarge) {
                 field.value = history[++historyPos] || '';
                 setTimeout(() => field.select(), 1);
+            }
+            else if (evt.key === 'Escape') {
+                $('#mud-view').classList.remove('large-output');
+                field.select();
             }
             else if (evt.key === 'Enter' && modified) {
                 $('#mud-view').classList.toggle('large-output');

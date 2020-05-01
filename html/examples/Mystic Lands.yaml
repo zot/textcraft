@@ -1,225 +1,247 @@
-users:
-  - name: admin
-    password: a
-    admin: true
-    thing: 8
-    id: admin
-  - name: playerOne
-    password: playerOne
-    admin: false
-    id: playerOne
 objects:
-  - id: 0
-    name: Limbo
-    fullName: Limbo
-    linkOwner: null
-    otherLink: null
+  - article: ''
+    associationThings: [0]
+    associations: [[location, 0]]
     description: You are floating in $this<br>$links<br><br>$contents
-    prototype: 5
-    article: ''
-    associations: [[location, 0]]
-    associationThings: [0]
-  - id: 1
-    name: ''
-    fullName: Chamber of Attunement
+    fullName: Limbo
+    id: 0
     linkOwner: null
+    name: Limbo
     otherLink: null
+    prototype: 5
+  - '!react_go': '["()","     if (event.destination == me) {\n    return cmd(''@delay @output %event.source \"The gong sounds as $this enter$s the chamber\" @event me act'');\n}"]'
+    article: the
+    associationThings: [0]
+    associations: [[location, 0]]
     description: You are in $this. Many apply for entrance here but few are chosen... <i>and many of the chosen perish</i>. <br><br>Are you here by mistake?<br>
+    fullName: Chamber of Attunement
+    id: 1
+    linkOwner: null
+    name: ''
+    otherLink: null
     prototype: 5
-    article: the
-    '!react_go': ['(thing, oldLoc, newLoc)', "  if (newLoc == me) {\n    return cmd('@delay @output %event.source \"The gong sounds as $this enter$s the chamber\" @event me act');\n}"]
+  - associationThings: [0]
     associations: [[location, 0]]
-    associationThings: [0]
-  - id: 2
-    name: hall
     fullName: Hall of Prototypes
+    id: 2
     linkOwner: null
+    name: hall
     otherLink: null
     prototype: 5
-    associations: [[location, 0]]
-    associationThings: [0]
-  - id: 3
-    name: thing
-    fullName: thing
-    linkOwner: null
-    otherLink: null
-    description: This is $this
+  - '!go': '["()","\n                if (event.destination._thing.isIn(here) && !event.destination.open) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t go into $event.destination $forothers $event.actor tries to go into %event.destination but can\\''t\\\"\")\n                } else if (here._thing.isIn(event.destination) && !here.open) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t leave $event.origin $forothers $event.actor tries to leave %event.origin but can\\''t\\\"\")\n                }\n"]'
     article: the
-    contentsFormat: $This $is here
+    associationThings: [2]
+    associations: [[location, 2]]
     contentsEnterFormat: $forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2
     contentsExitFormat: $forme You leave $this to $arg3 $forothers $Arg leaves $this to $arg3
+    contentsFormat: $This $is here
+    description: This is $this
+    enterFormat: $forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2
     examineFormat: 'Exits: $links<br>Contents: $contents'
+    exitFormat: $forme You leave $this to $arg3 $forothers $Arg leaves $this to $arg3
+    fullName: thing
+    id: 3
     linkFormat: $This leads to $link
+    linkOwner: null
+    name: thing
+    otherLink: null
     priority: 0
-    associations: [[location, 2]]
+  - '!go': '["()","\n                if (event.direction.locked && !inAny(''key'', event.direction._thing)) {\n                    return cmd(\"@fail %event.thing \\\"$forme You don\\''t have the key $forothers $Arg tries to go $event.direction to $event.destination but doesn\\''t have the key\\\"\");\n                }\n"]'
+    article: ''
     associationThings: [2]
-  - id: 4
-    name: link
-    fullName: link
-    linkOwner: null
-    otherLink: null
+    associations: [[location, 2]]
+    closed: true
     description: $This to $link
-    prototype: 3
-    article: ''
-    locked: false
+    fullName: link
+    get: "\n        @output $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me @event me false get $0\n            "
+    id: 4
     linkEnterFormat: $Arg1 entered $arg3
-    linkMoveFormat: You went $name to $arg3
     linkExitFormat: $Arg1 went $name to $arg3
-    get: "\n@output $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me @event me false get $0\n"
-    '!cmd': '["(dir, dest)","\n                if (!dir.locked || anyHas(findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
-    '!go': '["(dir, dest)","\n                if (!dir.locked || anyHas(findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
-    associations: [[location, 2]]
-    associationThings: [2]
-    closed: true
-  - id: 5
-    name: room
-    fullName: room
+    linkMoveFormat: You went $name to $arg3
     linkOwner: null
+    locked: false
+    name: link
     otherLink: null
+    prototype: 3
+  - associationThings: [2]
+    associations: [[location, 2]]
+    closed: true
     description: You are in $this
-    prototype: 3
-    closed: true
-    associations: [[location, 2]]
-    associationThings: [2]
-  - id: 6
-    name: generator
-    fullName: generator
+    fullName: room
+    id: 5
     linkOwner: null
+    name: room
     otherLink: null
+    prototype: 3
+  - associationThings: [2]
+    associations: [[location, 2]]
     description: This is a thing
-    prototype: 3
-    priority: -1
-    get: "\n@quiet;\n@copy $0;\n@js doThings('$0', '%-1', (orig, cpy)=> cpy.fullName = 'a ' + orig._name);\n@reproto %-1 %proto:thing;\n@loud;\nget %-1\n"
-    associations: [[location, 2]]
-    associationThings: [2]
-  - id: 7
-    name: person
-    fullName: person
+    fullName: generator
+    get: "\n        @quiet\n        @copy $0\n        @js orig = $0, cpy = %-1; debugger; cpy.fullName = 'a ' + orig.name\n        @reproto %-1 %proto:thing\n        drop %-1\n        @loud\n        get %-1\n            "
+    id: 6
     linkOwner: null
+    name: generator
     otherLink: null
-    description: $This $is only a dude
+    priority: -1
     prototype: 3
-    article: ''
-    examineFormat: 'Carrying: $contents'
-    get: "\n@output $0 \"$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't\" me @event me false get $0\n"
-    associations: [[location, 2]]
+  - article: ''
     associationThings: [2]
-  - id: 8
-    name: admin
-    fullName: admin
+    associations: [[location, 2]]
+    description: $This $is only a dude
+    examineFormat: 'Carrying: $contents'
+    fullName: person
+    get: "\n        @output $0 \"$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't\" me @event me false get $0\n            "
+    id: 7
     linkOwner: null
+    name: person
+    newget: "\n        @fail %event.thing \"$forme You cannot pick up $event.thing! $forothers $event.actor tries to pick up $event.thing but can't\"\n            "
+    otherLink: null
+    prototype: 3
+  - associationThings: [1]
+    associations: [[location, 1]]
+    fullName: admin
+    id: 8
+    linkOwner: null
+    name: admin
     otherLink: null
     prototype: 7
-    associations: [[location, 1]]
-    associationThings: [1]
-  - id: 9
-    name: mounds
+  - article: the
+    associationThings: [0]
+    associations: [[location, 0]]
     fullName: Mumbling Mounds
+    id: 9
     linkOwner: null
+    name: mounds
     otherLink: null
-    article: the
     prototype: 5
-    associations: [[location, 0]]
-    associationThings: [0]
-  - id: 10
-    name: down
-    fullName: down
-    prototype: 4
+  - associationThings: [0, 1, 11]
     associations: [[location, 0], [linkOwner, 1], [otherLink, 11]]
-    associationThings: [0, 1, 11]
-  - id: 11
-    name: up
-    fullName: up
+    fullName: down
+    id: 10
+    name: down
     prototype: 4
+  - associationThings: [0, 9, 10]
     associations: [[location, 0], [linkOwner, 9], [otherLink, 10]]
-    associationThings: [0, 9, 10]
-  - id: 12
-    name: ''
+    fullName: up
+    id: 11
+    name: up
+    prototype: 4
+  - article: a
+    associationThings: [0]
+    associations: [[location, 0]]
     fullName: Gathering of Ancient Sages
+    id: 12
     linkOwner: null
-    otherLink: null
-    article: a
-    prototype: 5
-    associations: [[location, 0]]
-    associationThings: [0]
-  - id: 13
     name: ''
-    fullName: Sea of Transformation
-    linkOwner: null
     otherLink: null
-    article: the
     prototype: 5
+  - article: the
+    associationThings: [0]
+    associations: [[location, 0]]
     description: You are in a ship on $this. Anything can happen.
-    associations: [[location, 0]]
-    associationThings: [0]
-  - id: 14
-    name: south
-    fullName: south
-    prototype: 4
-    associations: [[location, 0], [linkOwner, 9], [otherLink, 15]]
-    associationThings: [0, 9, 15]
-  - id: 15
-    name: north
-    fullName: north
-    prototype: 4
-    associations: [[location, 0], [linkOwner, 12], [otherLink, 14]]
-    associationThings: [0, 12, 14]
-  - id: 16
-    name: east
-    fullName: east
-    prototype: 4
-    associations: [[location, 0], [linkOwner, 12], [otherLink, 17]]
-    associationThings: [0, 12, 17]
-  - id: 17
-    name: west
-    fullName: west
-    prototype: 4
-    associations: [[location, 0], [linkOwner, 13], [otherLink, 16]]
-    associationThings: [0, 13, 16]
-  - id: 18
-    name: Exalted
-    fullName: Exalted Spirit Mountains
+    fullName: Sea of Transformation
+    id: 13
     linkOwner: null
+    name: ''
     otherLink: null
     prototype: 5
-    article: ''
-    associations: [[location, 0]]
-    associationThings: [0]
-  - id: 19
-    name: north
-    fullName: north
-    prototype: 4
-    associations: [[location, 0], [linkOwner, 13], [otherLink, 20]]
-    associationThings: [0, 13, 20]
-  - id: 20
-    name: south
+  - associationThings: [0, 9, 15]
+    associations: [[location, 0], [linkOwner, 9], [otherLink, 15]]
     fullName: south
+    id: 14
+    name: south
     prototype: 4
-    associations: [[location, 0], [linkOwner, 18], [otherLink, 19]]
-    associationThings: [0, 18, 19]
-  - id: 21
-    name: west
-    fullName: west
+  - associationThings: [0, 12, 14]
+    associations: [[location, 0], [linkOwner, 12], [otherLink, 14]]
+    fullName: north
+    id: 15
+    name: north
     prototype: 4
-    associations: [[location, 0], [linkOwner, 18], [otherLink, 22]]
-    associationThings: [0, 18, 22]
-  - id: 22
-    name: east
+  - associationThings: [0, 12, 17]
+    associations: [[location, 0], [linkOwner, 12], [otherLink, 17]]
     fullName: east
+    id: 16
+    name: east
     prototype: 4
+  - associationThings: [0, 13, 16]
+    associations: [[location, 0], [linkOwner, 13], [otherLink, 16]]
+    fullName: west
+    id: 17
+    name: west
+    prototype: 4
+  - article: ''
+    associationThings: [0]
+    associations: [[location, 0]]
+    fullName: Exalted Spirit Mountains
+    id: 18
+    linkOwner: null
+    name: Exalted
+    otherLink: null
+    prototype: 5
+  - associationThings: [0, 13, 20]
+    associations: [[location, 0], [linkOwner, 13], [otherLink, 20]]
+    fullName: north
+    id: 19
+    name: north
+    prototype: 4
+  - associationThings: [0, 18, 19]
+    associations: [[location, 0], [linkOwner, 18], [otherLink, 19]]
+    fullName: south
+    id: 20
+    name: south
+    prototype: 4
+  - associationThings: [0, 18, 22]
+    associations: [[location, 0], [linkOwner, 18], [otherLink, 22]]
+    fullName: west
+    id: 21
+    name: west
+    prototype: 4
+  - associationThings: [0, 1, 21]
     associations: [[location, 0], [linkOwner, 1], [otherLink, 21]]
-    associationThings: [0, 1, 21]
-  - id: info
-    nextId: 24
-    name: Mystic Lands
-    lobby: 1
-    limbo: 0
-    hallOfPrototypes: 2
-    thingProto: 3
-    linkProto: 4
-    roomProto: 4
-    personProto: 7
-    generatorProto: 6
+    fullName: east
+    id: 22
+    name: east
+    prototype: 4
+  - associationThings: [1]
+    associations: [[location, 1]]
+    fullName: playerOne
+    id: 24
+    name: playerOne
+    prototype: 7
+  - associationThings: [1]
+    associations: [[location, 1]]
+    fullName: bubba
+    id: 25
+    name: bubba
+    prototype: 7
+  - associationThings: [1]
+    associations: [[location, 1]]
+    fullName: Poopy
+    id: 26
+    name: Poopy
+    prototype: 7
+  - clockRate: 2
     defaultUser: playerOne
-    clockRate: 2
+    generatorProto: 6
+    hallOfPrototypes: 2
+    id: info
+    limbo: 0
+    linkProto: 4
+    lobby: 1
+    name: Mystic Lands
+    nextId: 27
+    personProto: 7
+    roomProto: 4
+    thingProto: 3
     version: 1
+users:
+  - admin: true
+    id: admin
+    name: admin
+    password: a
+    thing: 8
+  - admin: false
+    id: playerOne
+    name: playerOne
+    password: playerOne
+    thing: 24

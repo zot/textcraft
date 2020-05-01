@@ -221,9 +221,11 @@ body:not(.emulation) #toggleStateButtons {
     min-height: 2em;
     resize: none;
     flex-grow: 0;
+    overflow-x: hidden;
 }
 #mud-view.large-output #mud-command {
     min-height: 20em;
+    overflow-x: auto;
 }
 #mud-run-command {
     display: none;
@@ -327,6 +329,9 @@ body:not(.emulation) #toggleStateButtons {
 .mode-label {
     font-weight: bold;
     color: cyan;
+}
+.pre {
+    white-space: pre;
 }
 .code {
     font-family: monospace;

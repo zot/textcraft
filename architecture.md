@@ -5,11 +5,12 @@ Things can:
 1. Have properties (which can be methods)
 2. Have associations with other things (one-to-one, many-to-one, many-to-many)
 3. Contain other things
-4. Link to other things
-5. Function as links between things
-6. Provide new commands
-7. Control what happens when things move into or through them
-8. React to events
+4. Link things to other things
+5. Provide new commands
+6. Override attempts to get them
+7. Override attempts to drop them (to be implemented)
+8. Override attempts to move into*, through, or out of* them (* to be implemented)
+9. React to events
 
 In game code, you get and set a thing's associations through thing.assoc.NAME and thing.assocMany.NAME.
 Assoc is for one-to-one and many-to-one associations and assocMany is for many-to-many associations.

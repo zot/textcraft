@@ -147,11 +147,11 @@ export const commands = new Map([
         })],
     ['go', new Command({ help: ['location', `move to another location (may be a direction)`] })],
     ['i', new Command({ help: [''], alt: 'inventory' })],
+    ['inv', new Command({ help: [''], alt: 'inventory' })],
     ['invent', new Command({ help: [''], alt: 'inventory' })],
     ['inventory', new Command({ help: ['', `list what you are carrying`] })],
     ['say', new Command({
             help: ['words...', `Say something
-
    You can use ' or " as a synonym for say if it's the first character of a command
 `]
         })],
@@ -159,7 +159,6 @@ export const commands = new Map([
     ['whisper', new Command({ help: ['thing words...', `Say something to thing`] })],
     ['act', new Command({
             help: ['words...', `Do something
-
    You can use : as a synonym for act if it's the first character of a command
 `]
         })],
@@ -171,7 +170,6 @@ export const commands = new Map([
     ['@call', new Command({ help: ['thing.property arg...', `Call a method on a thing`] })],
     ['@js', new Command({
             help: ['var1 = thing1, var2 = thing2... ; code...', `Run JavaScript code with optional variable bindings
-
    Note that commas between variable bindings are optional
    The initial variable values are things looked up by name and bound to specProxies for the things
    You can use ! as a synonym for @js if it's the first character of a command
@@ -227,15 +225,17 @@ export const commands = new Map([
         })],
     ['@dump', new Command({
             help: ['thing', `See properties of a thing
-
    You can use % as a synonym for @dump if it's the first character of a command
 `]
         })],
     ['@move', new Command({ help: ['thing location', 'Move a thing'] })],
+    ['@fail', new Command({
+            help: ['context format args', `Fail the current event and emit a format string
+   If it has $forme, it will output to the user, if it has $forothers, that will output to others`]
+        })],
     ['@output', new Command({
             help: ['contextThing FORMAT-AND-EVENT-ARGS...',
                 ` Output text to the user and/or others using a format string on contextThing
-
   @output contextThing "FORMAT" arg... @event actor EVENT arg...
   @output contextThing "FORMAT" arg... @event actor false EVENT arg...
 
@@ -248,15 +248,20 @@ export const commands = new Map([
     ['@quiet', new Command({ help: ['', 'disable all output for this command'] })],
     ['@loud', new Command({ help: ['', 'enable all output for this command'] })],
     ['@admin', new Command({ help: ['thing boolean', 'Change a thing\'s admin privileges'] })],
-    ['@create', new Command({ help: ['proto name [description words...]', 'Create a thing'] })],
+    ['@create', new Command({
+            help: ['proto name [description words...]', `Create a thing using a prototype.
+   You can use a prototype by name if it's in the hall of prototypes or you can specify any other
+   thing using %-notation. The known prototypes in the hall of prototypes are:
+$prototypes`]
+        })],
     ['@toast', new Command({ help: ['thing...', 'Toast things and everything they\'re connected to'] })],
     ['@copy', new Command({
             help: ['thing', '',
                 'thing force', `Copy a thing to your inventory (force allows copying the entire world -- can be dangerous)`]
         })],
     ['@find', new Command({
-            help: ['thing', 'Find a thing',
-                'thing location', 'Find a thing from a location',]
+            help: ['thing', 'Find a thing from your current location',
+                'thing start', 'Find a thing from a particular thing',]
         })],
     ['@link', new Command({ help: ['loc1 link1 link2 loc2', 'create links between two things'] })],
     ['@info', new Command({ help: ['', 'List important information'] })],
@@ -270,9 +275,9 @@ export const commands = new Map([
     ['@start', new Command({ help: ['', `Start the clock`], admin: true })],
     ['@clock', new Command({ help: ['seconds', `Change the clock rate`], admin: true })],
     ['@remove', new Command({ help: ['thing property thing2', `Remove thing2 from the list in property`], admin: true })],
-    ['@setNum', new Command({ help: ['thing property number'], admin: true, alt: '@set' })],
-    ['@setBigint', new Command({ help: ['thing property bigint'], admin: true, alt: '@set' })],
-    ['@setBool', new Command({ help: ['thing property boolean'], admin: true, alt: '@set' })],
+    ['@setnum', new Command({ help: ['thing property number'], admin: true, alt: '@set' })],
+    ['@setbigint', new Command({ help: ['thing property bigint'], admin: true, alt: '@set' })],
+    ['@setbool', new Command({ help: ['thing property boolean'], admin: true, alt: '@set' })],
     ['@set', new Command({ help: setHelp })],
     ['@del', new Command({ help: ['thing property', `Delete a properties from a thing so it will inherit from its prototype`] })],
     ['@reproto', new Command({ help: ['thing proto', `Change the prototype of a thing`] })],
@@ -320,43 +325,172 @@ export function initCommand(command, cmdName, cmds) {
     }
 }
 export class Descripton {
-    constructor(source, event, args, failed, visitFunc, visitLinks = false) {
+    constructor(source, event, args, failed) {
+        this.succeedHooks = [];
+        this.failHooks = [];
+        this.connection = connectionMap.get(source) || connection;
         this.tick = connection.tickCount;
         this.source = source;
         this.event = event;
         this.failed = failed;
         this.args = args;
-        this.visitFunc = visitFunc;
-        this.visitLinks = visitLinks;
-        this.visited = new Set();
         for (let i = 0; i < args.length; i++) {
             this[i] = args[i];
         }
+    }
+    copy() {
+        return { __proto__: this };
+    }
+    get actor() { return this.source; }
+    emit(thing, visitFunc, excludes, visitLinks = false) {
+        excludes = excludes ? pxyThings(excludes) : [thing._thing, thing._thing.world.limbo];
+        this.propagate(thing._thing, new Set(excludes), visitFunc, visitLinks);
     }
     /**
      * Propagate to a thing and its contents
      * If the thing is open, also propagate to its location
      * If this.visitLinks is true, also propagate through links
      */
-    propagate(thing) {
-        const world = this.source.world;
-        if (this.done || !thing || this.visited.has(thing))
+    propagate(thing, visited, visitFunc, visitLinks) {
+        if (this.done || !thing || visited.has(thing))
             return;
-        this.visited.add(thing);
-        this.visitFunc(thing, this);
+        visited.add(thing);
+        visitFunc(thing, this);
         for (const item of thing.refs.location) {
-            this.propagate(item);
+            this.propagate(item, visited, visitFunc, visitLinks);
         }
-        if (this.visitLinks) {
+        if (visitLinks) {
             for (const item of thing.refs.linkOwner) {
                 const otherLink = thing.assoc.otherLink;
                 const otherThing = otherLink && otherLink.assoc.linkOwner;
-                this.propagate(otherLink);
-                this.propagate(otherThing);
+                this.propagate(otherLink, visited, visitFunc, visitLinks);
+                this.propagate(otherThing, visited, visitFunc, visitLinks);
             }
         }
         if (!thing._closed || this.ignoreClosed)
-            return this.propagate(thing.assoc.location);
+            return this.propagate(thing.assoc.location, visited, visitFunc, visitLinks);
+    }
+    wrapThings() {
+        this.source = this.source?.specProxy;
+    }
+    unwrapThings() {
+        this.source = this.source?._thing;
+    }
+    sendOutput(start, formatString, args, prefix, context = start) {
+        const prefixStr = prefix ? capitalize(this.connection.formatName(this.actor._thing)) + ' ' : '';
+        this.emit(start, t => {
+            const con = connectionMap.get(t);
+            if (con) {
+                con.withResults(connection, () => {
+                    // run format in each connection so it can deal with admin, names, etc.
+                    con.output(prefixStr + con.basicFormat(context, formatString, args));
+                });
+            }
+            else {
+                // process reactions in the main MudConnection
+                connection.react(t, this);
+            }
+        }, [this.actor._thing]);
+    }
+    emitFail(start, failFormat, args = [], prefix, context = start) {
+        const prefixStr = prefix ? capitalize(this.connection.formatName(this.actor._thing)) + ' ' : '';
+        const contexts = formatContexts(failFormat);
+        let con = this.connection;
+        const msg = contexts.me && con.basicFormat(con.thing, contexts.me, args);
+        this.fail();
+        if (contexts.others) {
+            this.emit(start._thing, t => {
+                con = connectionMap.get(t);
+                if (con) {
+                    con.withResults(connection, () => {
+                        // run format in each connection so it can deal with admin, names, etc.
+                        con.output(prefixStr + con.basicFormat(context, contexts.others, args));
+                    });
+                }
+                else {
+                    // process reactions in the main MudConnection
+                    connection.react(t, this);
+                }
+            }, [this.actor._thing]);
+        }
+        return new Error(msg);
+    }
+    fail() {
+        if (!this.failed) {
+            this.failed = true;
+            for (const code of this.failHooks) {
+                code();
+            }
+        }
+    }
+}
+class MoveDescripton extends Descripton {
+    constructor(actor, evt, thing, dest, dir, dirStr) {
+        super(actor, evt, [], false);
+        this.thing = thing?._thing;
+        this.origin = thing.assoc.location?._thing;
+        this.destination = dest?._thing;
+        this.direction = dir?._thing;
+        this.directionString = dirStr;
+        this.wrapThings();
+    }
+    wrapThings() {
+        super.wrapThings();
+        this.thing = this.thing?.specProxy;
+        this.origin = this.origin?.specProxy;
+        this.destination = this.destination?.specProxy;
+        this.direction = this.direction?.specProxy;
+    }
+    unwrapThings() {
+        super.unwrapThings();
+        this.thing = this.thing?._thing;
+        this.origin = this.origin?._thing;
+        this.destination = this.destination?._thing;
+        this.direction = this.direction?._thing;
+    }
+    sendOutputs() {
+        this.unwrapThings();
+        const copy = this.copy();
+        const args = [this.thing, this.origin, this.destination];
+        const con = this.connection;
+        const link = this.direction?.assoc.otherLink?._thing;
+        const outOf = this.origin.assoc.location._thing === this.destination;
+        const into = this.destination.assoc.location._thing === this.origin;
+        copy.wrapThings();
+        if (!this.moveFormat) {
+            if (this.direction && this.direction !== this.destination) {
+                this.moveFormat = this.direction._linkMoveFormat;
+            }
+            else if (outOf) {
+                this.moveFormat = `You get out of $arg2 into $arg3`;
+            }
+            else if (into) {
+                this.moveFormat = `You get into $arg3 from $arg2`;
+            }
+            else {
+                this.moveFormat = `You go from $arg2 to $arg3`;
+            }
+        }
+        if (!this.exitFormat) {
+            this.exitFormat = this.direction?._linkExitFormat
+                || this.origin._exitFormat
+                || (outOf && `$event.thing gets out of $arg2 into $arg3`)
+                || (into && `$event.thing gets into $arg3 from $arg2`)
+                || `$event.thing goes from $arg2 to $arg3`;
+        }
+        if (!this.enterFormat) {
+            this.enterFormat = link?._linkEnterFormat
+                || this.destination._enterFormat
+                || (outOf && `$event.thing gets out of $arg2 into $arg3`)
+                || (into && `$event.thing gets into $arg3 from $arg2`)
+                || `$event.thing goes from $arg2 to $arg3`;
+        }
+        this.moveFormat = formatContexts(this.moveFormat).me;
+        this.exitFormat = formatContexts(this.exitFormat).others;
+        this.enterFormat = formatContexts(this.enterFormat).others;
+        this.moveFormat && con?.output(con.basicFormat(this.direction || this.origin, this.moveFormat, args));
+        this.exitFormat && copy.sendOutput(this.origin, this.exitFormat, args, false, this.direction || this.origin);
+        this.enterFormat && copy.sendOutput(this.destination, this.enterFormat, args, false, this.direction?.assoc.otherLink || this.destination);
     }
 }
 class CommandContext {
@@ -481,30 +615,22 @@ export class MudConnection {
             this.outputHandler(text.match(/^</) ? text : `<div>${text}</div>`);
         }
     }
-    withResultsSync(otherCon, func) {
-        const oldEvent = this.event;
-        const oldCondition = this.conditionResult;
-        this.event = otherCon.event;
-        this.conditionResult = otherCon.conditionResult;
-        try {
-            func();
-        }
-        finally {
-            this.event = oldEvent;
-            this.conditionResult = oldCondition;
-        }
-    }
     withResults(otherCon, func) {
-        const oldEvent = this.event;
-        const oldCondition = this.conditionResult;
-        this.event = otherCon.event;
-        this.conditionResult = otherCon.conditionResult;
-        try {
-            func();
+        if (otherCon) {
+            const oldEvent = this.event;
+            const oldCondition = this.conditionResult;
+            this.event = otherCon.event;
+            this.conditionResult = otherCon.conditionResult;
+            try {
+                func();
+            }
+            finally {
+                this.event = oldEvent;
+                this.conditionResult = oldCondition;
+            }
         }
-        finally {
-            this.event = oldEvent;
-            this.conditionResult = oldCondition;
+        else {
+            func();
         }
     }
     async start() {
@@ -535,12 +661,12 @@ export class MudConnection {
         const ctx = formatContexts(str);
         return ctx.others ? this.basicFormat(tip, formatContexts(str).others, args) : '';
     }
-    dumpName(tip) {
+    dumpName(tip, simpleName) {
         const thing = this.world.getThing(tip);
-        return thing ? this.formatName(thing, true, true) : 'null';
+        return thing ? this.formatName(thing, true, true, simpleName) : 'null';
     }
-    formatName(thing, esc = false, verbose = this.verboseNames) {
-        let output = thing._thing.formatName();
+    formatName(thing, esc = false, verbose = this.verboseNames, simpleName) {
+        let output = simpleName ? thing._thing._name : thing._thing.formatName();
         if (esc)
             output = escape(output);
         if (verbose) {
@@ -550,17 +676,17 @@ export class MudConnection {
     }
     formatDumpProperty(thing, prop, noParens = false) {
         const inherited = !(noParens || thing.hasOwnProperty('_' + prop));
-        return `<span class='property${inherited ? ' inherited' : ''}'><span class='hidden input-text'>@set %${thing.id} ${prop} ${escape(thing['_' + prop])}</span>${prop}</span>`;
+        return `<span class='property${inherited ? ' inherited' : ''}'><span class='hidden input-text'>@set %${thing.id} ${prop} <span class='select'>${escape(thing['_' + prop])}</span></span>${prop}</span>`;
     }
     formatDumpMethod(thing, prop, noParens = false) {
         const inherited = !(noParens || thing.hasOwnProperty('!' + prop));
         const [args, body] = JSON.parse(thing['!' + prop]._code);
-        return `<span class='method${inherited ? ' inherited' : ''}'><span class='hidden input-text'>@method %${thing.id} ${prop} ${escape(args)} ${escape(body)}</span>${prop}</span>`;
+        return `<span class='method${inherited ? ' inherited' : ''}'><span class='hidden input-text'>@method %${thing.id} ${prop} <span class='select'>${escape(args)} ${escape(body)}</span></span>${prop}</span>`;
     }
     basicFormat(tip, str, args) {
         if (!str)
             return str;
-        const thing = tip instanceof Thing ? tip : this.world.getThing(tip);
+        const thing = tip instanceof Thing ? tip._thing : this.world.getThing(tip);
         const adminParts = str.split(/(\s*\$admin\b\s*)/i);
         str = adminParts.length > 1 ? (this.admin && adminParts[2]) || adminParts[0] : str;
         const parts = str.split(/( *\$(?:result|event)(?:\.\w*)?| *\$\w*)/i);
@@ -592,6 +718,11 @@ export class MudConnection {
                     continue;
                 }
                 switch (format.toLowerCase()) {
+                    case 'prototypes': {
+                        const ind = '\n      ';
+                        result += ind + this.world.hallOfPrototypes.refs.location.map(t => this.dumpName(t, true)).join(ind);
+                        continue;
+                    }
                     case 'this': {
                         let name;
                         if (thing === this.thing) {
@@ -608,11 +739,11 @@ export class MudConnection {
                         continue;
                     }
                     case 'is': {
-                        result += thing && thing === this.thing ? 'are' : 'is';
+                        result += this.isPlural(thing) ? 'are' : 'is';
                         continue;
                     }
                     case 's': {
-                        if (!thing || thing !== this.thing) {
+                        if (!this.isPlural(thing)) {
                             result += (result.match(/\sgo$/) ? 'es' : 's');
                         }
                         continue;
@@ -635,9 +766,13 @@ export class MudConnection {
                     }
                     case 'contents': {
                         const contents = thing.refs.location;
+                        const hidden = this.hiddenFor(this.thing);
                         if (contents.length) {
                             for (const item of contents) {
-                                result += `<br>&nbsp;&nbsp;${this.format(item, thing.contentsFormat)}`;
+                                if ((!item.assoc.visibleTo || item.assoc.visibleTo === this.thing)
+                                    && !hidden.has(item)) {
+                                    result += `<br>&nbsp;&nbsp;${this.format(item, thing.contentsFormat)}`;
+                                }
                             }
                             result += '<br>';
                         }
@@ -659,6 +794,14 @@ export class MudConnection {
         }
         return result;
     }
+    hiddenFor(thing) {
+        const items = [];
+        const fooling = thing.refs.fooling;
+        for (const item of fooling) {
+            items.push(...item.assocMany.hides);
+        }
+        return new Set(items);
+    }
     description(thing) {
         return this.format(thing, thing.description);
     }
@@ -671,8 +814,7 @@ export class MudConnection {
     }
     checkCommand(prefix, cmd, thing, checkLocal = cmd === thing.name) {
         return (checkLocal && (thing['_' + prefix] || thing['!' + prefix]))
-            || thing[`_${prefix}_${cmd}`]
-            || thing[`!${prefix}_${cmd}`];
+            || (cmd && (thing[`_${prefix}_${cmd}`] || thing[`!${prefix}_${cmd}`]));
     }
     findCommand(words, prefix = 'cmd') {
         const result = this.findTemplate(words, prefix);
@@ -722,11 +864,16 @@ export class MudConnection {
                 const parts = line.split(/( *\$\w*)/);
                 let newCmd = '';
                 for (const part of parts) {
-                    const match = part.match(/^( *)\$([0-9]+)$/);
+                    const match = part.match(/^( *)\$([0-9]+|\*)$/);
                     if (match) {
                         const [_, space, format] = match;
                         newCmd += space;
-                        newCmd += words[Number(format)];
+                        if (format === '*') {
+                            newCmd += words.slice(1).join(' ');
+                        }
+                        else {
+                            newCmd += words[Number(format)];
+                        }
                     }
                     else {
                         newCmd += part;
@@ -785,11 +932,14 @@ export class MudConnection {
                     await promise;
                 }
             }
-            this.failed = false;
         })
             .catch(err => {
             console.log(err);
             this.error(err.message);
+        })
+            .finally(() => {
+            this.failed = false;
+            this.substituting = false;
         });
         if (this.thing?.name !== this.myName) {
             this.myName = this.thing.name;
@@ -813,13 +963,19 @@ export class MudConnection {
             line = `@js ${line.substring(1)}`;
         }
         const words = splitQuotedWords(line);
-        const commandName = words[0].toLowerCase();
+        let commandName = words[0].toLowerCase();
         if (!substituted) {
             this.output('<div class="input">&gt; <span class="input-text">' + escape(originalLine) + '</span></div>');
             if (!this.commands.has(commandName) && this.thing) {
                 const newCommands = this.findCommand(words);
                 if (newCommands)
                     return this.runCommands(newCommands);
+                const target = this.find(words[0], this.thing.assoc.location);
+                if (target) {
+                    line = `go ${line}`;
+                    words.unshift('go');
+                    commandName = 'go';
+                }
             }
         }
         if (this.thing ? this.commands.has(commandName) : commandName === 'login' || commandName === 'help') {
@@ -833,7 +989,7 @@ export class MudConnection {
             if (!substituted && user)
                 this.muted = 0;
             try {
-                this.world.update(() => this[command.method]({ command, line, substituted }, ...words.slice(1)));
+                this.update(() => this[command.method]({ command, line, substituted }, ...words.slice(1)));
                 return true;
             }
             finally {
@@ -846,6 +1002,9 @@ export class MudConnection {
         else {
             this.error('Unknown command: ' + words[0]);
         }
+    }
+    update(func) {
+        return this.world.update(func);
     }
     findAll(names, start = this.thing, errTag = '') {
         const result = [];
@@ -894,7 +1053,7 @@ export class MudConnection {
                                             : name.match(/^%proto:/) ? this.world.hallOfPrototypes.find(name.replace(/^%proto:/, ''))
                                                 : name.match(/%-[0-9]+/) ? this.created[this.created.length - Number(name.substring(2))]
                                                     : name.match(/%[0-9]+/) ? this.world.getThing(Number(name.substring(1)))
-                                                        : start.find(name[0] === '%' ? name.slice(1) : name, this.thing.isIn(this.world.limbo) ? new Set() : new Set([this.world.limbo]));
+                                                        : this.findThingInWorld(start, name);
             }
         }
         result = result?._thing;
@@ -903,6 +1062,13 @@ export class MudConnection {
         if (result instanceof Thing)
             this.world.stamp(result);
         return result;
+    }
+    findThingInWorld(start, name) {
+        const hidden = this.hiddenFor(this.thing);
+        if (name[0] === '%')
+            name = name.slice(1);
+        name = name.toLowerCase();
+        return start.find(thing => !hidden.has(thing) && thing.name.toLowerCase() === name, this.thing.isIn(this.world.limbo) ? new Set() : new Set([this.world.limbo]));
     }
     dumpThingNames(things) {
         const items = [];
@@ -965,7 +1131,7 @@ export class MudConnection {
                 const oldThing = this.thing;
                 const [thing, admin] = await this.world.authenticate(user, password, name, noauthentication);
                 this.user = user;
-                this.thing = thing;
+                this.thing = thing._thing;
                 this.myName = thing.name;
                 //this.myName = thing.name
                 this.admin = admin;
@@ -996,10 +1162,12 @@ export class MudConnection {
     }
     formatDescripton(actionContext, action, actionArgs, event, args, succeeded = true, prefix = true, excludeActor = true, startAt, actor = this.thing) {
         if (!this.suppressOutput) {
-            const desc = new Descripton(actor, event, args, !succeeded, thing => {
+            const exclude = [];
+            const desc = new Descripton(actor, event, args, !succeeded);
+            const visitFunc = thing => {
                 const con = connectionMap.get(thing);
                 if (con) {
-                    con.withResultsSync(this, () => {
+                    con.withResults(this, () => {
                         // run format in each connection so it can deal with admin and names
                         const format = con.basicFormat(actionContext, action, actionArgs);
                         const text = prefix ? `${capitalize(con.formatName(this.thing))} ${format}` : format;
@@ -1010,12 +1178,12 @@ export class MudConnection {
                     // process reactions in the main MudConnection
                     connection.react(thing, desc);
                 }
-            });
+            };
             if (!startAt)
                 startAt = this.thing.assoc.location?._thing;
             if (excludeActor)
-                desc.visited.add(actor);
-            desc.propagate(startAt);
+                exclude.push(actor);
+            desc.emit(startAt, visitFunc, exclude);
         }
     }
     react(thing, desc) {
@@ -1050,7 +1218,7 @@ export class MudConnection {
         }
     }
     connectionFor(thing) {
-        let con = connectionMap.get(thing);
+        let con = connectionMap.get(thing._thing);
         if (!con) {
             con = new MudConnection(thing);
             con.admin = true;
@@ -1100,7 +1268,7 @@ export class MudConnection {
             }
             if (this.tickers.size) {
                 await this.world.doTransaction(async () => {
-                    const tick = new Descripton(null, 'tick', [], false, () => { });
+                    const tick = new Descripton(null, 'tick', [], false);
                     for (const ticker of this.tickers) {
                         const reaction = ticker._react_tick;
                         if (reaction) {
@@ -1171,6 +1339,45 @@ export class MudConnection {
         }
         return JSON.stringify(value) || String(value);
     }
+    continueMove(cmdInfo, evt) {
+        if (evt.failed)
+            return;
+        if (evt.directionString && !evt.direction) {
+            if (this.substituting)
+                throw evt.emitFail(this.thing, `Where is ${evt.directionString}?`);
+            // e.g. check if there's a go_north property in the room
+            this.eventCommand(`${evt.event}_${evt.directionString}`, null, evt.source.assoc.location, evt);
+        }
+        else if (evt.direction && !this.substituting) {
+            this.eventCommand(evt.event, evt.directionString, evt.direction, evt);
+        }
+        if (evt.failed)
+            return;
+        if (!evt.destination)
+            throw evt.emitFail(this.thing, `Go where?`);
+        if (!this.substituting) {
+            this.eventCommand(evt.event, evt.directionString, evt.destination, evt);
+        }
+        if (evt.failed)
+            return;
+        // nothing prevented it so the thing will actually move now
+        this.update(() => evt.thing._thing.assoc.location = evt.destination);
+        evt.sendOutputs();
+    }
+    eventCommand(prefix, suffix, thing, event) {
+        this.event = event;
+        const cmd = this.checkCommand(prefix, suffix, thing._thing, true);
+        if (cmd) {
+            const template = this.substituteCommand(cmd, [`%${thing.id}`, ...event.args]);
+            this.event = event;
+            template && this.runCommands(template);
+            this.substituting = false;
+        }
+    }
+    isPlural(thing) {
+        const t = thing?._thing;
+        return !t || (t._plural || t === this.thing);
+    }
     // COMMAND
     login(cmdInfo, user, password) {
         setTimeout(() => this.doLogin(user, password, user), 1);
@@ -1222,65 +1429,20 @@ export class MudConnection {
     }
     // COMMAND
     go(cmdInfo, directionStr) {
-        if (!cmdInfo.substituted) {
-            const cmd = this.findCommand([directionStr, 'me'], 'go');
-            if (cmd)
-                return this.runCommands(cmd);
+        const direction = this.find(directionStr, this.thing);
+        const otherLink = direction?.assoc.otherLink;
+        const destination = otherLink?.assoc.linkOwner || direction;
+        const evt = new MoveDescripton(this.thing, 'go', this.thing, destination, direction, directionStr);
+        if (!this.substituting) {
+            this.eventCommand('go', null, this.thing, evt);
         }
-        const oldLoc = this.thing.assoc.location?._thing;
-        let direction = this.find(directionStr, this.thing, 'direction');
-        if (!direction)
-            throw new Error(`Go where?`);
-        direction = direction._thing;
-        let location;
-        const linkOwner = direction.assocId.linkOwner;
-        let tmp = direction;
-        const visited = new Set();
-        while (tmp !== this.world.limbo) {
-            if (visited.has(tmp))
-                throw new Error(`${this.formatName(direction)} is in a circularity`);
-            visited.add(tmp);
-            if (tmp === this.thing) {
-                throw new Error('You cannot go into something you are holding');
-            }
-            tmp = linkOwner in tmp.assoc ? tmp.assoc.linkOwner._thing : tmp.assoc.location?._thing;
-        }
-        if (!linkOwner) {
-            location = direction?._thing;
-            const oldPx = this.world.propertyProximity(oldLoc, '_contentsExitFormat');
-            const newPx = this.world.propertyProximity(location, '_contentsEnterFormat');
-            const emitter = newPx >= oldPx ? location : oldLoc;
-            const ctx = formatContexts(newPx >= oldPx ? location._contentsEnterFormat : oldLoc._contentsExitFormat);
-            this.world.update(() => this.thing.assoc.location = location);
-            ctx.others && this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing);
-            ctx.me && this.basicFormat(emitter, ctx.me, [this.thing, oldLoc, location]);
-            ctx.others && this.formatDescripton(emitter, ctx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, true, true, this.thing);
-        }
-        else {
-            let link = direction.assoc.otherLink?._thing;
-            if (link) {
-                link = link._thing;
-                const dest = link.assoc.linkOwner?._thing;
-                if (!dest) {
-                    return this.error(`${directionStr} does not lead anywhere`);
-                }
-                location = dest._thing;
-            }
-            const output = this.formatMe(direction, direction._linkMoveFormat, this.thing, oldLoc, location);
-            const exitCtx = formatContexts(direction._linkExitFormat);
-            exitCtx.others && this.formatDescripton(direction, exitCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false);
-            this.world.update(() => { this.thing.assoc.location = location; });
-            output && this.output(output);
-            const enterCtx = formatContexts(direction._linkEnterFormat);
-            if (link) {
-                this.formatDescripton(link, enterCtx.others, [this.thing, oldLoc, location], 'go', [oldLoc, location], true, false);
-            }
-        }
-        this.look(cmdInfo);
+        this.continueMove(cmdInfo, evt);
+        !evt.failed && this.connectionFor(evt.thing).look(cmdInfo);
     }
     // COMMAND
     inventory(cmdInfo) {
-        this.output(`<code>You are carrying\n${indent(3, (this.thing.refs.location).map(item => this.formatName(item)).join('\n'))}</code>`);
+        const things = (this.thing.refs.location).map(item => this.formatName(item)).join('\n');
+        this.output(`<span class='pre'>You are carrying ${things ? '\n' : 'nothing'}${indent(3, things)}</span>`);
     }
     // COMMAND
     atQuiet() {
@@ -1320,38 +1482,29 @@ export class MudConnection {
     }
     // COMMAND
     get(cmdInfo, thingStr, ...args) {
-        const location = this.thing.assoc.location?._thing;
+        const location = this.thing.assoc.location;
         let loc = location;
-        let newCommands;
         if (args.length) {
             const [_, name] = findSimpleName(args.join(' '));
             loc = this.find(name, loc);
             if (!loc)
                 return this.errorNoThing(name);
         }
-        const thing = this.find(thingStr, loc);
-        if (thing && thing.isIn(this.thing)) {
+        const thing = this.find(thingStr, this.thing);
+        if (thing?.isIn(this.thing))
             return this.error(`You are already holding ${this.formatName(thing)}`);
-        }
-        else if (thing && !cmdInfo.substituted) {
-            const cmd = this.checkCommand('get', thingStr, thing, true);
-            if (cmd)
-                newCommands = this.substituteCommand(cmd, [`%${thing.id}`, ...dropArgs(1, cmdInfo).split(/\s+/)]);
-        }
-        if (!newCommands && !thing && !cmdInfo.substituted) {
-            newCommands = (this.findCommand(dropArgs(1, cmdInfo).split(/\s+/), 'get'));
-        }
-        if (newCommands)
-            return this.runCommands(newCommands);
         if (!thing)
             return this.errorNoThing(thingStr);
         if (thing === this.thing)
-            return this.error(`You just don't get yourself. Some people are that way.`);
+            return this.error(`You just don't get yourself. Some people are that way...`);
         if (thing === location)
-            return this.error(`You just don't get this place. Some people are that way.`);
-        thing.assoc.location = this.thing;
-        this.output(`You pick up ${this.formatName(thing)}`);
-        return this.commandDescripton(thing, 'picks up $this', 'get', [thing]);
+            return this.error(`You just don't get this place. Some places are that way...`);
+        const evt = new MoveDescripton(this.thing, 'get', thing, this.thing, null, null);
+        evt.exitFormat = "$forothers";
+        evt.moveFormat = `You pick up $event.thing`;
+        evt.enterFormat = `$event.actor picks up $this`;
+        this.eventCommand(evt.event, null, thing, evt);
+        this.continueMove(cmdInfo, evt);
     }
     // COMMAND
     drop(cmdInfo, thingStr) {
@@ -1498,6 +1651,7 @@ ${protos.join('\n  ')}`);
         const realProp = '!' + prop;
         if (!code) {
             if (typeof thing[realProp] === 'function') {
+                delete thing[realProp];
                 this.output(`Deleted function ${thingStr}.${prop}`);
             }
             else {
@@ -1604,6 +1758,20 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         this.output(result);
     }
     // COMMAND
+    atFail(cmdInfo /*, actor, text, arg..., @event, actor, event, arg...*/) {
+        if (!this.event)
+            return this.error(`Error in @fail, there is no current event`);
+        const words = splitQuotedWords(dropArgs(1, cmdInfo));
+        // tslint:disable-next-line:prefer-const
+        let [contextStr, text, ...args] = words;
+        if (text[0] === '"')
+            text = JSON.parse(text);
+        const context = this.find(contextStr, undefined, 'context');
+        const evtIndex = words.findIndex(w => w.toLowerCase() === '@emit');
+        const emitter = (evtIndex !== -1 && this.find(words[evtIndex + 1], context, 'emitter')) || this.thing.assoc.location;
+        this.event.emitFail(emitter, text, args.map(t => this.find(t, context, 'arg')), false, emitter);
+    }
+    // COMMAND
     atOutput(cmdInfo /*, actor, text, arg..., @event, actor, event, arg...*/) {
         const words = splitQuotedWords(dropArgs(1, cmdInfo));
         // tslint:disable-next-line:prefer-const
@@ -1679,7 +1847,14 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
             con.world = this.world;
             con.remote = true;
         }
-        return con.command(cmd, false, true);
+        const oldSubst = con.substituting;
+        try {
+            con.substituting = false;
+            return con.command(cmd, false, true);
+        }
+        finally {
+            con.substituting = oldSubst;
+        }
     }
     // COMMAND
     atAdmin(cmdInfo, thingStr, toggle) {
@@ -1760,17 +1935,17 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
         this.output(result + '</pre>');
     }
     // COMMAND
-    atSetBigInt(cmdInfo, thingStr, property, value) {
+    atsetbigint(cmdInfo, thingStr, property, value) {
         checkArgs(cmdInfo, arguments);
         return this.atSet(cmdInfo, thingStr, property, BigInt(value));
     }
     // COMMAND
-    atSetBool(cmdInfo, thingStr, property, value) {
+    atsetbool(cmdInfo, thingStr, property, value) {
         checkArgs(cmdInfo, arguments);
         return this.atSet(cmdInfo, thingStr, property, Boolean(value));
     }
     // COMMAND
-    atSetNum(cmdInfo, thingStr, property, value) {
+    atsetnum(cmdInfo, thingStr, property, value) {
         checkArgs(cmdInfo, arguments);
         return this.atSet(cmdInfo, thingStr, property, Number(value));
     }
@@ -1778,7 +1953,11 @@ ${fp('otherLink', true)}--> ${this.dumpName(thing.assoc.otherLink)}
     atSet(cmdInfo, thingStr, property, value) {
         checkArgs(cmdInfo, arguments);
         const [thing, lowerProp, realProp, val] = this.thingProps(thingStr, property, value, cmdInfo);
-        value = val;
+        const cmd = cmdInfo.line.match(/^[^\s]*/)[0].toLowerCase();
+        value = cmd === '@setbool' ? Boolean(val)
+            : cmd === '@setbigint' ? BigInt(val)
+                : cmd === '@setnum' ? Number(val)
+                    : val;
         if (!thing)
             return;
         if (addableProperties.has(realProp))
@@ -2009,7 +2188,7 @@ ${protos.join('<br>  ')}
                 for (let i = 0; i < help.length; i += 2) {
                     argLen = Math.max(argLen, name.length + 1 + help[i].length);
                 }
-                return this.output(`<pre>${helpText(argLen, command)}</pre>`);
+                return this.output(`<pre>${this.helpText(argLen, command)}</pre>`);
             }
         }
         cmds.sort();
@@ -2019,36 +2198,36 @@ ${protos.join('<br>  ')}
                 continue;
             if (result)
                 result += '\n';
-            result += helpText(argLen, command);
+            result += this.helpText(argLen, command);
         }
         this.output('<pre>' + result + `
 
 You can use <b>me</b> for yourself, <b>here</b> for your location, and <b>out</b> for your location's location (if you're in a container)${this.admin ? adminHelp : ''}</pre>`);
     }
+    helpText(argLen, command) {
+        let result = '';
+        if (command.alts) {
+            for (const alt of command.alts) {
+                if (result)
+                    result += '\n';
+                result += `<b>${alt.name} ${alt.help[0]}</b>`;
+            }
+        }
+        for (let i = 0; i < command.help.length; i += 2) {
+            const args = command.name + ' ' + command.help[i];
+            if (result)
+                result += '\n';
+            result += `<b>${args}</b>`;
+            if (command.help[i + 1]) {
+                result += indent(argLen - args.length, '') + '  --  ' + this.basicFormat(this.thing, command.help[i + 1], []);
+            }
+        }
+        return result;
+    }
 }
 MudConnection.prototype.commands = initCommands(commands);
 function splitQuotedWords(line) {
     return line.split(wordAndQuotePat).filter(x => x); // discard empty strings
-}
-function helpText(argLen, command) {
-    let result = '';
-    if (command.alts) {
-        for (const alt of command.alts) {
-            if (result)
-                result += '\n';
-            result += `<b>${alt.name} ${alt.help[0]}</b>`;
-        }
-    }
-    for (let i = 0; i < command.help.length; i += 2) {
-        const args = command.name + ' ' + command.help[i];
-        if (result)
-            result += '\n';
-        result += `<b>${args}</b>`;
-        if (command.help[i + 1]) {
-            result += indent(argLen - args.length, '') + '  --  ' + command.help[i + 1];
-        }
-    }
-    return result;
 }
 function indent(spaceCount, str) {
     let spaces = '';
@@ -2095,6 +2274,9 @@ function thingPxy(item) {
 }
 function pxyThing(item) {
     return !(item instanceof Thing) ? item : item._thing || item;
+}
+function pxyThings(items) {
+    return items.map(item => !(item instanceof Thing) ? item : item._thing || item);
 }
 function checkThing(thing) {
     if (thing && !(thing instanceof Thing))
