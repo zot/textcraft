@@ -91,7 +91,8 @@ COMMAND TEMPLATES:
 Command templates are string properties on objects to implement custom commands.
 Example command template properties are get_key, cmd, and cmd_whistle -- see the help for @set.
 Templates replace the original command with different commands, separated by semicolons.
-Templates can contain $0..$N to refer to the command arguments. $0 refers to the thing itself.
+Templates can contain $0..$N to refer to the command arguments. $0 refers to the command name.
+$* refers to all the words after the command name.
 
 
 EVENTS:
@@ -1502,21 +1503,23 @@ export class MudConnection {
         const evt = new MoveDescripton(this.thing, 'get', thing, this.thing, null, null);
         evt.exitFormat = "$forothers";
         evt.moveFormat = `You pick up $event.thing`;
-        evt.enterFormat = `$event.actor picks up $this`;
+        evt.enterFormat = `$event.actor picks up $event.thing`;
         this.eventCommand(evt.event, null, thing, evt);
         this.continueMove(cmdInfo, evt);
     }
     // COMMAND
     drop(cmdInfo, thingStr) {
         const thing = this.find(thingStr, this.thing);
-        const loc = this.thing.assoc.location?._thing;
         if (!thing)
             return this.errorNoThing(thingStr);
         if (!thing.isIn(this.thing))
             return this.error(`You aren't holding ${thingStr}`);
-        thing.assoc.location = loc;
-        this.output(`You drop ${this.formatName(thing)}`);
-        return this.commandDescripton(thing, 'drops $this', 'drop', [thing]);
+        const evt = new MoveDescripton(this.thing, 'get', thing, this.thing.assoc.location, null, null);
+        evt.exitFormat = "$forothers";
+        evt.moveFormat = `You drop $event.thing`;
+        evt.enterFormat = `$event.actor drops $event.thing`;
+        this.eventCommand(evt.event, null, thing, evt);
+        this.continueMove(cmdInfo, evt);
     }
     // COMMAND
     atSay(cmdInfo, text, ...args) {
