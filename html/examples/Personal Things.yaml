@@ -20,7 +20,7 @@ objects:
     id: 2
     name: hall
     prototype: 5
-  - '!go': '["()","\n                if (event.destination._thing.isIn(here) && !event.destination.open) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t go into $event.destination $forothers $event.actor tries to go into %event.destination but can\\''t\\\"\")\n                } else if (here._thing.isIn(event.destination) && !here.open) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t leave $event.origin $forothers $event.actor tries to leave %event.origin but can\\''t\\\"\")\n                }\n"]'
+  - '!go': '["()","\n                if (event.destination && event.destination._thing.isIn(here) && event.destination.closed) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t go into $event.destination $forothers $event.actor tries to go into %event.destination but can\\''t\\\"\")\n                } else if (here._thing.isIn(event.destination) && here.closed) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t leave $event.origin $forothers $event.actor tries to leave %event.origin but can\\''t\\\"\")\n                }\n"]'
     article: the
     associationThings: [2]
     associations: [[location, 2]]
@@ -88,7 +88,7 @@ objects:
   - associationThings: [2]
     associations: [[location, 2]]
     fullName: pgenerator
-    get: "\n@quiet\n@js orig = $0; if (!orig.group) throw new Error(`${orig.name} needs a group property`);\n@copy $0\n@js orig = $0, cpy = %-1; cpy.fullName = (orig.article || ' ') + ' ' + orig.name; cpy.assoc[orig.group] = me; cpy.assoc[cpy.name] = me; cpy.assoc.visibleTo = me; cpy.assoc.fooling = me; cpy.assoc.hides = orig\n@reproto %-1 %proto:thing\ndrop %-1\n@js copy = %-1; event.thing = copy; event.enterFormat = '$forothers'; event.exitFormat = '$forothers'\n@loud"
+    get: "\n@quiet\n@js orig = $0; if (!orig.group) throw new Error(`${orig.name} needs a group property`);\n@copy $0\n@js orig = $0, cpy = %-1; cpy.fullName = (orig.article || ' ') + ' ' + orig.name; cpy.assoc[orig.group] = me; cpy.assoc[cpy.name] = me; cpy.assoc.visibleTo = me; cpy.assoc.fooling = me; cpy.assoc.hides = orig\n@reproto %-1 %proto:thing\n@js copy = %-1; event.thing = copy; event.enterFormat = '$forothers'; event.exitFormat = '$forothers'\n@loud"
     id: 9
     name: pgenerator
     prototype: 6
@@ -115,7 +115,7 @@ objects:
     linkProto: 4
     lobby: 1
     name: Personal Things
-    nextId: 28
+    nextId: 29
     personProto: 7
     roomProto: 4
     thingProto: 3

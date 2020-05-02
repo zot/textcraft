@@ -508,6 +508,7 @@ export class World {
     constructor(name, stg) {
         this.activeExtensions = new Map();
         this.clockRate = 2; // seconds between ticks
+        this.count = 0;
         this.setName(name);
         this.storage = stg;
         this.thingCache = new Map();
@@ -542,7 +543,7 @@ export class World {
     }
     initDb() {
         return this.checkDbs(async () => {
-            this.limbo = this.createThing('Limbo', 'You are floating in $this<br>$links<br><br>$contents');
+            this.limbo = this.createThing('Limbo', 'You are floating in $this');
             this.lobby = this.createThing('Lobby', 'You are in $this');
             this.hallOfPrototypes = this.createThing('Hall of Prototypes');
             this.thingProto = this.createThing('thing', 'This is $this');
@@ -556,8 +557,8 @@ export class World {
             this.generatorProto.setPrototype(this.thingProto);
             this.hallOfPrototypes.setPrototype(this.roomProto);
             this.limbo.assoc.location = this.limbo;
-            await this.createUser('a', 'a', true);
-            this.defaultUser = 'a';
+            await this.createUser('admin', 'admin', true);
+            this.defaultUser = 'admin';
             await this.store();
         });
     }
@@ -810,6 +811,7 @@ export class World {
         }
         finally {
             this.storeDirty(oldThings);
+            this.count++;
         }
     }
     indexThing(thing) {
@@ -1178,6 +1180,7 @@ export class World {
             t.setPrototype(this.thingProto);
         this.thingCache.set(t.id, t);
         this.watcher?.(t);
+        t.originalSpec = null;
         this.stamp(t);
         return t;
     }
@@ -1202,7 +1205,7 @@ export class World {
         });
     }
     getInstances(proto) {
-        return [...this.prototypeIndex.get(proto.id)].map(t => this.getThing(t));
+        return [...this.prototypeIndex.get(proto.id) || []].map(t => this.getThing(t));
     }
     async toast(toasted) {
         return this.doTransaction(async (things) => {
@@ -1719,7 +1722,7 @@ export function jsonObjectsForDb(objectStore, records = []) {
         };
     });
 }
-function idFor(t) {
+export function idFor(t) {
     if (typeof t === 'number')
         return t;
     if (t === null || t === undefined)

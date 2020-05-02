@@ -579,6 +579,7 @@ export class World {
     activeExtensions = new Map<number, Extension>()
     watcher: (thing: Thing) => void
     clockRate = 2 // seconds between ticks
+    count = 0
     mudConnectionConstructor: Constructor<MudConnection>;
     transactionThings: Set<Thing>;
     transactionPromise: Promise<any>;
@@ -624,7 +625,7 @@ export class World {
     }
     initDb() {
         return this.checkDbs(async () => {
-            this.limbo = this.createThing('Limbo', 'You are floating in $this<br>$links<br><br>$contents')
+            this.limbo = this.createThing('Limbo', 'You are floating in $this')
             this.lobby = this.createThing('Lobby', 'You are in $this')
             this.hallOfPrototypes = this.createThing('Hall of Prototypes')
             this.thingProto = this.createThing('thing', 'This is $this')
@@ -638,8 +639,8 @@ export class World {
             this.generatorProto.setPrototype(this.thingProto)
             this.hallOfPrototypes.setPrototype(this.roomProto)
             this.limbo.assoc.location = this.limbo
-            await this.createUser('a', 'a', true)
-            this.defaultUser = 'a'
+            await this.createUser('admin', 'admin', true)
+            this.defaultUser = 'admin'
             await this.store()
         })
     }
@@ -894,6 +895,7 @@ export class World {
             func()
         } finally {
             this.storeDirty(oldThings)
+            this.count++
         }
     }
     indexThing(thing: Thing) {
@@ -1260,6 +1262,7 @@ export class World {
         if (this.thingProto) t.setPrototype(this.thingProto)
         this.thingCache.set(t.id, t)
         this.watcher?.(t)
+        t.originalSpec = null
         this.stamp(t)
         return t
     }
@@ -1286,7 +1289,7 @@ export class World {
         })
     }
     getInstances(proto: Thing) {
-        return [...this.prototypeIndex.get(proto.id)].map(t => this.getThing(t))
+        return [...this.prototypeIndex.get(proto.id) || []].map(t => this.getThing(t))
     }
     async toast(toasted: Set<Thing>) {
         return this.doTransaction(async (things) => {
@@ -1825,7 +1828,7 @@ export function jsonObjectsForDb(objectStore, records = []) {
     })
 }
 
-function idFor(t: Thing | thingId) {
+export function idFor(t: Thing | thingId) {
     if (typeof t === 'number') return t
     if (t === null || t === undefined) return null
     if (t instanceof Thing) return t._thing._id
