@@ -1853,7 +1853,7 @@ ${protos.join('\n  ')}`)
     atLink(cmdInfo /*, exit2Str, loc1Str, exit1Str, loc2Str*/) {
         checkArgs(cmdInfo, arguments)
         const words = splitQuotedWords(dropArgs(1, cmdInfo))
-        let [exit2Str, loc1Str, exit1Str, loc2Str] = words
+        const [exit2Str, loc1Str, exit1Str, loc2Str] = words
         const loc1 = this.findInstance(this.world.roomProto, loc1Str, 'location')
         const loc2 = (loc2Str && this.find(loc2Str, this.world.roomProto, 'location')) || this.thing.assoc.location
         const linkProto = this.getPrototype('link')
@@ -2239,7 +2239,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
     // COMMAND
     atAdd(cmdInfo: any /*, thingStr: string, property: string, words */) {
         checkArgs(cmdInfo, arguments)
-        let [thingStr, property, ...words] = splitQuotedWords(dropArgs(1, cmdInfo))
+        const [thingStr, property, ...words] = splitQuotedWords(dropArgs(1, cmdInfo))
         const thing = this.find(thingStr, this.thing, 'thing')
         const prop = '_' + property.toLowerCase()
 
@@ -2259,7 +2259,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
     // COMMAND
     atRemove(cmdInfo: any /*, thingStr: string, property: string, thing2Str: string*/) {
         checkArgs(cmdInfo, arguments)
-        let [thingStr, property, item] = splitQuotedWords(dropArgs(1, cmdInfo))
+        const [thingStr, property, item] = splitQuotedWords(dropArgs(1, cmdInfo))
         const thing = this.find(thingStr, this.thing, 'thing')
         const prop = '_' + property.toLowerCase()
 
