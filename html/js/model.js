@@ -768,6 +768,7 @@ export class World {
             roomProto: this.roomProto.id,
             personProto: this.personProto.id,
             generatorProto: this.generatorProto.id,
+            containerProto: this.containerProto.id,
             defaultUser: this.defaultUser,
             clockRate: this.clockRate,
             version: codeVersion,
