@@ -1,5 +1,5 @@
 import {
-    RoleState, RelayState, SectionState, PeerState, MudState,
+    RoleState, RelayState, SectionState, PeerState, MudState, NatState,
     StateTracker,
     natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, mudTracker,
 } from "./base.js"
@@ -817,6 +817,13 @@ export function start() {
     radioTracker(relayTracker, 'Relay')
     radioTracker(sectionTracker, 'Section')
     radioTracker(mudTracker, 'Mud')
+    let oldNatState = natTracker.value
+    natTracker.observe(state => {
+        if (oldNatState === NatState.Public) {
+            alert('WARNING: Nat state in no longer public!')
+        }
+        oldNatState = state
+    })
     sectionTracker.observe(state => {
         if (state === SectionState.Mud) {
             $('#mud-command').focus()

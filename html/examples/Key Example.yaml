@@ -20,10 +20,11 @@ objects:
     id: 2
     name: ''
     prototype: 5
-  - '!go': '["()","\n                if (event.destination._thing.isIn(here) && !event.destination.open) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t go into $event.destination $forothers $event.actor tries to go into %event.destination but can\\''t\\\"\")\n                } else if (here._thing.isIn(event.destination) && !here.open) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t leave $event.origin $forothers $event.actor tries to leave %event.origin but can\\''t\\\"\")\n                }\n"]'
+  - '!event_go_destination': '["(dest)","\n                if (dest._thing.isIn(here) && dest.closed) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t go into $event.destination $forothers $event.actor tries to go into %event.destination but can\\''t\\\"\")\n                } else if (here._thing.isIn(dest) && here.closed) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t leave $event.origin $forothers $event.actor tries to leave %event.origin but can\\''t\\\"\")\n                }\n"]'
     article: the
     associationThings: [2]
     associations: [[location, 2]]
+    closed: true
     contentsEnterFormat: $forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2
     contentsExitFormat: $forme You leave $this to $arg3 $forothers $Arg leaves $this to $arg3
     contentsFormat: $This $is here
@@ -36,14 +37,14 @@ objects:
     linkFormat: $This leads to $link
     name: thing
     priority: 0
-  - '!go': '["()","\n                if (event.direction.locked && !inAny(''key'', event.direction._thing)) {\n                    return cmd(\"@fail %event.thing \\\"$forme You don\\''t have the key $forothers $Arg tries to go $event.direction to $event.destination but doesn\\''t have the key\\\"\");\n                }\n"]'
+  - '!event_go_direction': '["(dir)","\n                if (dir.locked && !inAny(''key'', dir._thing)) {\n                    return cmd(\"@fail %event.thing \\\"$forme You don\\''t have the key $forothers $Arg tries to go $event.direction to $event.destination but doesn\\''t have the key\\\"\");\n                }\n"]'
     article: ''
     associationThings: [2]
     associations: [[location, 2]]
     closed: true
     description: $This to $link
+    event_get_thing: "\n@fail $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me\n            "
     fullName: link
-    get: "\n        @output $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me @event me false get $0\n            "
     id: 4
     linkEnterFormat: $Arg1 entered $arg3
     linkExitFormat: $Arg1 went $name to $arg3
@@ -55,6 +56,7 @@ objects:
     associations: [[location, 2]]
     closed: true
     description: You are in $this
+    event_get_thing: "\n@fail $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me\n            "
     fullName: room
     id: 5
     name: room
@@ -62,20 +64,20 @@ objects:
   - associationThings: [2]
     associations: [[location, 2]]
     description: This is a thing
+    event_get_thing: '@run $0 generate'
     fullName: generator
-    get: "\n        @quiet\n        @copy $0\n        @js orig = $0, cpy = %-1; debugger; cpy.fullName = 'a ' + orig.name\n        @reproto %-1 %proto:thing\n        drop %-1\n        @js copy = %-1; event.thing = copy\n        @loud\n"
+    generate: "\n        @quiet\n        @copy $0\n        @js orig = $0, cpy = %-1; cpy.fullName = 'a ' + orig.name\n        @reproto %-1 %proto:thing\n        @js copy = %-1; event.thing = copy\n        @move %-1 me.assoc.location\n        @loud\n"
     id: 6
     name: generator
     priority: -1
     prototype: 3
-  - '!get': '["(thisThing)","\n                if (event.thing === thisThing) {\n                    event.emitFail(event.actor, \"$forme You can''t pick up $event.thing! $forothers $event.actor tries to pick up $this but can''t\", [], false, event.actor)\n               }\n"]'
-    article: ''
+  - article: ''
     associationThings: [2]
     associations: [[location, 2]]
     description: $This $is only a dude
+    event_get_thing: '@fail $0 "$forme You can''t pick up $this! $forothers $event.actor tries to pick up $this but can''t"'
     examineFormat: 'Carrying: $contents'
     fullName: person
-    get: "\n        @output $0 \"$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't\" me @event me false get $0\n            "
     id: 7
     name: person
     newget: "\n        @fail %event.thing \"$forme You cannot pick up $event.thing! $forothers $event.actor tries to pick up $event.thing but can't\"\n            "
@@ -128,6 +130,22 @@ objects:
     id: 76
     name: player1
     prototype: 7
+  - article: ''
+    associationThings: [2]
+    associations: [[location, 2]]
+    closed: false
+    fullName: container
+    id: 80
+    name: container
+    prototype: 3
+  - article: ''
+    associationThings: [2]
+    associations: [[location, 2]]
+    closed: false
+    fullName: container
+    id: 81
+    name: container
+    prototype: 3
   - clockRate: 2
     defaultUser: admin
     generatorProto: 6
@@ -137,7 +155,7 @@ objects:
     linkProto: 4
     lobby: 1
     name: Key Example
-    nextId: 80
+    nextId: 81
     personProto: 7
     roomProto: 5
     thingProto: 3

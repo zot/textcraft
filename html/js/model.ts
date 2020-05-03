@@ -822,8 +822,8 @@ export class World {
             ensureProps(generatorProto, {
                 _priority: -1,
             });
-            del(generatorProto, 'go', 'get');
-            (generatorProto as any)._get_thing = `@run $0 generate`;
+            del(generatorProto, 'go', 'get', 'get_thing');
+            (generatorProto as any)._event_get_thing = `@run $0 generate`;
             (generatorProto as any)._generate = `
         @quiet
         @copy $0

@@ -1,129 +1,149 @@
-users:
-  - name: admin
-    password: a
-    admin: true
-    thing: 8
 objects:
-  - id: 0
-    name: Limbo
-    fullName: Limbo
+  - article: ''
+    associationThings: [0]
+    associations: [[location, 0]]
     description: You are floating in $this<br>$links<br><br>$contents
+    fullName: Limbo
+    id: 0
+    name: Limbo
     prototype: 5
-    article: ''
+  - associationThings: [0]
     associations: [[location, 0]]
-    associationThings: [0]
-  - id: 1
-    name: Lobby
-    fullName: Lobby
     description: You are in $this
+    fullName: Lobby
+    id: 1
+    name: Lobby
     prototype: 5
+  - associationThings: [0]
     associations: [[location, 0]]
-    associationThings: [0]
-  - id: 2
-    name: hall
     fullName: Hall of Prototypes
+    id: 2
+    name: hall
     prototype: 5
-    associations: [[location, 0]]
-    associationThings: [0]
-  - id: 3
-    name: thing
-    fullName: thing
-    description: This is $this
+  - '!event_go_destination': '["(dest)","\n                if (dest._thing.isIn(here) && dest.closed) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t go into $event.destination $forothers $event.actor tries to go into %event.destination but can\\''t\\\"\")\n                } else if (here._thing.isIn(dest) && here.closed) {\n                    return cmd(\"@fail %event.thing \\\"$forme You can\\''t leave $event.origin $forothers $event.actor tries to leave %event.origin but can\\''t\\\"\")\n                }\n"]'
     article: the
-    contentsFormat: $This $is here
+    associationThings: [2]
+    associations: [[location, 2]]
+    closed: true
     contentsEnterFormat: $forme You enters $this from $arg2 $forothers $Arg enters $this from $arg2
     contentsExitFormat: $forme You leave $this to $arg3 $forothers $Arg leaves $this to $arg3
+    contentsFormat: $This $is here
+    description: This is $this
     examineFormat: 'Exits: $links<br>Contents: $contents'
+    fullName: thing
+    id: 3
     linkFormat: $This leads to $link
+    name: thing
     priority: 0
-    associations: [[location, 2]]
+  - '!cmd': '["(dir, dest)","\n                if (!dir.locked || anyHas(findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
+    '!event_go_direction': '["(dir)","\n                if (dir.locked && !inAny(''key'', dir._thing)) {\n                    return cmd(\"@fail %event.thing \\\"$forme You don\\''t have the key $forothers $Arg tries to go $event.direction to $event.destination but doesn\\''t have the key\\\"\");\n                }\n"]'
+    article: ''
     associationThings: [2]
-  - id: 4
-    name: link
-    fullName: link
+    associations: [[location, 2]]
+    closed: true
     description: $This to $link
-    prototype: 3
-    article: ''
-    locked: false
+    event_get_thing: "\n@fail $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me\n            "
+    fullName: link
+    id: 4
     linkEnterFormat: $Arg1 entered $arg3
-    linkMoveFormat: You went $name to $arg3
     linkExitFormat: $Arg1 went $name to $arg3
-    get: "\n@output $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me @event me false get $0\n"
-    '!cmd': '["(dir, dest)","\n                if (!dir.locked || anyHas(findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
-    '!go': '["(dir, dest)","\n                if (!dir.locked || anyHas(findNearby(), ''key'', dir)) {\n                    return this.cmd(''go'', dir);\n                } else {\n                    return this.cmdf(''@output $0 \"$forme You don\\''t have the key $forothers $Arg tries to go $this to $link but doesn\\''t have the key\" me @event me false go $0'', dir);\n                }\n"]'
+    linkMoveFormat: You went $name to $arg3
+    locked: false
+    name: link
+    prototype: 3
+  - associationThings: [2]
     associations: [[location, 2]]
-    associationThings: [2]
     closed: true
-  - id: 5
-    name: room
-    fullName: room
     description: You are in $this
+    event_get_thing: "\n@fail $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me\n            "
+    fullName: room
+    id: 5
+    name: room
     prototype: 3
-    closed: true
+  - associationThings: [2]
     associations: [[location, 2]]
-    associationThings: [2]
-  - id: 6
-    name: generator
-    fullName: generator
     description: This is a thing
-    prototype: 3
+    event_get_thing: '@run $0 generate'
+    fullName: generator
+    generate: "\n        @quiet\n        @copy $0\n        @js orig = $0, cpy = %-1; cpy.fullName = 'a ' + orig.name\n        @reproto %-1 %proto:thing\n        @js copy = %-1; event.thing = copy\n        @move %-1 me.assoc.location\n        @loud\n"
+    id: 6
+    name: generator
     priority: -1
-    get: "\n@quiet;\n@copy $0;\n@js doThings('$0', '%-1', (orig, cpy)=> cpy.fullName = 'a ' + orig._name);\n@reproto %-1 %proto:thing;\n@loud;\nget %-1\n"
-    associations: [[location, 2]]
+    prototype: 3
+  - article: ''
     associationThings: [2]
-  - id: 7
-    name: person
-    fullName: person
+    associations: [[location, 2]]
     description: $This $is only a dude
-    prototype: 3
-    article: ''
+    event_get_thing: '@fail $0 "$forme You can''t pick up $this! $forothers $event.actor tries to pick up $this but can''t"'
     examineFormat: 'Carrying: $contents'
-    get: "\n@output $0 \"$forme You cannot pick up $this! $forothers $Arg tries to pick up $this but can't\" me @event me false get $0\n"
-    associations: [[location, 2]]
-    associationThings: [2]
-  - id: 8
-    name: admin
-    fullName: admin
-    prototype: 7
-    associations: [[location, 0]]
-    associationThings: [0]
-  - id: 9
-    name: box
-    fullName: box
+    fullName: person
+    id: 7
+    name: person
     prototype: 3
-    '!hello': [(evt), 'if (this.thing.isIn(evt[1])) {alert(''hello ''+evt.source._name)}']
-    react_go: '@call me hello %event'
-    associations: [[location, 1]]
-    associationThings: [1]
-  - id: 10
-    name: forest
-    fullName: forest
-    prototype: 5
+  - associationThings: [0]
     associations: [[location, 0]]
-    associationThings: [0]
-  - id: 11
-    name: north
-    fullName: north
-    prototype: 4
+    fullName: admin
+    id: 8
+    name: admin
+    prototype: 7
+  - '!hello': [(evt), 'if (this.thing.isIn(evt[1])) {alert(''hello ''+evt.source._name)}']
+    associationThings: [1]
+    associations: [[location, 1]]
+    fullName: box
+    id: 9
+    name: box
+    prototype: 3
+    react_go: '@call me hello %event'
+  - associationThings: [0]
+    associations: [[location, 0]]
+    fullName: forest
+    id: 10
+    name: forest
+    prototype: 5
+  - associationThings: [0, 1, 12]
     associations: [[location, 0], [linkOwner, 1], [otherLink, 12]]
-    associationThings: [0, 1, 12]
-  - id: 12
-    name: south
-    fullName: south
+    fullName: north
+    id: 11
+    name: north
     prototype: 4
+  - associationThings: [0, 10, 11]
     associations: [[location, 0], [linkOwner, 10], [otherLink, 11]]
-    associationThings: [0, 10, 11]
-  - id: info
-    nextId: 13
-    name: Functions
-    lobby: 1
-    limbo: 0
-    hallOfPrototypes: 2
-    thingProto: 3
-    linkProto: 4
-    roomProto: 5
-    personProto: 7
-    generatorProto: 6
+    fullName: south
+    id: 12
+    name: south
+    prototype: 4
+  - article: ''
+    associationThings: [2]
+    associations: [[location, 2]]
+    closed: false
+    fullName: container
+    id: 13
+    name: container
+    prototype: 3
+  - article: ''
+    associationThings: [2]
+    associations: [[location, 2]]
+    closed: false
+    fullName: container
+    id: 14
+    name: container
+    prototype: 3
+  - clockRate: 2
     defaultUser: admin
-    clockRate: 2
+    generatorProto: 6
+    hallOfPrototypes: 2
+    id: info
+    limbo: 0
+    linkProto: 4
+    lobby: 1
+    name: Functions
+    nextId: 14
+    personProto: 7
+    roomProto: 5
+    thingProto: 3
     version: 1
+users:
+  - admin: true
+    name: admin
+    password: a
+    thing: 8

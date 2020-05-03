@@ -611,6 +611,8 @@ class CommandContext {
 }
 export class MudConnection {
     constructor(thing) {
+        this.hiddenUpdate = -1;
+        this.hiddenThings = new Map();
         this.muted = 0;
         this.acted = new Set();
         this.pendingReactions = new Map();
@@ -872,11 +874,10 @@ export class MudConnection {
                     }
                     case 'contents': {
                         const contents = thing.refs.location;
-                        const hidden = this.hiddenFor(this.thing);
                         if (contents.length) {
                             for (const item of contents) {
                                 if ((!item.assoc.visibleTo || item.assoc.visibleTo === this.thing)
-                                    && !hidden.has(item)) {
+                                    && !this.isHidden(item)) {
                                     result += `<br>&nbsp;&nbsp;${this.format(item, this.props(thing).contentsFormat)}`;
                                 }
                             }
@@ -888,7 +889,9 @@ export class MudConnection {
                         const links = thing.refs.linkOwner;
                         if (links.length) {
                             for (const item of links) {
-                                result += `<br>&nbsp;&nbsp;${this.format(item, this.props(item).linkFormat)}`;
+                                if (!this.isHidden(item)) {
+                                    result += `<br>&nbsp;&nbsp;${this.format(item, this.props(item).linkFormat)}`;
+                                }
                             }
                             result += '<br>';
                         }
@@ -901,12 +904,26 @@ export class MudConnection {
         return result;
     }
     hiddenFor(thing) {
-        const items = [];
-        const fooling = thing.refs.fooling;
-        for (const item of fooling) {
-            items.push(...item.assocMany.hides);
+        let things;
+        if (this.hiddenUpdate < this.world.count) {
+            this.hiddenThings = new Map();
+            this.hiddenUpdate = this.world.count;
         }
-        return new Set(items);
+        things = this.hiddenThings.get(thing);
+        if (!things) {
+            const items = [];
+            const fooling = thing.refs.fooling;
+            for (const item of fooling) {
+                items.push(...item.assocMany.hides);
+            }
+            things = new Set(items);
+            this.hiddenThings.set(thing, things);
+        }
+        return things;
+    }
+    isHidden(thing, viewer = this.thing) {
+        thing = thing._thing;
+        return thing._hidden || this.hiddenFor(viewer._thing).has(thing);
     }
     description(thing) {
         return this.format(thing, this.props(thing).description);
@@ -934,27 +951,32 @@ export class MudConnection {
         const cmd = words[0].toLowerCase();
         let template;
         for (const item of (this.thing.refs.location)) {
-            template = this.checkCommand(prefix, cmd, this.props(item));
-            if (template)
-                return [item, template];
+            if (!this.isHidden(item)) {
+                template = this.checkCommand(prefix, cmd, this.props(item));
+                if (template)
+                    return [item, template];
+            }
         }
         for (const item of (this.thing.refs.linkOwner)) {
-            template = this.checkCommand(prefix, cmd, this.props(item));
-            if (template)
-                return [item, template];
+            if (!this.isHidden(item)) {
+                template = this.checkCommand(prefix, cmd, this.props(item));
+                if (template)
+                    return [item, template];
+            }
         }
         const loc = this.thing.assoc.location?._thing;
         template = this.checkCommand(prefix, cmd, this.props(loc));
         if (template)
             return [loc, template];
         for (const item of (loc.refs.linkOwner)) {
-            template = this.checkCommand(prefix, cmd, this.props(item));
-            if (template)
-                return [item, template];
+            if (!this.isHidden(item)) {
+                template = this.checkCommand(prefix, cmd, this.props(item));
+                if (template)
+                    return [item, template];
+            }
         }
-        const hidden = this.hiddenFor(this.thing);
         for (const item of (loc.refs.location)) {
-            if (item._globalCommand && !hidden.has(item)) {
+            if (item._globalCommand && !this.isHidden(item)) {
                 template = this.checkCommand(prefix, cmd, this.props(item));
                 if (template)
                     return [item, template];
@@ -1212,11 +1234,10 @@ export class MudConnection {
         return thing;
     }
     findThingInWorld(start, name) {
-        const hidden = this.hiddenFor(this.thing);
         if (name[0] === '%')
             name = name.slice(1);
         name = name.toLowerCase();
-        return start.find(thing => !hidden.has(thing) && thing.hasName(name), this.thing.isIn(this.world.limbo) ? new Set() : new Set([this.world.limbo]));
+        return start.find(thing => !this.isHidden(thing) && thing.hasName(name), this.thing.isIn(this.world.limbo) ? new Set() : new Set([this.world.limbo]));
     }
     dumpThingNames(things) {
         const items = [];
@@ -1229,6 +1250,7 @@ export class MudConnection {
         const thing = this.find(thingStr);
         const propMap = new Map();
         const lowerProp = property.toLowerCase();
+        const rest = dropArgs(3, cmd);
         let realProp;
         if (!thing) {
             this.error('Could not find thing ' + thingStr);
@@ -1263,13 +1285,19 @@ export class MudConnection {
                         value = BigInt(value);
                     break;
                 default:
-                    value = dropArgs(3, cmd);
+                    value = rest;
                     break;
             }
         }
         else {
             realProp = '_' + property;
-            value = dropArgs(3, cmd);
+            value = rest;
+            if (rest.match(/^[0-9]+$/)) {
+                value = Number(rest);
+            }
+            else if (rest.toLowerCase().match(/true|false/)) {
+                value = rest.toLowerCase() === 'true';
+            }
         }
         return [thing, lowerProp, realProp, value, propMap];
     }
