@@ -139,7 +139,7 @@ objects:
     name: Key Example
     nextId: 80
     personProto: 7
-    roomProto: 4
+    roomProto: 5
     thingProto: 3
     version: 1
 users:

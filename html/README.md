@@ -150,11 +150,8 @@ Here are all of the current commands and the current help documentation:
       room(%5)
       generator(%6)
       person(%7)
-      pgenerator(%27)
-      tombthing(%28)
       container(%80)
-      container(%83)
-      container(%84)
+      container(%81)
 @del thing property                            --  Delete a properties from a thing so it will inherit from its prototype
 @delassoc thing property
 @delassoc thing property thing                 --  Dissociate a thing from another thing or from all things

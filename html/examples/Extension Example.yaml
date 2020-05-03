@@ -94,7 +94,7 @@ objects:
     hallOfPrototypes: 2
     thingProto: 3
     linkProto: 4
-    roomProto: 4
+    roomProto: 5
     personProto: 7
     generatorProto: 6
     defaultUser: a

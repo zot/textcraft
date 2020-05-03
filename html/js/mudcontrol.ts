@@ -34,26 +34,39 @@ const setHelp = ['thing property value', `Set a property on a thing:
   description -- the thing's description, you can use format words in a description (see FORMAT WORDS).
                  If you capitalize a format word, the substitution will be capitalized.
 
-  Here are the fields you can set:
-    name            -- simple one-word name for this object, for commands to find it
-    fullName        -- the full name, this also sets article and name
-    article         -- precedes the formatted name when this is displayed
-    description     -- format string for look/examine commands (see FORMAT WORDS)
-    examineFormat   -- format string for contents and links (see FORMAT WORDS)
-    contentsFormat  -- format string for an item in contents (see FORMAT WORDS)
-    linkFormat      -- format string for how this item links to its other link (see FORMAT WORDS)
-    linkMoveFormat  -- format string for when someone moves through a link (see FORMAT WORDS)
-    linkEnterFormat -- format string for occupants when someone enters through the link (see FORMAT WORDS)
-    linkExitFormat  -- format string for occupants when someone leaves through the link (see FORMAT WORDS)
-    closed          -- whether this object propagates descriptons to its location
-    cmd             -- command template for when the object's name is used as a command
-    cmd_WORD        -- command template for when the WORD is used as a command
-    get             -- event template for when someone tries to get the object
-    get_WORD        -- command template for when someone tries to get WORD
-    drop            -- event template for when someone tries to drop the object
-    go              -- command template for when someone tries to go into in object or through a link
-    go_WORD         -- command template for when someone tries to go into WORD (virtual directions)
-    react_EVENT     -- react to an event (or descripton), see EVENTS
+  STANDARD FIELDS:
+    name                   -- simple one-word name for this object, for commands to find it
+    fullName               -- the full name, this also sets article and name
+    article                -- precedes the formatted name when this is displayed
+    description            -- format string for look/examine commands (see FORMAT WORDS)
+    examineFormat          -- format string for contents and links (see FORMAT WORDS)
+    contentsFormat         -- format string for an item in contents (see FORMAT WORDS)
+    linkFormat             -- format string for how this item links to its other link (see FORMAT WORDS)
+    linkMoveFormat         -- format string for when someone moves through a link (see FORMAT WORDS)
+    linkEnterFormat        -- format string for occupants when someone enters through the link (see FORMAT WORDS)
+    linkExitFormat         -- format string for occupants when someone leaves through the link (see FORMAT WORDS)
+    closed                 -- whether this object propagates descriptons to its location
+    cmd                    -- command template for when the object's name is used as a command
+    cmd_WORD               -- command template for when the WORD is used as a command
+    event_go               -- event template for going that involves the object (called at each stage)
+    event_go_thing         -- event template for going somewhere
+    event_go_direction     -- event template for going through the object
+    event_go_origin        -- event template for going to the object
+    event_go_destination   -- event template for going from the object
+    event_get              -- event template for getting that involves the object (called at each stage)
+    event_get_thing        -- event template for getting the object
+    event_get_origin       -- event template for getting things from the object
+    event_get_destination  -- event template for when the object gets things
+    event_drop             -- event template for dropping that involves the object (called at each stage)
+    event_drop_thing       -- event template for dropping the object
+    event_drop_origin      -- event template for when the object drops things
+    event_drop_destination -- event template for dropping things into the object
+    go_WORD                -- event template when someone does 'go WORD' and WORD doesn't exist (virtual directions)
+    react_EVENT            -- react to an event (or descripton), see EVENTS
+
+  EVENT PROPERTIES
+    The standard event properties, beginning with "event_" (event_go_thing, etc.) can be either
+    command templates or methods. If one exist, They are invoked
 
   RESERVED PROPERTIES YOU CANNOT SET
     prototype       -- use @reproto to change this
@@ -471,7 +484,7 @@ export class Descripton {
         const prefixStr = prefix ? capitalize(this.connection.formatName(this.actor._thing)) + ' ' : ''
         const contexts = formatContexts(failFormat)
         let con = this.connection
-        const msg = contexts.me && con.basicFormat(con.thing, contexts.me, args)
+        const msg = contexts.me && con.basicFormat(context, contexts.me, args)
 
         this.fail()
         if (contexts.others) {
@@ -1534,18 +1547,24 @@ export class MudConnection {
         return JSON.stringify(value) || String(value)
     }
     continueMove(cmdInfo, evt: MoveDescripton) {
+        const eventProp = `event_${evt.event}`
+
+        if (evt.failed) return
+        if (!this.substituting) {
+            this.eventCommand(eventProp, 'origin', evt.origin, evt)
+        }
         if (evt.failed) return
         if (evt.directionString && !evt.direction) {
             if (this.substituting) throw evt.emitFail(this.thing, `Where is ${evt.directionString}?`)
             // e.g. check if there's a go_north property in the room
             this.eventCommand(`${evt.event}_${evt.directionString}`, null, evt.source.assoc.location, evt)
         } else if (evt.direction && !this.substituting) {
-            this.eventCommand(evt.event, evt.directionString, evt.direction, evt)
+            this.eventCommand(eventProp, 'direction', evt.direction, evt)
         }
         if (evt.failed) return
         if (!evt.destination) throw evt.emitFail(this.thing, `Go where?`)
         if (!this.substituting) {
-            this.eventCommand(evt.event, evt.directionString, evt.destination, evt)
+            this.eventCommand(eventProp, 'destination', evt.destination, evt)
         }
         if (evt.failed) return
         // nothing prevented it so the thing will actually move now
@@ -1650,7 +1669,7 @@ export class MudConnection {
         const evt = new MoveDescripton(this.thing, 'go', this.thing, destination, direction, directionStr)
 
         if (!this.substituting) {
-            this.eventCommand('go', null, this.thing, evt)
+            this.eventCommand(`event_go`, 'thing', this.thing, evt)
         }
         this.continueMove(cmdInfo, evt)
         !evt.failed && this.connectionFor(evt.thing).look(cmdInfo)
@@ -1718,7 +1737,7 @@ export class MudConnection {
         evt.exitFormat = "$forothers"
         evt.moveFormat = `You pick up $event.thing`
         evt.enterFormat = `$event.actor picks up $event.thing`
-        this.eventCommand(evt.event, 'thing', thing, evt)
+        this.eventCommand(`event_get`, 'thing', thing, evt)
         this.continueMove(cmdInfo, evt)
     }
     // COMMAND
@@ -1732,7 +1751,7 @@ export class MudConnection {
         evt.exitFormat = "$forothers"
         evt.moveFormat = `You drop $event.thing`
         evt.enterFormat = `$event.actor drops $event.thing`
-        this.eventCommand(evt.event, 'thing', thing, evt)
+        this.eventCommand(`event_drop`, 'thing', thing, evt)
         this.continueMove(cmdInfo, evt)
     }
     // COMMAND
@@ -2026,7 +2045,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
                     allKeys.push(prop)
                 }
             }
-            if (thing.aliases.length) allKeys.push('_aliases')
+            if (thing.aliases?.length) allKeys.push('_aliases')
         } else {
             for (const prop in spec) {
                 if (prop === 'associations' || prop === 'associationThings') continue
@@ -2103,7 +2122,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         const context = this.find(contextStr, undefined, 'context')
         const evtIndex = words.findIndex(w => w.toLowerCase() === '@emit')
         const emitter = (evtIndex !== -1 && this.find(words[evtIndex + 1], context, 'emitter')) || this.thing.assoc.location
-        throw event.emitFail(emitter, text, args.map(t => this.find(t, context, 'arg')), false, emitter)
+        throw event.emitFail(emitter, text, args.map(t => this.find(t, context, 'arg')), false, context)
     }
     atRun(cmdInfo: any) {
         const [ctxStr, cmdStr, ...argStrs] = dropArgs(1, cmdInfo).split(/\s+/)

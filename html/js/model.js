@@ -692,10 +692,11 @@ export class World {
                 _closed: true,
                 _priority: 0,
             });
-            thingProto.setMethod('!go', '()', `
-                if (event.destination && event.destination._thing.isIn(here) && event.destination.closed) {
+            del(thingProto, 'go', 'get');
+            thingProto.setMethod('!event_go_destination', '(dest)', `
+                if (dest._thing.isIn(here) && dest.closed) {
                     return cmd("@fail %event.thing \\"$forme You can\\'t go into $event.destination $forothers $event.actor tries to go into %event.destination but can\\'t\\"")
-                } else if (here._thing.isIn(event.destination) && here.closed) {
+                } else if (here._thing.isIn(dest) && here.closed) {
                     return cmd("@fail %event.thing \\"$forme You can\\'t leave $event.origin $forothers $event.actor tries to leave %event.origin but can\\'t\\"")
                 }
 `);
@@ -707,37 +708,37 @@ export class World {
                 _linkMoveFormat: 'You went $name to $arg3',
                 _linkExitFormat: '$Arg1 went $name to $arg3',
             });
-            linkProto.setMethod('!go', '()', `
-                if (event.direction.locked && !inAny('key', event.direction._thing)) {
+            del(linkProto, 'go', 'get');
+            linkProto.setMethod('!event_go_direction', '(dir)', `
+                if (dir.locked && !inAny('key', dir._thing)) {
                     return cmd("@fail %event.thing \\"$forme You don\\'t have the key $forothers $Arg tries to go $event.direction to $event.destination but doesn\\'t have the key\\"");
                 }
 `);
             if (linkProto['!react_newgo'])
                 linkProto['!react_go'] = linkProto['!react_newgo'];
-            linkProto._get = `
+            linkProto._event_get_thing = `
 @fail $0 "$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means..." me
             `;
             roomProto.assoc.location = this.hallOfPrototypes;
             roomProto.setPrototype(thingProto);
+            roomProto._event_get_thing = `
+@fail $0 "$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means..." me
+            `;
             personProto.assoc.location = this.hallOfPrototypes;
             personProto.setPrototype(thingProto);
             ensureProps(personProto, {
                 _article: '',
                 examineFormat: 'Carrying: $contents',
             });
-            delete personProto._get;
-            personProto.setMethod('!get', '(thisThing)', `
-                if (event.thing === thisThing) {
-                    event.emitFail(event.actor, "$forme You can't pick up $event.thing! $forothers $event.actor tries to pick up $this but can't", [], false, event.actor)
-               }
-`);
+            del(personProto, 'go', 'get');
+            personProto._event_get_thing = `@fail $0 "$forme You can't pick up $this! $forothers $event.actor tries to pick up $this but can't"`;
             generatorProto.assoc.location = this.hallOfPrototypes;
             generatorProto.setPrototype(thingProto);
             ensureProps(generatorProto, {
                 _priority: -1,
             });
-            delete generatorProto._get;
-            generatorProto.setMethod('!get', '(thisThing)', `event.destination === me && cmdf('@run $0 generate', thisThing)`);
+            del(generatorProto, 'go', 'get');
+            generatorProto._get_thing = `@run $0 generate`;
             generatorProto._generate = `
         @quiet
         @copy $0
@@ -1699,6 +1700,12 @@ export class Profile {
 }
 function ensureProps(thing, values) {
     Object.assign(thing, values, thing);
+}
+function del(thing, ...props) {
+    for (const prop of props) {
+        delete thing['_' + prop];
+        delete thing['!' + prop];
+    }
 }
 function getId(tip) {
     if (typeof tip === 'number') {

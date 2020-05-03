@@ -231,7 +231,7 @@ objects:
     name: Mystic Lands
     nextId: 27
     personProto: 7
-    roomProto: 4
+    roomProto: 5
     thingProto: 3
     version: 1
 users:
