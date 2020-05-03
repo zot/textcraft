@@ -1527,14 +1527,14 @@ export class World {
         let found = false
 
         while (obj && obj !== this.thingProto) {
-            if (found) {
-                count++
-            } else if (obj.hasOwnProperty(prop)) {
+            if (obj.hasOwnProperty(prop)) {
                 found = true
+                break
             }
+            count++
             obj = obj.__proto__
         }
-        return found ? count : this.thingProto.hasOwnProperty(prop) ? 0 : -1
+        return found ? count : this.thingProto.hasOwnProperty(prop) ? count + 1 : 1000
     }
 }
 

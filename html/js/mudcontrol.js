@@ -28,6 +28,8 @@ const setHelp = ['thing property value', `Set a property on a thing:
     description            -- format string for look/examine commands (see FORMAT WORDS)
     examineFormat          -- format string for contents and links (see FORMAT WORDS)
     contentsFormat         -- format string for an item in contents (see FORMAT WORDS)
+    enterFormat            -- format string for when someone enters a container
+    exitFormat             -- format string for when someone leaves a container
     linkFormat             -- format string for how this item links to its other link (see FORMAT WORDS)
     linkMoveFormat         -- format string for when someone moves through a link (see FORMAT WORDS)
     linkEnterFormat        -- format string for occupants when someone enters through the link (see FORMAT WORDS)
@@ -53,10 +55,11 @@ const setHelp = ['thing property value', `Set a property on a thing:
 
   EVENT PROPERTIES
     The standard event properties, beginning with "event_" (event_go_thing, etc.) can be either
-    command templates or methods. If one exist, They are invoked
+    command templates or methods. If one exists, it is invoked. If both exist, the method is
+    invoked in preference to the template.
 
   RESERVED PROPERTIES YOU CANNOT SET
-    prototype       -- use @reproto to change this
+    id                     -- objects can't change their ID
 `
 ];
 const adminHelp = `
@@ -250,6 +253,10 @@ export const commands = new Map([
     ['@fail', new Command({
             help: ['context format args', `Fail the current event and emit a format string
    If it has $forme, it will output to the user, if it has $forothers, that will output to others`]
+        })],
+    ['@echo', new Command({
+            help: ['formatWords...', `Print a format string with this.thing as context
+  If $forothers is present, emit an 'echo' descripton`]
         })],
     ['@output', new Command({
             help: ['contextThing FORMAT-AND-EVENT-ARGS...',
@@ -937,8 +944,20 @@ export class MudConnection {
         this.output(this.description(thing));
     }
     checkCommand(prefix, cmd, thing, checkDefault = thing.hasName(cmd)) {
-        return (checkDefault && (thing['_' + prefix] || thing['!' + prefix]))
-            || (cmd && (thing[`_${prefix}_${cmd}`] || thing[`!${prefix}_${cmd}`]));
+        return (checkDefault && this.choose(thing, '_' + prefix, '!' + prefix))
+            || (cmd && this.choose(thing, `!${prefix}_${cmd}`, `_${prefix}_${cmd}`));
+    }
+    choose(thing, ...props) {
+        let proximity = 1000;
+        let prop = null;
+        for (const p of props) {
+            const px = this.world.propertyProximity(thing, p);
+            if (px < proximity) {
+                proximity = px;
+                prop = p;
+            }
+        }
+        return prop && thing[prop];
     }
     findCommand(words, prefix = 'cmd') {
         const result = this.findTemplate(words, prefix);
@@ -2117,6 +2136,17 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         this.runCommands(this.substituteCommand(ctx._thing['_' + cmdStr], args), true);
     }
     // COMMAND
+    atEcho(cmdInfo) {
+        const text = dropArgs(1, cmdInfo);
+        const ctx = formatContexts(text);
+        if (ctx.me) {
+            this.output(this.basicFormat(this.thing, ctx.me, []));
+        }
+        if (ctx.others) {
+            this.formatDescripton(this.thing, ctx.others, [], 'echo', [this.thing], true, false);
+        }
+    }
+    // COMMAND
     atOutput(cmdInfo /*, actor, text, arg..., @event, actor, event, arg...*/) {
         const words = splitQuotedWords(dropArgs(1, cmdInfo));
         // tslint:disable-next-line:prefer-const
@@ -2124,12 +2154,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         const ctx = formatContexts(text);
         const context = this.find(contextStr, undefined, 'context');
         const evtIndex = words.findIndex(w => w.toLowerCase() === '@event');
-        if (evtIndex === -1 || words.length - evtIndex < 3) {
-            throw new Error('@output needs @event actor eventType');
-        }
-        // tslint:disable-next-line:prefer-const
-        let [actorStr, ...eventArgs] = words.slice(evtIndex + 1);
-        const actor = this.find(actorStr, undefined, 'actor');
+        const actor = evtIndex === -1 ? this.thing : this.find(words[evtIndex + 1], undefined, 'actor');
         const formatWords = words.slice(2, evtIndex);
         const formatArgs = formatWords.length ? this.findAll(formatWords) : [];
         let output = false;
@@ -2150,7 +2175,8 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
                 }
             }
         }
-        if (ctx.others) {
+        if (ctx.others && evtIndex !== -1) {
+            let [, ...eventArgs] = words.slice(evtIndex + 1); // actor is already computed
             let succeeded = true;
             if (eventArgs[0].toLowerCase() === 'false') {
                 eventArgs = eventArgs.slice(1);
@@ -2164,6 +2190,9 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
                     : (this.find(word)) || word;
             }
             return this.formatDescripton(context, ctx.others, formatArgs, event, eventArgs, succeeded, false, output, null, actor);
+        }
+        else if (ctx.others && ctx.count) {
+            throw new Error('@output needs @event actor eventType');
         }
     }
     // COMMAND
@@ -2243,20 +2272,22 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
     // COMMAND
     atRemove(cmdInfo /*, thingStr: string, property: string, thing2Str: string*/) {
         checkArgs(cmdInfo, arguments);
-        const [thingStr, property, item] = splitQuotedWords(dropArgs(1, cmdInfo));
+        const [thingStr, property, ...items] = splitQuotedWords(dropArgs(1, cmdInfo));
         const thing = this.find(thingStr, this.thing, 'thing');
         const prop = '_' + property.toLowerCase();
-        if (Array.isArray(thing[prop])) {
-            const index = thing[prop].indexOf(item);
-            thing[prop].splice(index, 1);
+        for (const item of items) {
+            if (Array.isArray(thing[prop])) {
+                const index = thing[prop].indexOf(item);
+                thing[prop].splice(index, 1);
+            }
+            else if (thing[prop] instanceof Set) {
+                thing[prop].delete(item);
+            }
+            else {
+                this.error(`${property} is not a list`);
+            }
+            this.output(`Removed ${item} from ${property}, new value: ${[...thing[prop]].join(', ')}`);
         }
-        else if (thing[prop] instanceof Set) {
-            thing[prop].delete(item);
-        }
-        else {
-            this.error(`${property} is not a list`);
-        }
-        this.output(`Removed ${item} from ${property}, new value: ${[...thing[prop]].join(', ')}`);
     }
     // COMMAND
     atReproto(cmdInfo, thingStr, protoStr) {
@@ -2297,7 +2328,8 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         return this.baseSet.apply(this, [cmdInfo, ...splitQuotedWords(dropArgs(1, cmdInfo))]);
     }
     baseSet(cmdInfo, thingStr, property, value) {
-        const [thing, lowerProp, realProp, val] = this.thingProps(thingStr, property, value, cmdInfo);
+        const [thing, lowerProp, rp, val] = this.thingProps(thingStr, property, value, cmdInfo);
+        let realProp = rp;
         const cmd = cmdInfo.line.match(/^[^\s]*/)[0].toLowerCase();
         value = cmd === '@setbool' ? Boolean(val)
             : cmd === '@setbigint' ? BigInt(val)
@@ -2305,6 +2337,8 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
                     : val;
         if (!thing)
             return;
+        if (!(thing instanceof Thing) && realProp[0] === '_')
+            realProp = realProp.substring(1);
         if (addableProperties.has(realProp))
             return this.error(`Cannot set ${property} `);
         switch (lowerProp) {
@@ -2501,9 +2535,9 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         if (!thing)
             return;
         if (!propMap.has(lowerProp)) {
-            return this.error('Bad property: ' + property);
+            return this.error('Property not found: ' + property);
         }
-        if (reservedProperties.has(realProp) || addableProperties.has(realProp)) {
+        else if (reservedProperties.has(realProp) || addableProperties.has(realProp)) {
             return this.error('Reserved property: ' + property);
         }
         delete thing[realProp];
@@ -2637,21 +2671,24 @@ function check(test, msg) {
 }
 function formatContexts(format) {
     const contexts = format.split(/(\s*\$forme\b\s*|\s*\$forothers\b\s*)/i);
-    const tmp = {};
     if (contexts.length > 1) {
+        const tmp = {};
+        let count = 1;
         for (let i = 1; i < contexts.length; i += 2) {
             tmp[contexts[i].trim().substring(1).toLowerCase()] = contexts[i + 1];
         }
-        if (tmp.forme && !tmp.forothers)
+        if (tmp.forme && !tmp.forothers) {
             tmp.forothers = contexts[0];
-        if (!tmp.forme && tmp.forothers)
+        }
+        else if (!tmp.forme && tmp.forothers) {
             tmp.forme = contexts[0];
-        return {
-            me: tmp.forme,
-            others: tmp.forothers,
-        };
+        }
+        else {
+            count = 2;
+        }
+        return { me: tmp.forme, others: tmp.forothers, count };
     }
-    return { others: contexts[0], me: contexts[0] };
+    return { others: contexts[0], me: contexts[0], count: 0 };
 }
 function thingPxy(item) {
     return !(item instanceof Thing) ? item : item._thing.specProxy;
