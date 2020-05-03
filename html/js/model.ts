@@ -296,6 +296,7 @@ export class Thing {
     _id: thingId
     _prototype: thingId
     _name: string
+    _aliases: string[]
     _fullName: string
     _article: string
     _description: string
@@ -384,6 +385,19 @@ export class Thing {
             this._prototype = null
         }
     }
+    hasName(name: string) {
+        const thing = this._thing
+
+        name = name.toLowerCase()
+        if (thing._name.toLowerCase() === name) return true
+        if (thing._aliases instanceof Set) return (thing._aliases as Set<string>).has(name)
+        if (Array.isArray(thing._aliases)) {
+            for (const alias of thing._aliases) {
+                if (alias.toLowerCase() === name) return true
+            }
+        }
+        return false
+    }
     isIn(tid: thingId | Thing) { return this.assocId.location === getId(tid) }
     formatName() {
         return (this.article ? this.article + ' ' : '') + this.fullName
@@ -421,7 +435,7 @@ export class Thing {
         if (typeof condition === 'string') {
             const name = condition.toLowerCase()
 
-            condition = t => t.name.toLowerCase() === name
+            condition = t => t.hasName(name)
         }
         return this._thing.nearby(exclude).find(condition)
     }
@@ -473,7 +487,7 @@ ${realCode};
         return keys.size > 0
     }
     spec(): any {
-        const spec = {}
+        const spec = {} as any
 
         for (const prop of Object.keys(this)) {
             if (prop[0] === '_') {
@@ -566,6 +580,7 @@ export class World {
     linkProto: Thing
     roomProto: Thing
     generatorProto: Thing
+    containerProto: Thing
     users: string
     nextId: number
     storage: MudStorage
@@ -632,11 +647,13 @@ export class World {
             this.linkProto = this.createThing('link', '$This to $link')
             this.roomProto = this.createThing('room', 'You are in $this')
             this.generatorProto = this.createThing('generator', 'This is a thing')
+            this.containerProto = this.createThing('container', 'This is a container')
             this.personProto = this.createThing('person', '$This $is only a dude')
             this.limbo.setPrototype(this.roomProto)
             this.limbo._article = ''
             this.lobby.setPrototype(this.roomProto)
             this.generatorProto.setPrototype(this.thingProto)
+            this.containerProto.setPrototype(this.thingProto)
             this.hallOfPrototypes.setPrototype(this.roomProto)
             this.limbo.assoc.location = this.limbo
             await this.createUser('admin', 'admin', true)
@@ -734,11 +751,12 @@ export class World {
         this.roomProto = this.getThing(info.roomProto) || await this.findPrototype('room')
         this.linkProto = this.getThing(info.linkProto) || await this.findPrototype('link')
         this.generatorProto = this.getThing(info.generatorProto) || await this.findPrototype('generatorProto')
+        this.containerProto = this.getThing(info.containerProto) || (await this.findPrototype('containerProto')) || this.createThing('container')
         this.clockRate = info.clockRate || 2
     }
     async findPrototype(name: string): Promise<Thing> {
         for (const aproto of await this.hallOfPrototypes.refs.location._thing) {
-            if (name === aproto.name) return aproto
+            if (aproto.hasName(name)) return aproto
         }
     }
     async initStdPrototypes() {
@@ -748,13 +766,18 @@ export class World {
             const roomProto = this.roomProto
             const linkProto = this.linkProto
             const generatorProto = this.generatorProto
+            const containerProto = this.containerProto
 
-            this.stamps([thingProto, personProto, roomProto, linkProto, generatorProto])
+            this.stamps([thingProto, personProto, roomProto, linkProto, generatorProto, containerProto])
             thingProto.assoc.location = this.hallOfPrototypes
-            thingProto.article = 'the'
-            thingProto.contentsFormat = '$This $is here'
-            thingProto.examineFormat = 'Exits: $links<br>Contents: $contents'
-            thingProto.linkFormat = '$This leads to $link'
+            ensureProps(thingProto, {
+                article: 'the',
+                contentsFormat: '$This $is here',
+                examineFormat: 'Exits: $links<br>Contents: $contents',
+                linkFormat: '$This leads to $link',
+                _closed: true,
+                _priority: 0,
+            })
             thingProto.setMethod('!go', '()', `
                 if (event.destination && event.destination._thing.isIn(here) && event.destination.closed) {
                     return cmd("@fail %event.thing \\"$forme You can\\'t go into $event.destination $forothers $event.actor tries to go into %event.destination but can\\'t\\"")
@@ -762,32 +785,32 @@ export class World {
                     return cmd("@fail %event.thing \\"$forme You can\\'t leave $event.origin $forothers $event.actor tries to leave %event.origin but can\\'t\\"")
                 }
 `);
-            thingProto._priority = 0
             linkProto.assoc.location = this.hallOfPrototypes
-            linkProto.article = '';
-            (linkProto as any)._locked = false
+            ensureProps(linkProto, {
+                article: '',
+                _locked: false,
+                _linkEnterFormat: '$Arg1 entered $arg3',
+                _linkMoveFormat: 'You went $name to $arg3',
+                _linkExitFormat: '$Arg1 went $name to $arg3',
+            })
             linkProto.setMethod('!go', '()', `
                 if (event.direction.locked && !inAny('key', event.direction._thing)) {
                     return cmd("@fail %event.thing \\"$forme You don\\'t have the key $forothers $Arg tries to go $event.direction to $event.destination but doesn\\'t have the key\\"");
                 }
 `);
-            delete (linkProto as any)._cmd
-            delete (linkProto as any)._go
-            delete (linkProto as any)['!cmd']
-            if ((linkProto as any)['!react_newgo']) (linkProto as any)['!react_go'] = (linkProto as any)['!react_newgo']
-            linkProto._linkEnterFormat = '$Arg1 entered $arg3'
-            linkProto._linkMoveFormat = 'You went $name to $arg3'
-            linkProto._linkExitFormat = '$Arg1 went $name to $arg3';
+            if ((linkProto as any)['!react_newgo']) (linkProto as any)['!react_go'] = (linkProto as any)['!react_newgo'];
             (linkProto as any)._get = `
-        @output $0 "$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means..." me @event me false get $0
+@fail $0 "$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means..." me
             `
             roomProto.assoc.location = this.hallOfPrototypes
-            roomProto._closed = true
             roomProto.setPrototype(thingProto)
             personProto.assoc.location = this.hallOfPrototypes
             personProto.setPrototype(thingProto)
-            personProto._article = ''
-            personProto.examineFormat = 'Carrying: $contents';
+            ensureProps(personProto, {
+                _article: '',
+                examineFormat: 'Carrying: $contents',
+            })
+            delete (personProto as any)._get
             personProto.setMethod('!get', '(thisThing)', `
                 if (event.thing === thisThing) {
                     event.emitFail(event.actor, "$forme You can't pick up $event.thing! $forothers $event.actor tries to pick up $this but can't", [], false, event.actor)
@@ -795,16 +818,25 @@ export class World {
 `);
             generatorProto.assoc.location = this.hallOfPrototypes
             generatorProto.setPrototype(thingProto)
-            generatorProto._priority = -1;
-            (generatorProto as any)._get = `
+            ensureProps(generatorProto, {
+                _priority: -1,
+            });
+            delete (generatorProto as any)._get
+            generatorProto.setMethod('!get', '(thisThing)', `event.destination === me && cmdf('@run $0 generate', thisThing)`);
+            (generatorProto as any)._generate = `
         @quiet
         @copy $0
-        @js orig = $0, cpy = %-1; debugger; cpy.fullName = 'a ' + orig.name
+        @js orig = $0, cpy = %-1; cpy.fullName = 'a ' + orig.name
         @reproto %-1 %proto:thing
-        drop %-1
         @js copy = %-1; event.thing = copy
+        @move %-1 me.assoc.location
         @loud
 `
+            containerProto.assoc.location = this.hallOfPrototypes
+            ensureProps(containerProto, {
+                article: '',
+                _closed: false,
+            })
         })
     }
     spec() {
@@ -817,7 +849,7 @@ export class World {
             hallOfPrototypes: this.hallOfPrototypes.id,
             thingProto: this.thingProto.id,
             linkProto: this.linkProto.id,
-            roomProto: this.linkProto.id,
+            roomProto: this.roomProto.id,
             personProto: this.personProto.id,
             generatorProto: this.generatorProto.id,
             defaultUser: this.defaultUser,
@@ -1304,6 +1336,7 @@ export class World {
                 things.delete(thing.id)
                 spec.associations = []
                 this.reindexThing(thing, spec)
+                this.prototypeIndex.get(thing._prototype).delete(thing.id)
                 this.thingCache.delete(thing.id)
                 thing.toasted = true
                 for (const guts of await thing.refs.location._thing) {
@@ -1769,6 +1802,10 @@ export class Profile {
             port: this.port,
         }
     }
+}
+
+function ensureProps(thing: any, values: any) {
+    Object.assign(thing, values, thing)
 }
 
 function getId(tip: thingId | Thing) {

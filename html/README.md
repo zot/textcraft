@@ -116,35 +116,72 @@ Here are all of the current commands and the current help documentation:
 
 ```
 @add thing property thing2                     --  Add thing2 to the list or set in property
-  If there is no property, create a set
-  thing2 is optional
+  thing2 is optional, if it is not present, create an empty set
+
+  LIST OR SET PROPERTIES
+  aliases   -- alternate names
+
 @admin thing boolean                           --  Change a thing's admin privileges
 @as thing command...                           --  Make a thing execute a command
+@assoc thing property thing                    --  Associate a thing with another thing
+
+  STANDARD ASSOCIATIONS
+    location        -- if this thing has a location, it is in its location's contents (see FORMAT WORDS)
+    linkOwner       -- the owner of this link (if this is a link)
+    otherLink       -- the other link (if this is a link)
+    key             -- locks that this thing can open
+
+@assocmany thing property thing                --  Associate a thing with another thing
+   Allows many associations of the same type
 @bluepill 
 @bluepill thing                                --  Turn off verbose names for thing (or yourself if there is no argument
 @call thing.property arg...                    --  Call a method on a thing
 @clock seconds                                 --  Change the clock rate
+@commands thing                                --  Print commands to recreate a thing
+@continue                                      --  Continue substitution
 @copy thing
 @copy thing force                              --  Copy a thing to your inventory (force allows copying the entire world -- can be dangerous)
-@create proto name [description words...]      --  Create a thing
+@create proto name [description words...]      --  Create a thing using a prototype.
+   You can use a prototype by name if it's in the hall of prototypes or you can specify any other
+   thing using %-notation. The known prototypes in the hall of prototypes are:
+
+      thing(%3)
+      link(%4)
+      room(%5)
+      generator(%6)
+      person(%7)
+      pgenerator(%27)
+      tombthing(%28)
+      container(%80)
+      container(%83)
+      container(%84)
 @del thing property                            --  Delete a properties from a thing so it will inherit from its prototype
+@delassoc thing property
+@delassoc thing property thing                 --  Dissociate a thing from another thing or from all things
 @delay command...                              --  Delay a command until after the current ones finish
 @dump thing                                    --  See properties of a thing
-
    You can use % as a synonym for @dump if it's the first character of a command
 
-@find thing                                    --  Find a thing
-@find thing location                           --  Find a thing from a location
+@dumpinh thing                                 --  See properties of a thing plus its inherited properties
+   You can use %% as a synonym for @dumping if they're the first characters of a command
+
+@fail context format args                      --  Fail the current event and emit a format string
+   If it has  $forme, it will output to the user, if it has  $forothers, that will output to others
+@find thing                                    --  Find a thing from your current location
+@find thing start                              --  Find a thing from a particular thing
 @info                                          --  List important information
 @instances proto                               --  Display all instances
 @js var1 = thing1, var2 = thing2... ; code...  --  Run JavaScript code with optional variable bindings
-
    Note that commas between variable bindings are optional
    The initial variable values are things looked up by name and bound to specProxies for the things
    You can use ! as a synonym for @js if it's the first character of a command
 
    The following are predefined for convenience:
      me                        specProxy for your thing
+     here                      specProxy for your location
+     event                     the current event (if there is one)
+     inAny(property, item)     returns whether anything nearby has item in property
+                               Synonym for anyHas(findNearby(), property, item)
      anyHas(things, property)
      anyHas(things, property, item)
                                returns whether any of things is associated with item (defaults to 'me')
@@ -155,7 +192,7 @@ Here are all of the current commands and the current help documentation:
      doThings(thing..., func)  find things and call func
 
    CommandContexts also support methods cmd() and cmdf() to allow chaining
-   return a command context to run a command
+   If you return a command context, the system will run it
 
    FOUR TYPES OF PROXIES
 
@@ -181,7 +218,8 @@ Here are all of the current commands and the current help documentation:
    thing.refs lets you access things associated with a thing by using promises. For example,
    thing.refs.location will return an array of everything located in thing.
 
-@link loc1 link1 link2 loc2                    --  create links between two things
+@link link1 loc1 link2
+@link link1 loc1 link2 loc2                    --  create links between two things, loc2 defaults to here
 @loud                                          --  enable all output for this command
 @method thing name (args...) body              --  Define a method on a thing
    The method actually runs in the context of the thing's MudConnection, not the thing itself
@@ -190,27 +228,27 @@ Here are all of the current commands and the current help documentation:
 @move thing location                           --  Move a thing
 @mute                                          --  temporarily silence all output commands that are not yours
 @output contextThing FORMAT-AND-EVENT-ARGS...  --   Output text to the user and/or others using a format string on contextThing
-
   @output contextThing "FORMAT" arg... @event actor EVENT arg...
   @output contextThing "FORMAT" arg... @event actor false EVENT arg...
 
   if the format is for others, @output will emit a descripton using information after @event
   actor specifies who emits the descripton.
   Adding false before EVENT indicates that the event failed.
+@patch subject viewer
+@patch subject viewer prototype                --  Patch subject for a viewer
 @quiet                                         --  disable all output for this command
 @redpill 
 @redpill thing                                 --  Turn on verbose names for thing (or yourself if there is no argument
 @remove thing property thing2                  --  Remove thing2 from the list in property
 @reproto thing proto                           --  Change the prototype of a thing
+@run thing property arg...                     --  Call a command macro on a thing
 @say "words..." arg...                         --  Formatted say
-@setNum thing property number
-@setBigint thing property bigint
-@setBool thing property boolean
-@set thing property value                      --  Set one of these properties on a thing:
-  prototype   -- see the @info command
-  article     -- the article for a thing's name
-  name        -- the thing's fullName (the name will be set to the first word)
-  count       -- how many there are of the thing (defaults to 1)
+@script commands                               --  Commands is a set of optionally indented lines.
+  Indentation indicates that a line belongs to the unindented command above it
+@setnum thing property number
+@setbigint thing property bigint
+@setbool thing property boolean
+@set thing property value                      --  Set a property on a thing:
   location    -- move the thing to another location
   linkowner   -- set the thing's linkOwner
   otherlink   -- set the thing's otherLink
@@ -219,35 +257,33 @@ Here are all of the current commands and the current help documentation:
 
   Here are the fields you can set:
     name            -- simple one-word name for this object, for commands to find it
-    fullName        -- the formatted name
+    fullName        -- the full name, this also sets article and name
     article         -- precedes the formatted name when this is displayed
-    description     -- shown for look/examine commands
-    examineFormat   -- describes an item's contents and links
-    contentsFormat  -- describes an item in contents
-    linkFormat      -- decribes how this item links to its other link
-    linkMoveFormat  -- shown to someone when they move through a link
-    linkEnterFormat -- shown to occupants when someone enters through the link
-    linkExitFormat  -- shown to occupants when someone leaves through the link
-    location        -- if this thing has a location, it is in its location's contents
-    linkOwner       -- the owner of this link (if this is a link)
-    otherLink       -- the other link (if this is a link)
-    keys[]          -- locks that this thing allows opening
+    description     -- format string for look/examine commands (see FORMAT WORDS)
+    examineFormat   -- format string for contents and links (see FORMAT WORDS)
+    contentsFormat  -- format string for an item in contents (see FORMAT WORDS)
+    linkFormat      -- format string for how this item links to its other link (see FORMAT WORDS)
+    linkMoveFormat  -- format string for when someone moves through a link (see FORMAT WORDS)
+    linkEnterFormat -- format string for occupants when someone enters through the link (see FORMAT WORDS)
+    linkExitFormat  -- format string for occupants when someone leaves through the link (see FORMAT WORDS)
     closed          -- whether this object propagates descriptons to its location
-    template        -- whether to copy this object during a move command
     cmd             -- command template for when the object's name is used as a command
     cmd_WORD        -- command template for when the WORD is used as a command
-    get             -- command template for when someone tries to get the object
+    get             -- event template for when someone tries to get the object
     get_WORD        -- command template for when someone tries to get WORD
+    drop            -- event template for when someone tries to drop the object
     go              -- command template for when someone tries to go into in object or through a link
     go_WORD         -- command template for when someone tries to go into WORD (virtual directions)
     react_EVENT     -- react to an event (or descripton), see EVENTS
+
+  RESERVED PROPERTIES YOU CANNOT SET
+    prototype       -- use @reproto to change this
 
 @start                                         --  Start the clock
 @stop                                          --  Stop the clock
 @toast thing...                                --  Toast things and everything they're connected to
 @unmute                                        --  enable output from other commands
 act words...                                   --  Do something
-
    You can use : as a synonym for act if it's the first character of a command
 
 drop thing                                     --  drop something you are carrying
@@ -258,13 +294,13 @@ get thing [from] location                      --  grab a thing from a location
 go location                                    --  move to another location (may be a direction)
 help                                           --  Show this message
 i 
+inv 
 invent 
 inventory                                      --  list what you are carrying
 login user password                            --  Login to the mud
 look                                           --  See a description of your current location
 look thing                                     --  See a description of a thing
 say words...                                   --  Say something
-
    You can use ' or " as a synonym for say if it's the first character of a command
 
 whisper thing words...                         --  Say something to thing
@@ -279,6 +315,8 @@ You can use %result.PROPERTY to refer to a property of the result (including num
 You can use %event to refer to the current event (descripton)
 You can use %event.PROPERTY to refer to a property of the current event (descripton)
 You can use %NAME as a synonym of NAME for convenience, this helps when using %thing as a command
+
+On any thing, you can traverse a path with dot-notation, like %proto:thing.name or me.assoc.location
 
 To make something into a prototype, move it to %protos
 
@@ -309,7 +347,8 @@ COMMAND TEMPLATES:
 Command templates are string properties on objects to implement custom commands.
 Example command template properties are get_key, cmd, and cmd_whistle -- see the help for @set.
 Templates replace the original command with different commands, separated by semicolons.
-Templates can contain $0..$N to refer to the command arguments. $0 refers to the thing itself.
+Templates can contain $0..$N to refer to the command arguments. $0 refers to the command name.
+$* refers to all the words after the command name.
 
 
 EVENTS:

@@ -123,7 +123,10 @@
             <div class='fcolumn fspread'>
                 <div id='mud-info'>
                     <span class='mud-title'>Playing:&nbsp;</span>
-                    <span id='mud-name' class='when-mud-playing fgrow mud-title'></span>
+                    <span class='when-mud-playing mud-title fgrow'>
+                        <span id='mud-name'></span>
+                        In: <span id='mud-location'></span>
+                    </span>
                     <span class='fright when-not-role-host when-peer-disconnected when-not-mud-playing'>
                         <span class='when-not-relay-active fcenter'>
                             <button id='mud-select-join' >Join</button>

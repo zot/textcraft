@@ -578,7 +578,7 @@ export function addMudOutput(html) {
                 } else {
                     $('#mud-view').classList.remove('large-output')
                 }
-                if (selection) {
+                if (selection != null) {
                     $('#mud-command').selectionStart = input.length - selection.length
                     $('#mud-command').selectionEnd = input.length
                 } else {
@@ -588,7 +588,7 @@ export function addMudOutput(html) {
             }
         }
         for (const node of $findAll(el, '.thing')) {
-            node.onclick = () => {
+            node.onclick = evt => {
                 const field = $('#mud-command')
                 const cmd = field.value
                 const st = field.selectionStart
@@ -598,10 +598,18 @@ export function addMudOutput(html) {
                 if (leading.match(/[^\s$]$/)) {
                     leading += ' '
                 }
+                if (evt.detail === 2) {
+                    $('#mud-command').value = txt
+                    return runMudCommand()
+                }
                 field.value = leading + txt + cmd.substring(field.selectionEnd)
                 field.setSelectionRange(st + txt.length, st + txt.length)
                 field.focus()
             }
+        }
+        for (const loc of $findAll(el, '.location')) {
+            $('#mud-location').textContent = loc.textContent
+            loc.remove()
         }
     })
     $('#mud-output').scrollTo(0, $('#mud-output').scrollHeight)
