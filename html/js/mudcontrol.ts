@@ -23,6 +23,23 @@ const reservedProperties = new Set([
     '__proto__',
 ])
 
+const stdAssocs = new Set([
+    'location',
+    'linkOwner',
+    'otherLink',
+    'destination',
+    'key',
+    'visibleTo',
+    'hides',
+    'patch',
+    'patchFor',
+])
+
+function stdAssoc(name: string) {
+    name = name.toLowerCase()
+    return [...stdAssocs].find(a => a.toLowerCase() === name)
+}
+
 const addableProperties = new Set([
     '_aliases',
 ])
@@ -34,22 +51,31 @@ const setHelp = ['thing property value', `Set a property on a thing:
   description -- the thing's description, you can use format words in a description (see FORMAT WORDS).
                  If you capitalize a format word, the substitution will be capitalized.
 
-  STANDARD FIELDS:
+  STANDARD PROPERTIES:
     name                   -- simple one-word name for this object, for commands to find it
     fullName               -- the full name, this also sets article and name
     article                -- precedes the formatted name when this is displayed
     description            -- format string for look/examine commands (see FORMAT WORDS)
-    examineFormat          -- format string for contents and links (see FORMAT WORDS)
-    contentsFormat         -- format string for an item in contents (see FORMAT WORDS)
-    enterFormat            -- format string for when someone enters a container
-    exitFormat             -- format string for when someone leaves a container
-    linkFormat             -- format string for how this item links to its other link (see FORMAT WORDS)
-    linkMoveFormat         -- format string for when someone moves through a link (see FORMAT WORDS)
-    linkEnterFormat        -- format string for occupants when someone enters through the link (see FORMAT WORDS)
-    linkExitFormat         -- format string for occupants when someone leaves through the link (see FORMAT WORDS)
     closed                 -- whether this object propagates descriptons to its location
+    globalCommand          -- whether this object can contribute commands to others in its location
+    hidden                 -- whether this object is invisible
+    -- FORMATS --
+    examineFormat          -- format contents and links (see FORMAT WORDS)
+    contentsFormat         -- format an item in contents (see FORMAT WORDS)
+    enterFormat            -- format when someone enters a container
+    enterFailFormat        -- format when someone tries to enter a closed thing (see FORMAT WORDS)
+    exitFormat             -- format when someone leaves a container
+    exitFailFormat         -- format when someone tries to exit a closed thing (see FORMAT WORDS)
+    linkFormat             -- format how this item links to its other link (see FORMAT WORDS)
+    linkMoveFormat         -- format when someone moves through a link (see FORMAT WORDS)
+    linkEnterFormat        -- format when someone enters through the link (see FORMAT WORDS)
+    linkExitFormat         -- format when someone leaves through the link (see FORMAT WORDS)
+    linkFailFormat         -- format when someone without a key tries to use a locked link (see FORMAT WORDS)
+    -- COMMAND PROPERTIES --
     cmd                    -- command template for when the object's name is used as a command
     cmd_WORD               -- command template for when the WORD is used as a command
+    go_WORD                -- event template when someone does 'go WORD' and WORD doesn't exist (virtual directions)
+    -- EVENT INTERCEPTS --    These are templates that can interfere with event propagation
     event_go               -- event template for going that involves the object (called at each stage)
     event_go_thing         -- event template for going somewhere
     event_go_direction     -- event template for going through the object
@@ -63,8 +89,8 @@ const setHelp = ['thing property value', `Set a property on a thing:
     event_drop_thing       -- event template for dropping the object
     event_drop_origin      -- event template for when the object drops things
     event_drop_destination -- event template for dropping things into the object
-    go_WORD                -- event template when someone does 'go WORD' and WORD doesn't exist (virtual directions)
-    react_EVENT            -- react to an event (or descripton), see EVENTS
+    -- EVENT REACTIONS --     for objects that react to events
+    react_EVENT            -- template that reacts to an event (or descripton), see EVENTS
 
   EVENT PROPERTIES
     The standard event properties, beginning with "event_" (event_go_thing, etc.) can be either
@@ -312,13 +338,25 @@ $prototypes`]
         help: ['thing', '',
             'thing force', `Copy a thing to your inventory (force allows copying the entire world -- can be dangerous)`]
     })],
+    ['@edit', new Command({
+        help: ['things', '',
+            'thing force', `Print a script that edits one or more things`]
+    })],
+    ['@recreate', new Command({
+        help: ['things', '',
+            'thing force', `Print a script that creates one or more things and moves them to your inventory`]
+    })],
+    ['@editcopy', new Command({
+        help: ['things', `Print a script that produces a copy of one or more things and moves them to your inventory`]
+    })],
     ['@find', new Command({
         help: ['thing', 'Find a thing from your current location',
             'thing start', 'Find a thing from a particular thing',]
     })],
     ['@link', new Command({
-        help: ['link1 loc1 link2', '',
-            'link1 loc1 link2 loc2', 'create links between two things, loc2 defaults to here']
+        help: ['link loc', '',
+            'link1 loc1 link2', '',
+            'link1 loc1 link2 loc2', `create links between two things, loc2 defaults to here`]
     })],
     ['@info', new Command({ help: ['', 'List important information'] })],
     ['@as', new Command({ help: ['thing command...', 'Make a thing execute a command'] })],
@@ -326,7 +364,7 @@ $prototypes`]
         help: ['thing property thing2', `Add thing2 to the list or set in property
   thing2 is optional, if it is not present, create an empty set
 
-  LIST OR SET PROPERTIES
+  LIST PROPERTIES
   aliases   -- alternate names
 `], admin: true
     })],
@@ -340,25 +378,36 @@ $prototypes`]
     ['@set', new Command({ help: setHelp })],
     ['@del', new Command({ help: ['thing property', `Delete a properties from a thing so it will inherit from its prototype`] })],
     ['@continue', new Command({ help: ['', 'Continue substitution'] })],
+    ['@use', new Command({
+        help: ['things', `pushes things on created array so you can use them as %-1 through %-N
+  %1 refers to the last thing given`]
+    })],
     ['@script', new Command({
         help: ['commands', `Commands is a set of optionally indented lines.
   Indentation indicates that a line belongs to the unindented command above it`]
     })],
     ['@assoc', new Command({
-        help: ['thing property thing', `Associate a thing with another thing
+        help: ['thing property thing...', `Set association between a thing and other things
 
   STANDARD ASSOCIATIONS
     location        -- if this thing has a location, it is in its location's contents (see FORMAT WORDS)
     linkOwner       -- the owner of this link (if this is a link)
     otherLink       -- the other link (if this is a link)
+    destination     -- where this link leads to (can be used instead of otherLink)
     key             -- locks that this thing can open
+    visibleTo       -- this item is only visible to these viewers
+    hides           -- this item hides these things from viewers it is visible to
+    patch           -- override properties on the associated thing(s) for one of more viewers
+    patchFor        -- viewers who percieve the patch's properties
 `]
     })],
-    ['@assocmany', new Command({
-        help: ['thing property thing', `Associate a thing with another thing
-   Allows many associations of the same type`]
+    ['@addassoc', new Command({
+        help: ['thing property thing...', `Add associations between a thing and other things`]
     })],
-    ['@delassoc', new Command({ help: ['thing property', '', 'thing property thing', `Dissociate a thing from another thing or from all things`] })],
+    ['@delassoc', new Command({
+        help: ['thing property', '',
+            'thing property thing...', `Dissociate a thing from some things or from all things`]
+    })],
     ['@reproto', new Command({ help: ['thing proto', `Change the prototype of a thing`] })],
     ['@instances', new Command({ help: ['proto', `Display all instances`] })],
     ['@bluepill', new Command({
@@ -453,13 +502,16 @@ export class Descripton {
         for (const item of thing.refs.location) {
             this.propagate(item, visited, visitFunc, visitLinks)
         }
+        for (const item of thing.assocMany.linkOwner) {
+            this.propagate(item, visited, visitFunc, visitLinks)
+        }
         if (visitLinks) {
             for (const item of thing.refs.linkOwner) {
                 const otherLink = thing.assoc.otherLink
-                const otherThing = otherLink && otherLink.assoc.linkOwner
+                const dest = thing.assoc.destination
 
-                this.propagate(otherLink, visited, visitFunc, visitLinks)
-                this.propagate(otherThing, visited, visitFunc, visitLinks)
+                otherLink && this.propagate(otherLink, visited, visitFunc, visitLinks)
+                dest && this.propagate(dest, visited, visitFunc, visitLinks)
             }
         }
         if (!this.props(thing)._closed || this.ignoreClosed) return this.propagate(thing.assoc.location, visited, visitFunc, visitLinks)
@@ -508,7 +560,7 @@ export class Descripton {
                 }
             }, [this.actor._thing])
         }
-        return new Error(msg)
+        throw new Error(msg)
     }
     fail() {
         if (!this.failed) {
@@ -592,8 +644,8 @@ class MoveDescripton extends Descripton {
         this.exitFormat = formatContexts(this.exitFormat).others
         this.enterFormat = formatContexts(this.enterFormat).others
         this.moveFormat && con?.output(con.basicFormat(this.direction || this.origin, this.moveFormat, args))
-        this.exitFormat && copy.sendOutput(this.origin, this.exitFormat, args, false, this.direction || this.origin)
-        this.enterFormat && copy.sendOutput(this.destination, this.enterFormat, args, false, this.direction?.assoc.otherLink || this.destination)
+        this.exitFormat && copy.sendOutput(this.origin, this.exitFormat, args, false, this.origin)
+        this.enterFormat && copy.sendOutput(this.destination, this.enterFormat, args, false, this.destination)
     }
 }
 
@@ -736,7 +788,7 @@ export class MudConnection {
         this.suppressOutput = oldSup
     }
     errorNoThing(thing: string) {
-        this.error(`You don't see any ${thing} here`)
+        throw new Error(`You don't see any ${thing} here`)
     }
     output(text: string) {
         if ((!this.suppressOutput && this.muted < 1) || this.failed) {
@@ -789,10 +841,39 @@ export class MudConnection {
     findPatch(thing: Thing) {
         for (const patch of thing.refs.patch) {
             if (patch.assocId.patchFor === this.thing.id) {
-                return patch
+                return this.makePatch(patch, thing)
             }
         }
         return thing
+    }
+    makePatch(patchProto: any, thing: Thing) {
+        const patches = {}
+        const choose = (...props: string[]) => {
+            let prop
+
+            for (const p of props) {
+                if (patches.hasOwnProperty(p)) return patches[p]
+                if (patchProto.hasOwnProperty(p)) prop = patchProto[p]
+            }
+            if (typeof prop !== 'undefined') return prop
+            return thing.choose(prop)
+        }
+
+        if (this.isStd(thing.id)) patchProto = {}
+        return new Proxy(thing, {
+            get(obj, prop) {
+                const val = patches[prop]
+
+                if (prop === 'choose') return choose
+                return typeof val !== 'undefined' ? val
+                    : patchProto.hasOwnProperty(prop) ? patchProto[prop]
+                        : thing[prop]
+            },
+            set(obj, prop, value) {
+                patches[prop] = value
+                return true
+            }
+        })
     }
     formatMe(tip: thingId | Thing, str: string, ...args: Thing[]) {
         const ctx = formatContexts(str)
@@ -823,7 +904,7 @@ export class MudConnection {
         return output
     }
     propCommand(thing: any, prop: string) {
-        const val = thing[prop]
+        const val = (thing instanceof Thing ? thing._thing.specProxy : thing)[prop]
 
         switch (typeof val) {
             case 'boolean':
@@ -831,14 +912,19 @@ export class MudConnection {
             case 'number':
                 return `@setnum %${thing.id} ${prop} `
             default:
+                if (Array.isArray(val)) return `@add %${thing.id} ${prop} `
                 if (val instanceof BigInt) return `@setnum %${thing.id} ${prop} `
                 return `@set %${thing.id} ${prop} `
         }
     }
     formatDumpProperty(thing: Thing, prop: string, noParens = false) {
-        const inherited = prop !== 'aliases' && !(noParens || thing.hasOwnProperty('_' + prop))
+        const inherited = !(noParens || thing.hasOwnProperty('_' + prop))
+        let val = (thing instanceof Thing ? thing._thing.specProxy : thing)[prop]
 
-        return `<span class='property${inherited ? ' inherited' : ''}'><span class='hidden input-text'>${this.propCommand(thing, prop)}<span class='select'>${escape(thing['_' + prop])}</span></span>${prop}</span>`
+        if (Array.isArray(val)) {
+            val = val.map(strOrJson).join(' ')
+        }
+        return `<span class='property${inherited ? ' inherited' : ''}'><span class='hidden input-text'>${this.propCommand(thing, prop)}<span class='select'>${escape(val)}</span></span>${prop}</span>`
     }
     formatAssociation(thing: Thing, assoc: string) {
         const val = thing.assoc.allIdsNamed(assoc)
@@ -923,7 +1009,7 @@ export class MudConnection {
                         continue
                     }
                     case 'name': {
-                        result += this.props(thing).name
+                        result += this.props(thing)._name
                         continue
                     }
                     case 'is': {
@@ -946,7 +1032,7 @@ export class MudConnection {
                     }
                     case 'link': {
                         const other = thing.assoc.otherLink?._thing
-                        const dest = other?.assoc.linkOwner?._thing
+                        const dest = other?.assoc.linkOwner?._thing || thing.assoc.destination?._thing
 
                         if (dest) {
                             result += capitalize(this.formatName(this.props(dest)), format)
@@ -960,7 +1046,7 @@ export class MudConnection {
                             for (const item of contents) {
                                 if ((!item.assoc.visibleTo || item.assoc.visibleTo === this.thing)
                                     && !this.isHidden(item)) {
-                                    result += `<br>&nbsp;&nbsp;${this.format(item, this.props(thing).contentsFormat)}`
+                                    result += `<br>&nbsp;&nbsp;${this.format(item, this.props(thing)._contentsFormat)}`
                                 }
                             }
                             result += '<br>'
@@ -973,7 +1059,7 @@ export class MudConnection {
                         if (links.length) {
                             for (const item of links) {
                                 if (!this.isHidden(item)) {
-                                    result += `<br>&nbsp;&nbsp;${this.format(item, this.props(item).linkFormat)}`
+                                    result += `<br>&nbsp;&nbsp;${this.format(item, this.props(item)._linkFormat)}`
                                 }
                             }
                             result += '<br>'
@@ -996,9 +1082,8 @@ export class MudConnection {
         things = this.hiddenThings.get(thing)
         if (!things) {
             const items = []
-            const fooling = thing.refs.fooling
 
-            for (const item of fooling) {
+            for (const item of thing.refs.visibleTo) {
                 items.push(...item.assocMany.hides)
             }
             things = new Set(items)
@@ -1008,14 +1093,14 @@ export class MudConnection {
     }
     isHidden(thing: Thing, viewer = this.thing) {
         thing = thing._thing
-        return (thing as any)._hidden || this.hiddenFor(viewer._thing).has(thing)
+        return (this.props(thing) as any)._hidden || this.hiddenFor(viewer._thing).has(thing)
     }
     description(thing: Thing) {
-        return this.format(thing, this.props(thing).description)
+        return this.format(thing, this.props(thing)._description)
     }
     examination(thing: Thing) {
         const result = this.description(thing)
-        const format = this.props(thing).examineFormat
+        const format = this.props(thing)._examineFormat
 
         return result + (format ? `<br>${this.format(thing, format)}` : '')
     }
@@ -1023,22 +1108,8 @@ export class MudConnection {
         this.output(this.description(thing))
     }
     checkCommand(prefix: string, cmd: string, thing: any, checkDefault = thing.hasName(cmd)) {
-        return (checkDefault && this.choose(thing, '_' + prefix, '!' + prefix))
-            || (cmd && this.choose(thing, `!${prefix}_${cmd}`, `_${prefix}_${cmd}`))
-    }
-    choose(thing: Thing, ...props: string[]) {
-        let proximity = 1000
-        let prop = null
-
-        for (const p of props) {
-            const px = this.world.propertyProximity(thing, p)
-
-            if (px < proximity) {
-                proximity = px
-                prop = p
-            }
-        }
-        return prop && thing[prop]
+        return (checkDefault && this.props(thing).choose('_' + prefix, '!' + prefix))
+            || (cmd && this.props(thing).choose(`!${prefix}_${cmd}`, `_${prefix}_${cmd}`))
     }
     findCommand(words: string[], prefix = 'cmd') {
         const result = this.findTemplate(words, prefix)
@@ -1339,18 +1410,16 @@ export class MudConnection {
         const thing = this.find(thingStr)
         const propMap = new Map()
         const lowerProp = property.toLowerCase()
-        const rest = dropArgs(3, cmd)
+        const words = dropArgs(3, cmd)
+        const rest = words[0] === '"' ? JSON.parse(words) : words
         let realProp
 
         if (!thing) {
-            this.error('Could not find thing ' + thingStr)
-            return []
+            throw new Error(`Could not find thing ${thingStr}`)
         } else if (lowerProp === 'id') {
-            this.error('Cannot change id!')
-            return []
+            throw new Error('Cannot change id!')
         } else if (lowerProp === '_proto__') {
-            this.error('Cannot change __proto__!')
-            return []
+            throw new Error('Cannot change __proto__!')
         }
         for (const key in thing) {
             if (key !== '_id' && key[0] === '_') {
@@ -1380,7 +1449,7 @@ export class MudConnection {
             value = rest
             if (rest.match(/^[0-9]+$/)) {
                 value = Number(rest)
-            } else if (rest.toLowerCase().match(/true|false/)) {
+            } else if (rest.toLowerCase().match(/^\s*(true|false)\s*$/)) {
                 value = rest.toLowerCase() === 'true'
             }
         }
@@ -1690,7 +1759,7 @@ export class MudConnection {
     // COMMAND
     examine(cmdInfo, target?) {
         if (!target) {
-            this.error(`What do you want to examine ? `)
+            throw new Error(`What do you want to examine ? `)
         } else {
             const thing = this.find(target, this.thing)
 
@@ -1713,7 +1782,7 @@ export class MudConnection {
     go(cmdInfo, directionStr) {
         const direction = this.find(directionStr, this.thing)
         const otherLink = direction?.assoc.otherLink
-        const destination = otherLink?.assoc.linkOwner || direction
+        const destination = otherLink?.assoc.linkOwner || direction?.assoc.destination || direction
         const evt = new MoveDescripton(this.thing, 'go', this.thing, destination, direction, directionStr)
 
         if (!this.substituting) {
@@ -1777,10 +1846,10 @@ export class MudConnection {
         }
         if (!thingStr || !thingStr.trim()) throw new Error('Get what?')
         const thing = this.find(thingStr, this.thing)
-        if (thing?.isIn(this.thing)) return this.error(`You are already holding ${this.formatName(thing)}`)
+        if (thing?.isIn(this.thing)) throw new Error(`You are already holding ${this.formatName(thing)}`)
         if (!thing) return this.errorNoThing(thingStr)
-        if (thing === this.thing) return this.error(`You just don't get yourself. Some people are that way...`)
-        if (thing === location) return this.error(`You just don't get this place. Some places are that way...`)
+        if (thing === this.thing) throw new Error(`You just don't get yourself. Some people are that way...`)
+        if (thing === location) throw new Error(`You just don't get this place. Some places are that way...`)
         const evt = new MoveDescripton(this.thing, 'get', thing, this.thing, null, null)
         evt.exitFormat = "$forothers"
         evt.moveFormat = `You pick up $event.thing`
@@ -1794,7 +1863,7 @@ export class MudConnection {
 
         if (!thingStr || !thingStr.trim()) throw new Error('Drop what?')
         if (!thing) return this.errorNoThing(thingStr)
-        if (!thing.isIn(this.thing)) return this.error(`You aren't holding ${thingStr}`)
+        if (!thing.isIn(this.thing)) throw new Error(`You aren't holding ${thingStr}`)
         const evt = new MoveDescripton(this.thing, 'drop', thing, this.thing.assoc.location, null, null)
         evt.exitFormat = "$forothers"
         evt.moveFormat = `You drop $event.thing`
@@ -1856,25 +1925,35 @@ export class MudConnection {
             for (const aproto of hall.refs.location) {
                 protos.push(`%${aproto.id} %proto:${aproto.name}`)
             }
-            this.error(`<pre>Could not find prototype ${protoStr}
+            throw new Error(`<pre>Could not find prototype ${protoStr}
 Prototypes:
 ${protos.join('\n  ')}`)
         } else {
             const fullname = dropArgs(2, cmdInfo)
-            const thing = this.world.createThing(fullname)
+            const words = fullname.split(/(\s+)/)
+            const inIndex = words.findIndex(w => w.toLowerCase() === '@in')
+            const thing = this.world.createThing(inIndex === -1 ? fullname : words.slice(0, inIndex).join(''))
+            let dest = inIndex !== -1 && this.find(words[inIndex + 2], this.thing, 'destination')
+            let output = dest === this.thing ? 'You are holding '
+                : dest && dest.instanceof(this.world.personProto) ? `${this.dumpName(dest)} is holding `
+                    : 'You created '
 
             thing.setPrototype(proto)
-            this.created.push(thing)
-            if (this.created.length > 100) this.created = this.created.slice(this.created.length - 50)
-            if (thing._prototype === this.world.roomProto.id) {
-                this.output(`You created a new room: ${this.dumpName(thing)}`)
-            } else if (thing._prototype === this.world.linkProto.id) {
-                this.output(`You created a new link: ${this.dumpName(thing)}`)
-            } else {
-                thing.assoc.location = this.thing
-                this.output(`You are holding a new ${proto._name}: ${this.dumpName(thing)}`)
+            this.pushCreated(thing)
+            output += `${this.dumpName(thing)}, a ${(thing as any).__proto__._fullName}`
+            if (!(thing.instanceof(this.world.roomProto) || thing.instanceof(this.world.linkProto))) {
+                dest = dest || this.thing.assoc.location
             }
+            if (dest) thing.assoc.location = dest
+            if (dest !== this.thing && !(dest && dest.instanceof(this.world.personProto))) {
+                output += `, in ${this.dumpName(thing.assoc.location)}`
+            }
+            this.output(output)
         }
+    }
+    shouldHold(thing: Thing) {
+        return !(thing instanceof this.world.roomProto.constructor
+            || thing instanceof this.world.linkProto.constructor)
     }
     // COMMAND
     atPatch(cmdInfo: any, subjectStr, viewerStr, protoStr) {
@@ -1889,7 +1968,7 @@ ${protos.join('\n  ')}`)
         }
         patch.assoc.patch = subject.id
         patch.assoc.patchFor = viewer.id
-        this.created.push(patch)
+        this.pushCreated(patch)
         this.world.stamp(patch)
         this.output(`Patched ${this.formatName(subject)} for ${this.formatName(viewer)} with ${this.formatName(patch)}`)
     }
@@ -1902,19 +1981,26 @@ ${protos.join('\n  ')}`)
         checkArgs(cmdInfo, arguments)
         const words = splitQuotedWords(dropArgs(1, cmdInfo))
         const [exit2Str, loc1Str, exit1Str, loc2Str] = words
-        const loc1 = this.findInstance(this.world.roomProto, loc1Str, 'location')
+        const loc1 = loc1Str && this.findInstance(this.world.roomProto, loc1Str, 'location')
         const loc2 = (loc2Str && this.find(loc2Str, this.world.roomProto, 'location')) || this.thing.assoc.location
         const linkProto = this.getPrototype('link')
-        const exit1 = this.world.createThing(exit1Str)
+        const exit1 = exit1Str && this.world.createThing(exit1Str)
         const exit2 = this.world.createThing(exit2Str)
 
-        exit1.setPrototype(linkProto)
-        exit1.assoc.linkOwner = loc1
-        exit1.assoc.otherLink = exit2
+        this.pushCreated(exit2)
         exit2.setPrototype(linkProto)
         exit2.assoc.linkOwner = loc2
-        exit2.assoc.otherLink = exit1
-        this.output(`Linked ${this.dumpName(loc1)}->${this.dumpName(exit1)}--${this.dumpName(exit2)}<-${this.dumpName(loc2)}`)
+        if (exit1) {
+            exit2.assoc.otherLink = exit1
+            exit1 && this.pushCreated(exit1)
+            exit1.setPrototype(linkProto)
+            exit1.assoc.linkOwner = loc1
+            exit1.assoc.otherLink = exit2
+            this.output(`Linked ${this.dumpName(loc2)}->${this.dumpName(exit2)}--${this.dumpName(exit1)}<-${this.dumpName(loc1)}`)
+        } else {
+            exit2.assoc.destination = loc1
+            this.output(`Linked ${this.dumpName(loc2)}->${this.dumpName(exit2)}->${this.dumpName(loc1)}`)
+        }
     }
     // COMMAND
     atJs(cmdInfo) {
@@ -1961,13 +2047,13 @@ ${protos.join('\n  ')}`)
                 delete thing[realProp]
                 this.output(`Deleted function ${thingStr}.${prop}`)
             } else {
-                this.error(`No function ${thingStr}.${prop}`)
+                throw new Error(`No function ${thingStr}.${prop}`)
             }
         } else {
             const match = code.match(/^\s*(\([^()]*\))((?:.|\s)*)$/)
 
             if (!match) {
-                this.error(`Bad syntax, expected @method thing property (args) body`)
+                throw new Error(`Bad syntax, expected @method thing property (args) body`)
             } else {
                 const [, args, body] = [...match]
                 thing.setMethod(realProp, args, body)
@@ -1982,7 +2068,7 @@ ${protos.join('\n  ')}`)
         const things = (this.findAll(args, undefined, 'thing')).map(t => t?.specProxy)
 
         if (typeof method !== 'function') {
-            this.error(`No function ${thingStr}.${prop}`)
+            throw new Error(`No function ${thingStr}.${prop}`)
         } else {
             const result = method.apply(this.connectionFor(thing), things)
 
@@ -2068,7 +2154,7 @@ ${protos.join('\n  ')}`)
     subDump(cmdInfo, thingStr, inherited = false) {
         checkArgs(cmdInfo, arguments)
         const thing = this.find(thingStr)
-        if (!thing) return this.error('could not find ' + thingStr)
+        if (!thing) throw new Error('could not find ' + thingStr)
         console.log('DUMPING ', thing)
         const spec = thing.spec()
         const myKeys = new Set(Object.keys(thing).filter(k => !reservedProperties.has(k) && k[0] === '_'))
@@ -2076,14 +2162,17 @@ ${protos.join('\n  ')}`)
         const fp = (prop, noParens = false) => this.formatDumpProperty(thing, prop, noParens)
         const fm = (prop, noParens = false) => this.formatDumpMethod(thing, prop, noParens)
         const fa = (prop) => this.formatAssociation(thing, prop)
-        let result = `<span class='code'>${this.dumpName(thing)} <span class='property'>CLICK TO EDIT ALL<span class='hidden input-text'>${this.scriptFor(spec)}<span class='select'></span></span></span>
-${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThing(thing._prototype)) : 'none'}
-${fa('location')}--> ${this.dumpName(thing.assocId.location)}
-${fa('linkOwner')}--> ${this.dumpName(thing.assoc.linkOwner)}
-${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
-<--(location)--${this.dumpThingNames(thing.refs.location)}
-<--(linkOwner)--${ this.dumpThingNames(thing.refs.linkOwner)}`
+        let result = `<span class='code'>${this.dumpName(thing)} <span class='property'>CLICK TO EDIT ALL<span class='hidden input-text'>${this.scriptFor([spec], '@use %' + spec.id)}<span class='select'></span></span></span>
+${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThing(thing._prototype)) : 'none'}`
 
+        for (const prop of stdAssocs) {
+            result += `\n${fa(prop)} --> ${this.dumpName(thing.assoc[prop])}`
+        }
+        for (const prop of stdAssocs) {
+            const things = thing.refs[prop]
+
+            if (things.length) result += `\n<--${prop}--${this.dumpThingNames(things)}`
+        }
         if (inherited) {
             for (const prop in thing) {
                 if (prop === '_associations' || prop === '_associationThings') continue
@@ -2093,7 +2182,6 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
                     allKeys.push(prop)
                 }
             }
-            if (thing.aliases?.length) allKeys.push('_aliases')
         } else {
             for (const prop in spec) {
                 if (prop === 'associations' || prop === 'associationThings') continue
@@ -2118,7 +2206,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         }
         const associationMap = new Map<string, Set<Thing>>()
         for (const [k, v] of thing._associations) {
-            if (k === 'location' || k === 'linkOwner' || k === 'otherLink') continue
+            if (stdAssocs.has(k)) continue
             if (!associationMap.has(k)) associationMap.set(k, new Set())
             associationMap.get(k).add(this.world.getThing(v))
         }
@@ -2130,7 +2218,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         const backlinks = new Map<string, Thing[]>()
         for (const associate of thing.assoc.refs()) {
             for (const [k, v] of associate._associations) {
-                if (k === 'location' || k === 'linkOwner' || k === 'otherLink' || v !== thing.id) continue
+                if (stdAssocs.has(k)) continue
                 if (!backlinks.has(k)) backlinks.set(k, [])
                 backlinks.get(k).push(associate)
             }
@@ -2141,19 +2229,54 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         result += '</span>'
         this.output(result)
     }
-    scriptFor(spec: any) {
-        let result = '@script'
-        const props = [...Object.keys(spec)].filter(p => p !== 'associations' && p !== 'associationThings').sort();
+    scriptFor(specs: any[], firstCode: string) {
+        let result = `@script\n${firstCode}`
+        let index = -specs.length
+        const ids = specs.map(s => s.id)
+        const name = (thing) => {
+            const idx = ids.indexOf(typeof thing === 'number' ? thing : thing.id)
 
-        for (const prop of props) {
-            if (prop === 'associations' || prop === 'associationThings') continue
-            if (prop[0] === '!') {
-                const [args, body] = spec[prop]
+            return idx === -1 ? this.adminName(thing) : `%${idx - ids.length}`
+        }
 
-                result += `\n@method ${spec.id} ${args} ${escape(body)}`
-            } else if (!reservedProperties.has('_' + prop)) {
-                result += `\n${this.propCommand(spec, prop)}${spec[prop]}`
+        for (const spec of specs) {
+            const props = [...Object.keys(spec)].filter(p => p !== 'associations' && p !== 'associationThings').sort();
+            const fakeSpec = Object.assign({}, spec, { id: index })
+
+            for (const prop of props) {
+                let val = spec[prop]
+
+                if (prop === 'associations' || prop === 'associationThings') continue
+                if (prop[0] === '!') {
+                    const [args, body] = val
+
+                    result += `\n@method %${index} ${args} ${indent(2, escape(body)).trim()}`
+                } else if (reservedProperties.has('_' + prop)) {
+                    continue
+                } else {
+                    if (Array.isArray(val)) {
+                        result += `\n@del %${index} ${prop}`
+                        val = val.map(strOrJson).join(' ')
+                    } else {
+                        val = typeof val === 'string' ? indent(2, val).trim() : val
+                    }
+                    result += `\n${this.propCommand(fakeSpec, prop)}${val}`
+                }
             }
+            const assocs = new Map<string, number[]>()
+            for (const [prop, id] of spec.associations) {
+                let nums = assocs.get(prop)
+
+                if (!nums) {
+                    nums = []
+                    assocs.set(prop, nums)
+                }
+                nums.push(id)
+            }
+            for (const [a, nums] of assocs.entries()) {
+                result += `\n@assoc %${index} ${a} ${nums.map(n => name(n)).join(' ')}`
+            }
+            index++
         }
         return result
     }
@@ -2178,7 +2301,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         const args = argStrs.map((t: string) => this.find(t, undefined, 'argument'))
         const line = ctx['_' + cmdStr]
 
-        if (!line) return this.error(`Cannot run code, %${ctx.id} has no ${cmdStr} property`)
+        if (!line) throw new Error(`Cannot run code, %${ctx.id} has no ${cmdStr} property`)
         args.unshift(ctx)
         this.runCommands(this.substituteCommand(ctx._thing['_' + cmdStr], args), true)
     }
@@ -2249,8 +2372,8 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         const thing = this.find(thingStr)
         const loc = this.find(locStr)
 
-        if (!thing) return this.error(`Could not find ${thingStr} `)
-        if (!loc) return this.error(`Could not find ${locStr} `)
+        if (!thing) throw new Error(`Could not find ${thingStr} `)
+        if (!loc) throw new Error(`Could not find ${locStr} `)
         thing.assoc.location = loc
         this.output(`You moved ${thingStr} to ${locStr} `)
     }
@@ -2280,7 +2403,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
     atAdmin(cmdInfo: any, thingStr: string, toggle: string) {
         checkArgs(cmdInfo, arguments)
         const thing = this.find(thingStr)
-        if (!thing) return this.error(`Could not find ${thingStr} `)
+        if (!thing) throw new Error(`Could not find ${thingStr} `)
         const con = connectionMap.get(thing)
         const boolVal = toggle.toLowerCase() in { t: true, true: true }
         const user = this.world.getUserForThing(thing)
@@ -2301,18 +2424,15 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         const thing = this.find(thingStr, this.thing, 'thing')
         const prop = '_' + property.toLowerCase()
 
-        if (!Array.isArray(thing[prop]) && !addableProperties.has(prop)) {
-            return this.error(`${property} is not a list`)
-        }
         if (!thing[prop]) {
-            thing[prop] = new Set(words)
+            thing[prop] = words
         } else {
+            if (!Array.isArray(thing[prop])) throw new Error(`${property} is not a list`)
             if (!thing.hasOwnProperty(prop)) thing[prop] = thing[prop].slice()
-            for (const word of words) {
-                thing[prop].add(word)
-            }
-            this.output(`Added ${words} to ${property}, new value: ${[...thing[prop]].join(', ')}`)
+            thing[prop].push(...words)
         }
+        thing[prop] = [...new Set(thing[prop])]
+        this.output(`Added ${words.join(' ')} to ${property}, new value: ${thing[prop].join(' ')}`)
     }
     // COMMAND
     atRemove(cmdInfo: any /*, thingStr: string, property: string, thing2Str: string*/) {
@@ -2329,7 +2449,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
             } else if (thing[prop] instanceof Set) {
                 thing[prop].delete(item)
             } else {
-                this.error(`${property} is not a list`)
+                throw new Error(`${property} is not a list`)
             }
             this.output(`Removed ${item} from ${property}, new value: ${[...thing[prop]].join(', ')}`)
         }
@@ -2339,8 +2459,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         checkArgs(cmdInfo, arguments)
         const thing = this.find(thingStr, this.thing, 'thing')
         const proto = this.find(protoStr, this.world.hallOfPrototypes, 'prototype');
-        (thing as any).__proto__ = proto
-        thing._prototype = proto.id
+        thing.setPrototype(proto)
         this.output(`You changed the prototype of ${this.formatName(thing)} to ${this.formatName(proto)} `)
     }
     // COMMAND
@@ -2374,7 +2493,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         return this.baseSet.apply(this, [cmdInfo, ...splitQuotedWords(dropArgs(1, cmdInfo))])
     }
     baseSet(cmdInfo: any, thingStr: string, property: string, value: any) {
-        const [thing, lowerProp, rp, val] = this.thingProps(thingStr, property, value, cmdInfo)
+        const [thing, lowerProp, rp, val] = this.thingProps(thingStr, property, dropArgs(3, cmdInfo), cmdInfo)
         let realProp = rp
         const cmd = cmdInfo.line.match(/^[^\s]*/)[0].toLowerCase()
 
@@ -2384,7 +2503,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
                     : val
         if (!thing) return
         if (!(thing instanceof Thing) && realProp[0] === '_') realProp = realProp.substring(1)
-        if (addableProperties.has(realProp)) return this.error(`Cannot set ${property} `)
+        if (addableProperties.has(realProp)) throw new Error(`Cannot set ${property} `)
         switch (lowerProp) {
             case 'react_tick':
                 thing._react_tick = String(value)
@@ -2397,80 +2516,119 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
                 thing.fullName = value
                 break
             }
-            case 'location': {
-                const location = this.find(value)
-
-                if (!location) {
-                    this.error('Could not find location ' + value)
-                    return
-                }
-                thing.assoc.location = location
-                break
-            }
-            case 'linkowner':
-                const owner = this.find(value)
-
-                if (!owner) {
-                    this.error('Could not find link owner ' + value)
-                    return
-                }
-                thing.assoc.linkOwner = owner
-                break
-            case 'otherlink':
-                const other = this.find(value)
-
-                if (!other) {
-                    this.error('Could not find other link ' + value)
-                    return
-                }
-                thing.assoc.otherLink = other
-                break
             case 'prototype':
                 const proto = this.find(value, this.world.hallOfPrototypes)
 
                 if (!proto) {
-                    this.error('Could not find prototype ' + value)
-                    return
+                    throw new Error('Could not find prototype ' + value)
                 }
                 thing.setPrototype(proto)
                 break
             default:
-                if (value instanceof Thing) value = value.id
-                thing[realProp] = value
+                const assoc = stdAssoc(lowerProp)
+
+                if (assoc) {
+                    thing.assoc[assoc] = this.find(value, this.thing, assoc)
+                } else {
+                    if (value instanceof Thing) value = value.id
+                    thing[realProp] = value
+                }
                 break
         }
         this.output(`set ${thingStr} ${property} to ${value} `)
     }
+    // COMMAND
+    atUse(cmdInfo: any, ...thingStrs: string[]) {
+        checkArgs(cmdInfo, arguments)
+
+        this.pushCreated(...thingStrs.map(str => this.find(str, this.thing, 'thing')))
+    }
+    pushCreated(...things: Thing[]) {
+        this.created.push.apply(this.created, things)
+        if (this.created.length > 150) this.created = this.created.slice(this.created.length - 100)
+    }
+    // COMMAND
     atScript(cmdInfo: any) {
-        const lines = dropArgs(1, cmdInfo).split(/\n(?=[^\s])/)
+        const lines = dropArgs(1, cmdInfo).split(/\n(?=[^\s]|\n)/).map(trimIndents)
 
         this.runCommands(lines)
     }
+    // COMMAND
     atAssoc(cmdInfo: any, thingStr: string, prop: string, otherStr) {
         checkArgs(cmdInfo, arguments)
         const thing = this.find(thingStr, this.thing, 'thing') as Thing
-        const otherThing = this.find(otherStr, this.thing, 'other thing') as Thing
+        const words = dropArgs(3, cmdInfo)
+        const things = dropArgs(3, cmdInfo).split(' ').map(str => this.find(str, this.thing, 'other thing'))
 
-        thing.assoc[prop] = otherThing
+        thing.assoc[prop] = things[0]
+        for (const t of things.slice(1)) {
+            thing.assocMany[prop] = t
+        }
     }
-    atAssocmany(cmdInfo: any, thingStr: string, prop: string, otherStr) {
+    // COMMAND
+    atAddassoc(cmdInfo: any, thingStr: string, prop: string, otherStr) {
         checkArgs(cmdInfo, arguments)
         const thing = this.find(thingStr, this.thing, 'thing') as Thing
-        const otherThing = this.find(otherStr, this.thing, 'other thing') as Thing
+        const words = dropArgs(3, cmdInfo)
+        const things = words ? dropArgs(3, cmdInfo).split(' ').map(str => this.find(str, this.thing, 'other thing')) : []
 
-        thing.assocMany[prop] = otherThing
+        for (const t of things) {
+            thing.assocMany[prop] = t
+        }
     }
+    // COMMAND
     atDelassoc(cmdInfo: any, thingStr: string, prop: string, otherStr: string) {
         checkArgs(cmdInfo, arguments)
         const thing = this.find(thingStr, this.thing, 'thing') as Thing
-        const otherThing = this.find(otherStr, this.thing, 'other thing') as Thing
+        const words = dropArgs(3, cmdInfo)
+        const things = words ? dropArgs(3, cmdInfo).split(' ').map(str => this.find(str, this.thing, 'other thing')) : []
 
-        if (otherStr) {
-            thing.assoc.dissociate(prop, otherThing)
+        if (things.length) {
+            for (const t of things) {
+                thing.assoc.dissociate(prop, t)
+            }
         } else {
             thing.assoc.dissociateNamed(prop)
         }
     }
+    // COMMAND
+    atRecreate(cmdInfo: any, ...thingStrs: string[]) {
+        checkArgs(cmdInfo, arguments)
+        const things = thingStrs.map(str => this.find(str, this.thing, 'thing'))
+        const specs = things.map(t => t.spec())
+        function index(aThing: Thing) {
+            return things.findIndex(t => t.id === aThing.id) - things.length
+        }
+        const script = this.scriptFor(specs, things.map(t => `${things.length > 1 ? '!;//%' + index(t) + '\n' : ''}@create ${this.adminName(t._prototype).replace(/^%proto:/, '')} ${t.name}`).join('\n')) + things.filter(t => this.shouldHold(t)).map(t => `\n@move %${index(t)} me`).join('')
+
+        this.output(`<span class='property code'><span class='input-text'>${script}<span class='select'></span></span></span></span>`)
+    }
+    // COMMAND
+    atEdit(cmdInfo: any, ...thingStrs: string[]) {
+        checkArgs(cmdInfo, arguments)
+        const things = thingStrs.map(str => this.find(str, this.thing, 'thing').spec())
+        function index(aThing: Thing) {
+            return things.findIndex(t => t.id === aThing.id) - things.length
+        }
+        const script = this.scriptFor(things, things.map(t => `${things.length > 1 ? '!;//%' + index(t) + '\n' : ''}@use ${this.adminName(t.id)}`).join('\n'))
+
+        this.output(`<span class='property code'><span class='input-text'>${script}<span class='select'></span></span></span></span>`)
+    }
+    // COMMAND
+    atEditcopy(cmdInfo: any, ...thingStrs: string[]) {
+        checkArgs(cmdInfo, arguments)
+        const connected = new Set<Thing>()
+        const initialThings = thingStrs.map(str => this.find(str, this.thing, 'thing') as Thing)
+
+        initialThings.forEach(t => t.findConnected(connected))
+        const things = [...connected].map(t => t.spec()).sort((a, b) => a.id - b.id)
+        function index(aThing: Thing) {
+            return things.findIndex(t => t.id === aThing.id) - things.length
+        }
+        const script = this.scriptFor(things, things.map(t => `${things.length > 1 ? '!;//%' + index(t) + '\n' : ''}@create ${this.adminName(t.id)} ${t.name}`).join('\n')) + initialThings.map(t => `\n@move %${index(t)} me`).join('\n')
+        this.output(`<span class='property code'><span class='input-text'>${script}<span class='select'></span></span></span></span>`)
+    }
+    // COMMAND
     atCopy(cmdInfo: any, thingStr: string, force: string) {
         checkArgs(cmdInfo, arguments)
         const connected = new Set<Thing>()
@@ -2479,7 +2637,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
         thing.findConnected(connected)
         this.checkConnected(thingStr, connected, force && force.toLowerCase() === 'force')
         const newThing = thing.copy(connected) as Thing
-        this.created.push(newThing)
+        this.pushCreated(newThing)
         newThing.assoc.location = this.thing
         this.output(`You copied ${this.formatName(thing)} to your inventory`)
     }
@@ -2498,6 +2656,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
             }
         }
     }
+    // COMMAND
     atToast(cmdInfo: any, thingStr: string) {
         checkArgs(cmdInfo, arguments)
         const things = []
@@ -2557,7 +2716,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
             con.verboseNames = false
             this.output(`You take the blue pill.You feel normal`)
         } else {
-            this.error(`Could not find ${thingStr} `)
+            throw new Error(`Could not find ${thingStr} `)
         }
     }
     // COMMAND
@@ -2570,7 +2729,7 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
             con.verboseNames = true
             this.output(`You take the red pill.You feel abnormal.Don't you wish you had taken the blue pill?`)
         } else {
-            this.error(`Could not find ${thingStr}`)
+            throw new Error(`Could not find ${thingStr}`)
         }
     }
     // COMMAND
@@ -2580,9 +2739,9 @@ ${fa('otherLink')}--> ${this.dumpName(thing.assoc.otherLink)}
 
         if (!thing) return
         if (!propMap.has(lowerProp)) {
-            return this.error('Property not found: ' + property)
-        } else if (reservedProperties.has(realProp) || addableProperties.has(realProp)) {
-            return this.error('Reserved property: ' + property)
+            throw new Error('Property not found: ' + property)
+        } else if (reservedProperties.has(realProp)) {
+            throw new Error('Reserved property: ' + property)
         }
         delete thing[realProp]
         this.checkTicker(thing)
@@ -2635,7 +2794,7 @@ ${protos.join('<br>  ')}
             cmds = ['help', 'login']
         }
         if (cmd && cmds.indexOf(cmd) === -1) {
-            return this.error(`Command not found: ${cmd}`)
+            throw new Error(`Command not found: ${cmd}`)
         }
         for (const name of cmds) {
             const help = this.commands.get(name).help
@@ -2697,13 +2856,31 @@ function splitQuotedWords(line: string, stripQuotes = true) {
     return line.split(wordAndQuotePat).filter(x => x).map(w => w[0] === '"' ? JSON.parse(w) : w)
 }
 
-function indent(spaceCount: number, str: string) {
+function strOrJson(str: string) {
+    const json = JSON.stringify(str)
+
+    return json.substring(1, json.length - 1) === str ? str : json
+}
+
+export function indent(spaceCount: number, str: string) {
     let spaces = ''
 
     for (let i = 0; i < spaceCount; i++) {
         spaces += ' '
     }
     return str.replace(/(^|\n)/g, '$1' + spaces)
+}
+
+export function trimIndents(str: string) {
+    let lines = str.split('\n')
+    if (lines.length === 1) return str
+    const first = lines[0]
+    lines = lines.slice(1)
+    const minIndent = Math.min(str.length, ...lines.map(l => l.match(/^\s*/)[0].length))
+
+    lines = lines.map(l => l.substring(minIndent))
+    lines.unshift(first)
+    return lines.join('\n')
 }
 
 function dropArgs(count: number, cmdInfo: any) {

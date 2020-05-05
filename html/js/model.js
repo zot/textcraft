@@ -128,11 +128,7 @@ class AssociationIdAccessor {
         if (tid === undefined)
             return typeof this.idNamed(prop) !== 'undefined';
         const id = idFor(tid);
-        for (const assoc of this.thing._associations) {
-            if (assoc[0] === prop && assoc[1] === id)
-                return true;
-        }
-        return false;
+        return this.thing._associations.findIndex(([, aid]) => aid === id) !== -1;
     }
     get(prop) {
         return this.selectResult(this.allIdsNamed(prop));
@@ -142,10 +138,12 @@ class AssociationIdAccessor {
         if (id == null)
             return this.dissociateNamed(prop);
         this.checkAssociations();
-        if (!m2m)
-            this.dissociateNamed(prop, false); // remove all others first if not m2m
-        this.thing._associations.push([prop, id]);
-        this.changedAssociations();
+        if (!this.has(prop, id)) {
+            if (!m2m && !this.many)
+                this.dissociateNamed(prop, false); // if not m2m, remove others first
+            this.thing._associations.push([prop, id]);
+            this.changedAssociations();
+        }
     }
     add(prop, tid) { this.set(prop, tid, true); }
     refs(prop) {
@@ -197,9 +195,9 @@ class AssociationIdAccessor {
     }
     dissociateNamed(prop, update = true) {
         this.checkAssociations();
-        for (let i = 0; i < this.thing._associations.length; i++) {
+        for (let i = this.thing._associations.length; i--;) {
             const assoc = this.thing._associations[i];
-            if (assoc[0] === prop) {
+            if (assoc?.[0] === prop) {
                 this.thing._associations.splice(i, 1);
             }
         }
@@ -328,23 +326,38 @@ export class Thing {
         if (t) {
             this._prototype = t.id;
             this.__proto__ = t;
+            if (!t.hasOwnProperty('Constructor')) {
+                // tslint:disable-next-line:only-arrow-functions
+                t.constructor = (function () { });
+                t.constructor.prototype = t;
+            }
         }
         else {
             this._prototype = null;
         }
+    }
+    instanceof(thing) {
+        return this instanceof thing.constructor;
+    }
+    choose(...props) {
+        let proximity = 1000;
+        let prop = null;
+        for (const p of props) {
+            const px = this.world.propertyProximity(this, p);
+            if (px < proximity) {
+                proximity = px;
+                prop = p;
+            }
+        }
+        return prop && this[prop];
     }
     hasName(name) {
         const thing = this._thing;
         name = name.toLowerCase();
         if (thing._name.toLowerCase() === name)
             return true;
-        if (thing._aliases instanceof Set)
-            return thing._aliases.has(name);
         if (Array.isArray(thing._aliases)) {
-            for (const alias of thing._aliases) {
-                if (alias.toLowerCase() === name)
-                    return true;
-            }
+            return !!thing._aliases.find(a => a.toLowerCase() === name);
         }
         return false;
     }
@@ -460,7 +473,7 @@ ${realCode};
             }
         }
     }
-    useSpecSync(spec, specs) {
+    useSpec(spec, specs) {
         for (const prop of Object.keys(spec)) {
             if (prop[0] === '!') {
                 let codeSpec = spec[prop];
@@ -473,45 +486,19 @@ ${realCode};
                 const [args, code] = codeSpec;
                 this.setMethod(prop, args, code);
             }
-            else {
-                this['_' + prop] = spec[prop];
+            else if (prop !== 'aliases' || Array.isArray(spec[prop])) {
+                this['_' + prop] = Array.isArray(spec[prop]) ? spec[prop].slice() : spec[prop];
             }
         }
         // this must be below the above code because setSpec changes spec to avoid aliasing
         this.setSpec(spec);
         if (spec.prototype) {
-            const prototype = this.world.getThingSync(spec.prototype, specs);
+            const prototype = this.world.getThing(spec.prototype, specs);
             if (!prototype) {
                 throw new Error('Could not find prototype ' + spec.prototype);
             }
-            this.__proto__ = prototype;
-        }
-    }
-    async useSpec(spec) {
-        for (const prop of Object.keys(spec)) {
-            if (prop[0] === '!') {
-                let codeSpec = spec[prop];
-                if (Array.isArray(spec[prop])) { // rewrite arrays to strings for faster isDirty
-                    spec[prop] = JSON.stringify(codeSpec);
-                }
-                else {
-                    codeSpec = JSON.parse(spec[prop]);
-                }
-                const [args, code] = codeSpec;
-                this.setMethod(prop, args, code);
-            }
-            else {
-                this['_' + prop] = spec[prop];
-            }
-        }
-        // this must be below the above code because setSpec changes spec to avoid aliasing
-        this.setSpec(spec);
-        if (spec.prototype) {
-            const prototype = await this.world.getThing(spec.prototype);
-            if (!prototype) {
-                throw new Error('Could not find prototype ' + spec.prototype);
-            }
-            this.__proto__ = prototype;
+            if (prototype !== this.world.thingProto)
+                this.setPrototype(prototype);
         }
     }
 }
@@ -653,7 +640,7 @@ export class World {
                 this.userIndex.set(u.thing, u.name);
         });
         for (const [, spec] of specs) {
-            this.indexThing(this.cacheThingSync(spec, specs));
+            this.indexThing(this.cacheThing(spec, specs));
         }
         this.nextId = info.nextId;
         this.defaultUser = info.defaultUser;
@@ -689,15 +676,17 @@ export class World {
                 contentsFormat: '$This $is here',
                 examineFormat: 'Exits: $links<br>Contents: $contents',
                 linkFormat: '$This leads to $link',
+                _enterFailFormat: "$forme You can't go into $event.destination $forothers $event.actor tries to go into %event.destination but can't",
+                _exitFailFormat: "$forme You can't leave $event.origin $forothers $event.actor tries to leave %event.origin but can't",
                 _closed: true,
                 _priority: 0,
             });
             del(thingProto, 'go', 'get');
             thingProto.setMethod('!event_go_destination', '(dest)', `
                 if (dest._thing.isIn(here) && dest.closed) {
-                    return cmd("@fail %event.thing \\"$forme You can\\'t go into $event.destination $forothers $event.actor tries to go into %event.destination but can\\'t\\"")
+                    event.emitFail(dir, dir._thing._enterFailFormat, []);
                 } else if (here._thing.isIn(dest) && here.closed) {
-                    return cmd("@fail %event.thing \\"$forme You can\\'t leave $event.origin $forothers $event.actor tries to leave %event.origin but can\\'t\\"")
+                    event.emitFail(dir, dir._thing._exitrFailFormat, []);
                 }
 `);
             linkProto.assoc.location = this.hallOfPrototypes;
@@ -707,11 +696,12 @@ export class World {
                 _linkEnterFormat: '$Arg1 entered $arg3',
                 _linkMoveFormat: 'You went $name to $arg3',
                 _linkExitFormat: '$Arg1 went $name to $arg3',
+                _linkFailFormat: "$forme You don't have the key $forothers $Event.thing tries to go $event.direction to $event.destination but doesn't have the key"
             });
             del(linkProto, 'go', 'get');
             linkProto.setMethod('!event_go_direction', '(dir)', `
                 if (dir.locked && !inAny('key', dir._thing)) {
-                    return cmd("@fail %event.thing \\"$forme You don\\'t have the key $forothers $Arg tries to go $event.direction to $event.destination but doesn\\'t have the key\\"");
+                    event.emitFail(dir, dir._thing._linkFailFormat, []);
                 }
 `);
             if (linkProto['!react_newgo'])
@@ -1158,22 +1148,15 @@ export class World {
     removeDeferred(promise) {
         this.deferred.delete(promise);
     }
-    getThingSync(tid, specs) {
+    getThing(tid, specs) {
         if (tid instanceof Thing)
             return this.stamp(tid);
         if (tid === null || (typeof tid === 'number' && isNaN(tid)))
             return null;
         let thing = this.thingCache.get(tid);
         if (!thing)
-            thing = this.cacheThingSync?.(specs.get(tid), specs);
+            thing = this.cacheThing(specs.get(tid), specs);
         return thing && this.stamp(thing);
-    }
-    getThing(tid) {
-        if (tid instanceof Thing)
-            return this.stamp(tid);
-        if (tid === null || (typeof tid === 'number' && isNaN(tid)))
-            return null;
-        return this.stamp(this.thingCache.get(tid));
     }
     authenticate(name, passwd, thingName, noauthentication = false) {
         return this.doTransaction(async (store, users, txn) => {
@@ -1339,33 +1322,12 @@ export class World {
             }
         }
     }
-    async findConnectedAsync(thing, connected) {
-        if (!connected.has(thing)) {
-            connected.add(thing);
-            for (const item of await thing.refs.location._thing) {
-                await this.findConnectedAsync(item, connected);
-            }
-            for (const link of await thing.refs.linkOwner._thing) {
-                await this.findConnectedAsync(link, connected);
-            }
-        }
-    }
-    async cacheThingFor(thingSpec) {
+    cacheThing(thingSpec, specs) {
         if (!thingSpec)
             return null;
         const thing = new Thing(this, null, '');
         thing.world = this;
-        await thing.useSpec(thingSpec);
-        this.thingCache.set(thing.id, thing);
-        this.watcher?.(thing);
-        return thing;
-    }
-    cacheThingSync(thingSpec, specs) {
-        if (!thingSpec)
-            return null;
-        const thing = new Thing(this, null, '');
-        thing.world = this;
-        thing.useSpecSync(thingSpec, specs);
+        thing.useSpec(thingSpec, specs);
         this.thingCache.set(thing.id, thing);
         this.watcher?.(thing);
         return thing;
@@ -1373,7 +1335,7 @@ export class World {
     async cacheThings(specs) {
         for (let i = 0; i < specs.length; i++) {
             const thing = this.thingCache.get(specs[i].id);
-            specs[i] = thing || await this.cacheThingFor(specs[i]);
+            specs[i] = thing || await this.cacheThing(specs[i]);
         }
         return specs;
     }
@@ -1383,7 +1345,7 @@ export class World {
         const ids = this.associationIndex.get(prop)?.get(id);
         if (ids) {
             for (const assocId of ids) {
-                const athing = this.getThingSync(assocId);
+                const athing = this.getThing(assocId);
                 if (athing)
                     things.push(athing);
             }
@@ -1396,7 +1358,7 @@ export class World {
         const ids = this.basicAssociationIndex.get(id);
         if (ids) {
             for (const assocId of ids) {
-                const athing = this.getThingSync(assocId);
+                const athing = this.getThing(assocId);
                 if (athing)
                     things.push(athing);
             }
@@ -1849,11 +1811,7 @@ function extensionDbName(name) {
     return 'world ' + name + extensionsSuffix;
 }
 function same(a, b) {
-    if (typeof a !== typeof b)
-        return false;
-    if (a === null || b === null)
-        return a === b;
-    if (typeof a !== 'object')
+    if (typeof a !== typeof b || a === null || b === null || typeof a !== 'object')
         return a === b;
     if (Array.isArray(a) !== Array.isArray(b))
         return false;
@@ -1866,7 +1824,7 @@ function same(a, b) {
         }
         return true;
     }
-    else {
+    else { // a and b are objects
         const ak = Object.keys(a);
         const bkset = new Set(Object.keys(b));
         if (a.__proto__ !== b.__proto__)
