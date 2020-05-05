@@ -682,11 +682,13 @@ export class World {
                 _priority: 0,
             });
             del(thingProto, 'go', 'get');
-            thingProto.setMethod('!event_go_destination', '(dest)', `
+            thingProto.setMethod('!event_go_destination', '()', `
+                const dest = event.destination;
+                const dir = event.direction || dest;
                 if (dest._thing.isIn(here) && dest.closed) {
                     event.emitFail(dir, dir._thing._enterFailFormat, []);
                 } else if (here._thing.isIn(dest) && here.closed) {
-                    event.emitFail(dir, dir._thing._exitrFailFormat, []);
+                    event.emitFail(dir, dir._thing._exitFailFormat, []);
                 }
 `);
             linkProto.assoc.location = this.hallOfPrototypes;
@@ -699,7 +701,8 @@ export class World {
                 _linkFailFormat: "$forme You don't have the key $forothers $Event.thing tries to go $event.direction to $event.destination but doesn't have the key"
             });
             del(linkProto, 'go', 'get');
-            linkProto.setMethod('!event_go_direction', '(dir)', `
+            linkProto.setMethod('!event_go_direction', '()', `
+                const dir = event.direction;
                 if (dir.locked && !inAny('key', dir._thing)) {
                     event.emitFail(dir, dir._thing._linkFailFormat, []);
                 }
@@ -1934,7 +1937,7 @@ export function findSimpleName(str) {
         str = prepMatch[1];
     }
     words = str.split(/\s+/);
-    return [article, article ? words[words.length - 1].toLowerCase() : words[0]];
+    return [article, (article ? words[words.length - 1] : words[0]).toLowerCase()];
 }
 export function escape(text) {
     return typeof text === 'string' ? text.replace(/</g, '&lt;') : text;

@@ -11,7 +11,7 @@ const reservedProperties = new Set([
     '_contents',
     '__proto__',
 ]);
-const stdAssocs = new Set([
+const stdAssocsOrder = [
     'location',
     'linkOwner',
     'otherLink',
@@ -21,7 +21,8 @@ const stdAssocs = new Set([
     'hides',
     'patch',
     'patchFor',
-]);
+];
+const stdAssocs = new Set(stdAssocsOrder);
 function stdAssoc(name) {
     name = name.toLowerCase();
     return [...stdAssocs].find(a => a.toLowerCase() === name);
@@ -325,7 +326,8 @@ $prototypes`]
         })],
     ['@find', new Command({
             help: ['thing', 'Find a thing from your current location',
-                'thing start', 'Find a thing from a particular thing',]
+                'thing @from start', `Find a thing starting at a particular thing
+  you can use the special word all for things to find all things from a particular thing`,]
         })],
     ['@link', new Command({
             help: ['link loc', '',
@@ -720,7 +722,7 @@ export class MudConnection {
         this.suppressOutput = oldSup;
     }
     errorNoThing(thing) {
-        throw new Error(`You don't see any ${thing} here`);
+        throw new Error(`You don't see any ${removeArticle(thing)} here`);
     }
     output(text) {
         if ((!this.suppressOutput && this.muted < 1) || this.failed) {
@@ -1262,6 +1264,37 @@ export class MudConnection {
             throw new Error(`Could not find ${prototype.name} instance named ${name} (${errTag})`);
         return result;
     }
+    findSimple(nameStr, start = this.thing, errTag = '', subst = false) {
+        const [, name] = findSimpleName(nameStr);
+        let thing = this.find(name, start, undefined, subst);
+        const words = new Set(removeArticle(nameStr).split(/\s+/).map(w => w.toLowerCase()));
+        if (!thing) { // try extra hard
+            for (const word of words) {
+                thing = this.find(word, start, undefined, subst);
+                if (thing && this.checkSimple(thing, words))
+                    return thing;
+            }
+        }
+        else if (thing && this.checkSimple(thing, words)) {
+            return thing;
+        }
+        if (errTag) {
+            throw new Error(`Could not find ${errTag}: ${nameStr}`);
+        }
+    }
+    checkSimple(thing, words) {
+        const thingWords = new Set(thing._fullName.split(/\s+/).map(w => w.toLowerCase()));
+        let foundName = false;
+        for (const word of words) {
+            if (thing.hasName(word)) {
+                foundName = true;
+            }
+            else if (!thingWords.has(word) && !thing.hasName(word)) {
+                return false;
+            }
+        }
+        return foundName;
+    }
     find(name, start = this.thing, errTag = '', subst = false) {
         let thing;
         name = name?.trim();
@@ -1697,7 +1730,12 @@ export class MudConnection {
             return this.commandDescripton(null, `looks around`, 'examine', [thing]);
         }
         else {
-            this.output(this.description(thing));
+            if (!thing._closed) {
+                this.output(this.examination(thing));
+            }
+            else {
+                this.output(this.description(thing));
+            }
             return this.formatDescripton(null, 'looks at $arg', [thing], 'look', [thing]);
         }
     }
@@ -1730,7 +1768,10 @@ export class MudConnection {
     go(cmdInfo, directionStr) {
         const direction = this.find(directionStr, this.thing);
         const otherLink = direction?.assoc.otherLink;
-        const destination = otherLink?.assoc.linkOwner || direction?.assoc.destination || direction;
+        const destination = otherLink?.assoc.linkOwner
+            || direction?.assoc.destination
+            || direction
+            || (this.admin && this.world.getInstances(this.world.roomProto).find(t => t.hasName(directionStr)));
         const evt = new MoveDescripton(this.thing, 'go', this.thing, destination, direction, directionStr);
         if (!this.substituting) {
             this.eventCommand(`event_go`, 'thing', this.thing, evt);
@@ -1780,46 +1821,52 @@ export class MudConnection {
         this.output('Unmuted');
     }
     // COMMAND
-    get(cmdInfo, thingStr, ...args) {
-        const location = this.thing.assoc.location;
-        let loc = location;
-        if (args.length) {
-            const [_, name] = findSimpleName(args.join(' '));
-            loc = this.find(name, loc);
-            if (!loc)
-                return this.errorNoThing(name);
-        }
+    get(cmdInfo) {
+        const [thingStr, locStr] = keywords(dropArgs(1, cmdInfo), 'from');
         if (!thingStr || !thingStr.trim())
             throw new Error('Get what?');
-        const thing = this.find(thingStr, this.thing);
+        const location = locStr ? this.findSimple(locStr, this.thing) : this.thing.assoc.location;
+        if (locStr && !location)
+            throw new Error(`You don't see any ${removeArticle(locStr)} to get ${thingStr} from`);
+        const otherLoc = location !== this.thing.assoc.location;
+        const thing = (otherLoc && this.findSimple(thingStr, location)) || this.findSimple(thingStr, this.thing);
         if (thing?.isIn(this.thing))
             throw new Error(`You are already holding ${this.formatName(thing)}`);
         if (!thing)
-            return this.errorNoThing(thingStr);
+            this.errorNoThing(thingStr);
         if (thing === this.thing)
             throw new Error(`You just don't get yourself. Some people are that way...`);
         if (thing === location)
             throw new Error(`You just don't get this place. Some places are that way...`);
+        if (otherLoc && location._closed)
+            throw new Error(`You can't get ${this.formatName(thing)} from ${this.formatName(location)}`);
         const evt = new MoveDescripton(this.thing, 'get', thing, this.thing, null, null);
         evt.exitFormat = "$forothers";
-        evt.moveFormat = `You pick up $event.thing`;
-        evt.enterFormat = `$event.actor picks up $event.thing`;
+        evt.moveFormat = `You ${otherLoc ? 'get' : 'pick up'} $event.thing${otherLoc ? ' from ' + this.formatName(location) : ''}`;
+        evt.enterFormat = `$event.actor ${otherLoc ? 'gets' : 'picks up'} $event.thing${otherLoc ? ' from ' + this.formatName(location) : ''}`;
         this.eventCommand(`event_get`, 'thing', thing, evt);
         this.continueMove(cmdInfo, evt);
     }
     // COMMAND
-    drop(cmdInfo, thingStr) {
-        const thing = this.find(thingStr, this.thing);
+    drop(cmdInfo) {
+        const [thingStr, locStr] = keywords(dropArgs(1, cmdInfo), /^(in|into)$/i);
+        const thing = this.findSimple(thingStr, this.thing);
+        const dest = locStr ? this.findSimple(locStr, this.thing) : this.thing.assoc.location;
         if (!thingStr || !thingStr.trim())
             throw new Error('Drop what?');
         if (!thing)
-            return this.errorNoThing(thingStr);
+            this.errorNoThing(thingStr);
         if (!thing.isIn(this.thing))
             throw new Error(`You aren't holding ${thingStr}`);
-        const evt = new MoveDescripton(this.thing, 'drop', thing, this.thing.assoc.location, null, null);
+        if (!dest)
+            throw new Error(`You don't see any ${removeArticle(locStr)} you can drop ${thingStr} into`);
+        const otherLoc = location !== this.thing.assoc.location;
+        if (otherLoc && dest._closed)
+            throw new Error(`You can't drop ${this.formatName(thing)} into ${this.formatName(dest)}`);
+        const evt = new MoveDescripton(this.thing, 'drop', thing, dest, null, null);
         evt.exitFormat = "$forothers";
-        evt.moveFormat = `You drop $event.thing`;
-        evt.enterFormat = `$event.actor drops $event.thing`;
+        evt.moveFormat = `You drop $event.thing${otherLoc ? ' into ' + this.formatName(dest) : ''} `;
+        evt.enterFormat = `$event.actor drops $event.thing${otherLoc ? ' into ' + this.formatName(dest) : ''}`;
         this.eventCommand(`event_drop`, 'thing', thing, evt);
         this.continueMove(cmdInfo, evt);
     }
@@ -1843,7 +1890,7 @@ export class MudConnection {
         const thing = this.find(thingStr);
         const text = escape(dropArgs(2, cmdInfo));
         if (!thing)
-            return this.errorNoThing(thingStr);
+            this.errorNoThing(thingStr);
         this.output(`You whisper, "${text}", to ${this.formatName(thing)}`);
         connectionMap.get(thing)?.output(`$quote ${this.formatName(this.thing)} whispers, "${text}", to you`);
     }
@@ -1857,7 +1904,7 @@ export class MudConnection {
         const thing = this.find(thingStr);
         const text = escape(dropArgs(2, cmdInfo));
         if (!thing)
-            return this.errorNoThing(thingStr);
+            this.errorNoThing(thingStr);
         this.formatDescripton(this.thing, '$quote <i>$this ${text} at $arg</i>', [thing], 'act', [text, thing], true, false, false);
     }
     // COMMAND
@@ -1878,11 +1925,9 @@ Prototypes:
 ${protos.join('\n  ')}`);
         }
         else {
-            const fullname = dropArgs(2, cmdInfo);
-            const words = fullname.split(/(\s+)/);
-            const inIndex = words.findIndex(w => w.toLowerCase() === '@in');
-            const thing = this.world.createThing(inIndex === -1 ? fullname : words.slice(0, inIndex).join(''));
-            let dest = inIndex !== -1 && this.find(words[inIndex + 2], this.thing, 'destination');
+            const [fullname, destStr] = keywords(dropArgs(2, cmdInfo), '@in');
+            const thing = this.world.createThing(fullname);
+            let dest = destStr && this.findSimple(destStr, this.thing, 'destination');
             let output = dest === this.thing ? 'You are holding '
                 : dest && dest.instanceof(this.world.personProto) ? `${this.dumpName(dest)} is holding `
                     : 'You created ';
@@ -2112,13 +2157,22 @@ ${protos.join('\n  ')}`);
         const fa = (prop) => this.formatAssociation(thing, prop);
         let result = `<span class='code'>${this.dumpName(thing)} <span class='property'>CLICK TO EDIT ALL<span class='hidden input-text'>${this.scriptFor([spec], '@use %' + spec.id)}<span class='select'></span></span></span>
 ${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThing(thing._prototype)) : 'none'}`;
+        const nullAssocs = new Set();
         for (const prop of stdAssocs) {
-            result += `\n${fa(prop)} --> ${this.dumpName(thing.assoc[prop])}`;
+            if (thing.assoc[prop]) {
+                result += `\n${fa(prop)} --> ${this.dumpName(thing.assoc[prop])}`;
+            }
+            else {
+                nullAssocs.add(prop);
+            }
+        }
+        if (nullAssocs.size) {
+            result += `\n<i>empty: ${stdAssocsOrder.filter(a => nullAssocs.has(a)).join(' ')}</i>`;
         }
         for (const prop of stdAssocs) {
             const things = thing.refs[prop];
             if (things.length)
-                result += `\n<--${prop}--${this.dumpThingNames(things)}`;
+                result += `\n<--${prop}: ${this.dumpThingNames(things)}`;
         }
         if (inherited) {
             for (const prop in thing) {
@@ -2320,7 +2374,8 @@ ${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThin
     // COMMAND
     atMove(cmdInfo, thingStr, locStr) {
         const thing = this.find(thingStr);
-        const loc = this.find(locStr);
+        const loc = this.find(locStr)
+            || this.world.getInstances(this.world.roomProto).find(t => t.hasName(locStr));
         if (!thing)
             throw new Error(`Could not find ${thingStr} `);
         if (!loc)
@@ -2704,10 +2759,15 @@ ${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThin
         this.output(`deleted ${property} from ${thing.name}`);
     }
     // COMMAND
-    atFind(cmdInfo, target, startStr) {
+    atFind(cmdInfo) {
         checkArgs(cmdInfo, arguments);
-        const start = startStr ? this.find(startStr, this.thing, 'location') : this.thing;
-        const thing = this.find(target, start, 'target');
+        const rest = dropArgs(1, cmdInfo);
+        const words = rest.split(/(\s+)/);
+        const from = rest.findIndex(w => w.toLowerCase() === '@from');
+        const [, startName] = from !== -1 && findSimpleName(words.slice(from + 1).join(''));
+        const start = startName ? this.find(startName, this.thing, 'start') : this.thing;
+        const [, thingName] = findSimpleName((from !== -1 ? words.slice(0, from) : words).join(''));
+        const thing = this.find(thingName, start, 'target');
         this.output(this.dumpName(thing));
     }
     // COMMAND
@@ -2824,6 +2884,31 @@ export function trimIndents(str) {
     lines = lines.map(l => l.substring(minIndent));
     lines.unshift(first);
     return lines.join('\n');
+}
+function removeArticle(str) {
+    const [article] = findSimpleName(str);
+    return (article ? str.trim().substring(article.length) : str).trim();
+}
+// extract keywords while preserving whitespace
+export function keywords(str, ...kws) {
+    kws = kws.map(kw => typeof kw === 'string' ? kw.toLowerCase() : kw);
+    const words = str.split(/(\s+)/);
+    const match = (w, i) => {
+        const ind = kws.findIndex(k => k instanceof RegExp ? w.match(k) : w === k);
+        return ind !== -1 && [i, ind];
+    };
+    const positions = words.map(w => w.toLowerCase()).map(match).filter(x => x);
+    const before = (i) => i >= positions.length ? words.length
+        : positions[i][0] === 0 ? 0
+            : positions[i][0] - 1;
+    const results = [words.slice(0, before(0)).join('')];
+    const kwvalues = new Map();
+    for (let i = 0; i < positions.length; i++) {
+        const [pos, kw] = positions[i];
+        kwvalues.set(kw, words.slice(pos + 2, before(i + 1)).join(''));
+    }
+    results.push(...kws.map((_, i) => kwvalues.get(i)));
+    return results;
 }
 function dropArgs(count, cmdInfo) {
     return cmdInfo.line.split(/(\s+)/).slice(count * 2).join('');
