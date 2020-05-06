@@ -21,7 +21,7 @@ for (const mod of Object.values(app)) {
 
 async function start() {
     await Model.openStorage()
-    Gui.start()
+    await Gui.start()
     return Mudproto.start(Model.storage)
 }
 

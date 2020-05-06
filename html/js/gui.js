@@ -6,6 +6,7 @@ import * as mudproto from './mudproto.js';
 const jsyaml = window.jsyaml;
 let history = [];
 let historyPos = 0;
+let quiet = false;
 let nextId = 0;
 export const exampleMuds = `
 Here are some example MUDs you can try:
@@ -187,7 +188,7 @@ async function activateMud(world) {
     resetHistory();
     await mudcontrol.runMud(world, text => {
         addMudOutput('<div>' + text + '</div>');
-    });
+    }, quiet);
     $('#mud-name').textContent = world.name;
 }
 function worldCopyName(oldName) {
@@ -746,7 +747,7 @@ export function die(msg) {
     $('#deadMsg').innerHTML = msg;
     $('#dead').classList.remove('hide');
 }
-export function start() {
+export async function start() {
     radioTracker(natTracker, 'Nat');
     radioTracker(peerTracker, 'Peer');
     radioTracker(roleTracker, 'Role');
@@ -872,5 +873,21 @@ export function start() {
     };
     $('#about-frame').contentWindow.textcraft = window.textcraft;
     showMuds();
+    const paramStr = document.location.search;
+    if (paramStr[0] === '?') {
+        let activate = '';
+        for (const pair of paramStr.substring(1).split('&')) {
+            const [k, v] = pair.split('=').map(s => s.trim());
+            switch (k.toLowerCase()) {
+                case 'activate':
+                    activate = v;
+                    break;
+                case 'quiet':
+                    quiet = v.toLowerCase() === 'true';
+                    break;
+            }
+        }
+        return activate && activateMudFromURL(activate);
+    }
 }
 //# sourceMappingURL=gui.js.map

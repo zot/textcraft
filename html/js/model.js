@@ -1,5 +1,5 @@
 import protocol from './protocol-shim.js';
-import { connection, activeWorld, } from './mudcontrol.js';
+import { connection, activeWorld, currentVersion, } from './mudcontrol.js';
 export let storage;
 const codeVersion = 1;
 const jsyaml = window.jsyaml;
@@ -128,7 +128,7 @@ class AssociationIdAccessor {
         if (tid === undefined)
             return typeof this.idNamed(prop) !== 'undefined';
         const id = idFor(tid);
-        return this.thing._associations.findIndex(([, aid]) => aid === id) !== -1;
+        return this.thing._associations.findIndex(([ap, aid]) => ap === prop && aid === id) !== -1;
     }
     get(prop) {
         return this.selectResult(this.allIdsNamed(prop));
@@ -385,6 +385,8 @@ export class Thing {
         for (const item of this.refs.location) {
             if (!exclude.has(item))
                 found.push(item);
+            if (!item._closed)
+                item.subnearby(found, exclude);
         }
         for (const item of this.refs.linkOwner) {
             if (!exclude.has(item))
@@ -735,9 +737,12 @@ export class World {
             generatorProto._generate = `
         @quiet
         @copy $0
-        @js orig = $0, cpy = %-1; cpy.fullName = 'a ' + orig.name
+        @set %-1 tmp "a "
+        @change %-1 tmp + $0 name
+        @dup %-1 fullName tmp
+        @del %-1 tmp
         @reproto %-1 %proto:thing
-        @js copy = %-1; event.thing = copy
+        @dup %event thing %-1 thing
         @move %-1 me.assoc.location
         @loud
 `;
@@ -1157,7 +1162,7 @@ export class World {
         if (tid === null || (typeof tid === 'number' && isNaN(tid)))
             return null;
         let thing = this.thingCache.get(tid);
-        if (!thing)
+        if (!thing && specs)
             thing = this.cacheThing(specs.get(tid), specs);
         return thing && this.stamp(thing);
     }
@@ -1175,6 +1180,7 @@ export class World {
             let thing = user.thing && await this.getThing(user.thing);
             if (!thing) {
                 thing = this.createThing(name);
+                thing._version = currentVersion;
                 thing.assoc.location = this.lobby;
                 if (this.personProto)
                     thing.setPrototype(this.personProto);
@@ -1604,7 +1610,7 @@ export class MudStorage {
     }
     async uploadWorld(world, failSilently = false) {
         const w = await (world.users ? this.uploadFullWorld(world, failSilently)
-            : this.uploadStrippedWorld(world, failSilently));
+            : this.uploadStrippedWorld(world, failSilently, world));
         if (w)
             this.closeWorld(w);
         return w;

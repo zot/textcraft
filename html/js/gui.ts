@@ -12,6 +12,7 @@ import * as app from './app.js'
 const jsyaml: any = (window as any).jsyaml
 let history: string[] = []
 let historyPos = 0
+let quiet = false
 
 let nextId = 0
 export const exampleMuds = `
@@ -210,7 +211,7 @@ async function activateMud(world: model.World) {
     resetHistory()
     await mudcontrol.runMud(world, text => {
         addMudOutput('<div>' + text + '</div>')
-    })
+    }, quiet)
     $('#mud-name').textContent = world.name
 }
 
@@ -810,7 +811,7 @@ export function die(msg: string) {
     $('#dead').classList.remove('hide')
 }
 
-export function start() {
+export async function start() {
     radioTracker(natTracker, 'Nat')
     radioTracker(peerTracker, 'Peer')
     radioTracker(roleTracker, 'Role')
@@ -934,4 +935,22 @@ export function start() {
     }
     $('#about-frame').contentWindow.textcraft = (window as any).textcraft
     showMuds()
+    const paramStr = document.location.search
+    if (paramStr[0] === '?') {
+        let activate = ''
+
+        for (const pair of paramStr.substring(1).split('&')) {
+            const [k, v] = pair.split('=').map(s => s.trim())
+
+            switch (k.toLowerCase()) {
+                case 'activate':
+                    activate = v
+                    break
+                case 'quiet':
+                    quiet = v.toLowerCase() === 'true'
+                    break
+            }
+        }
+        return activate && activateMudFromURL(activate)
+    }
 }

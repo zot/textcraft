@@ -1,0 +1,669 @@
+objects:
+  - article: ''
+    associationThings: [0]
+    associations: [[location, 0]]
+    description: You are floating in LIMBO!
+    fullName: Limbo
+    id: 0
+    name: Limbo
+    prototype: 5
+  - associationThings: [10]
+    associations: [[location, 10]]
+    closed: false
+    cmd_leave: go out
+    cmd_stand: go out
+    description: '$This<br>You glance around wondering where it is you woke up, and somehow you recognize this place and yet you don''t.  You seem to be in a parlor of sorts, one of those old fashioned Victorian looking places. You''re lying on a chaise lounge, not that you''ve ever owned one in your life. The only ones you''ve ever seen before are antiques, and this one is no exception.'
+    fullName: Chaise
+    id: 1
+    name: chaise
+    prototype: 84
+  - associationThings: [0]
+    associations: [[location, 0]]
+    fullName: Hall of Prototypes
+    id: 2
+    name: hall
+    prototype: 5
+  - '!event_go_destination': '["()","\n                const dest = event.destination;\n                const dir = event.direction || dest;\n                if (dest._thing.isIn(here) && dest.closed) {\n                    event.emitFail(dir, dir._thing._enterFailFormat, []);\n                } else if (here._thing.isIn(dest) && here.closed) {\n                    event.emitFail(dir, dir._thing._exitFailFormat, []);\n                }\n"]'
+    article: the
+    associationThings: [2]
+    associations: [[location, 2]]
+    closed: true
+    contentsFormat: $This $is here
+    description: This is $this
+    enterFailFormat: $forme You can't go into $event.destination $forothers $event.actor tries to go into %event.destination but can't
+    examineFormat: 'Exits: $links<br>Contents: $contents'
+    exitFailFormat: $forme You can't leave $event.origin $forothers $event.actor tries to leave %event.origin but can't
+    fullName: thing
+    id: 3
+    linkFormat: $This leads to $link
+    name: thing
+    priority: 0
+  - '!event_go_direction': '["()","\n                const dir = event.direction;\n                if (dir.locked && !inAny(''key'', dir._thing)) {\n                    event.emitFail(dir, dir._thing._linkFailFormat, []);\n                }\n"]'
+    article: ''
+    associationThings: [2]
+    associations: [[location, 2]]
+    closed: true
+    description: $This leads to $link. Why don't you try going there to see?
+    event_get_thing: "\n@fail $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me\n            "
+    fullName: link
+    id: 4
+    linkEnterFormat: $Arg1 entered $arg3
+    linkExitFormat: $Arg1 went $name to $arg3
+    linkFailFormat: $forme You don't have the key $forothers $Event.thing tries to go $event.direction to $event.destination but doesn't have the key
+    linkFormat: $This
+    linkMoveFormat: You went $name to $arg3
+    locked: false
+    name: link
+    prototype: 3
+  - associationThings: [2]
+    associations: [[location, 2]]
+    closed: true
+    description: You are in $this
+    event_get_thing: "\n@fail $0 \"$forme You can't pick up $this! How is that even possible? $forothers $Arg tries pick up $this, whatever that means...\" me\n            "
+    fullName: room
+    id: 5
+    name: room
+    prototype: 3
+  - associationThings: [2]
+    associations: [[location, 2]]
+    description: This is a thing
+    event_get_thing: '@run $0 generate'
+    fullName: generator
+    generate: "\n        @quiet\n        @copy $0\n        @js orig = $0, cpy = %-1; cpy.fullName = 'a ' + orig.name\n        @reproto %-1 %proto:thing\n        @js copy = %-1; event.thing = copy\n        @move %-1 me.assoc.location\n        @loud\n"
+    id: 6
+    name: generator
+    priority: -1
+    prototype: 3
+  - article: ''
+    associationThings: [2]
+    associations: [[location, 2]]
+    description: $This $is only a dude
+    event_get_thing: '@fail $0 "$forme You can''t pick up $this! $forothers $event.actor tries to pick up $this but can''t"'
+    examineFormat: 'Carrying: $contents'
+    fullName: person
+    id: 7
+    name: person
+    prototype: 3
+  - associationThings: [91, 1]
+    associations: [[key, 91], [location, 1]]
+    fullName: you
+    id: 8
+    name: you
+    prototype: 7
+    version: 2
+  - associationThings: [1]
+    associations: [[location, 1]]
+    description: 'You have a flicker of a distant memory. Your aunt is explaining to you, these aren''t pillows, they are called bolsters. The strange way she says the word bolsters makes you laugh. She gives you a stern look and tuts at you.'
+    event_get_thing: '@fail $0 "$forme While the idea of grabbing the bolsters so you can lie down for a nap at any time holds some appeal, it would be more reasonable to simply come back here to lie down later when you''re tired."'
+    fullName: Pillows
+    id: 9
+    name: Pillows
+    plural: true
+    prototype: 3
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: '$This<br>Your eyes dart around the parlor trying to make sense of this place.  You recognize some of the things here from growing up, an old grandfather clock from your grandparent''s house, the chaise lounge now that you can see it properly, you vaguely remember seeing at your aunt''s house when you were a child. But this house seems terribly out of place, perhaps if you explored more of it, it will trigger more memories.'
+    fullName: Parlor
+    id: 10
+    name: Parlor
+    prototype: 5
+  - associationThings: [10]
+    associations: [[location, 10]]
+    cmd_wind: You wind the clock and it begins ticking.
+    description: 'You distinctly remember this clock from when you were little. You silently laugh to yourself because for the longest time you thought this was called a Grandfather clock because it was your grandpa''s clock, not that they were all called that. Anyways, your grandpa had a morning ritual where he opened the cabinet under the face and slide the weights back up. You always wanted to help but he would shoo you away and tell you maybe someday when you were older he would teach you how to do it, but you were still too little. You struggle now to remember what ever happened to that clock after your grandparents passed away, and how is it here in this strange house now?'
+    fullName: Grandfather Clock
+    id: 11
+    name: clock
+    prototype: 84
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: '$this<br>You glance around in the foyer. It''s nothing terribly special, but there are a few things of note. Of course the large curtains over the front windows blocking out all of the natural light don''t do it any favors. For being a place the master of the house would greet their guests you would have thought they would have fixed it up a little nicer.'
+    fullName: Foyer
+    id: 12
+    name: Foyer
+    prototype: 5
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: $This<br>The hallway runs through the middle of the house. There is a long threadbare runner from end to end. They don't make them like that any more.  The walls are lined with dozens of small portraits and almost seem as if they were hung at random.
+    fullName: Downstairs Hallway
+    id: 13
+    name: Downstairs
+    prototype: 5
+  - associationThings: [13]
+    associations: [[location, 13]]
+    description: 'You turn to face the portraits and the two largest ones are your mother and father.  You cock your head sideways and furrow your brow, not wanting to believe it, but there''s no denying what you''re seeing either.  Their pleasant faces smile down at you. As your eyes wander, you see smaller frames holding pictures of your grandparents when they were young, and even smaller ones around them of people clearly from your lineage. The portraits seem to stretch on and on now, each one even tinier than the last. You blink your eyes and shake your head to snap back to your normal senses.'
+    event_get_thing: '@fail $0 "$forme There are simply too many of them all to possibly carry them. Leave them be, they are fine where they are."'
+    fullName: Family Portraits
+    id: 14
+    name: portraits
+    plural: 'true'
+    prototype: 3
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: '$This<br>Checking out the kitchen, you see it''s filled with turn of the century style appliances. There are no signs that it''s ever been used to actually cook anything though.  You shrug your shoulders to yourself, you''ve never been interested in learning to cook either, so you can''t judge whoever lives here. You wipe your finger along the counter and scrunch up your nose at your blackened fingertip.'
+    fullName: Kitchen
+    id: 15
+    name: Kitchen
+    prototype: 5
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: '$This<br>This room is dominated by a huge oaken table with chairs for up to seven people.  There are cupboards around the edges of the room, no doubt to hold all the dishes and silverware.'
+    fullName: Dining Room
+    id: 16
+    name: Dining
+    prototype: 5
+  - associationThings: [16]
+    associations: [[location, 16]]
+    description: 'There are place settings put out for six people, but where the head of the table would sit, there''s nothing there. You find that slightly odd.'
+    fullName: Table
+    id: 17
+    name: Table
+    prototype: 84
+  - associationThings: [16]
+    associations: [[location, 16]]
+    description: You peer through the glass front of the cupboards where you see fine china neatly stacked.  You always wondered why old people kept china when it seemed like they never actually used it.
+    fullName: Cupboards
+    id: 18
+    name: Cupboards
+    plural: 'true'
+    prototype: 84
+  - associationThings: [16]
+    associations: [[location, 16]]
+    description: 'They look so small and the legs appear frail enough you wouldn''t want to risk sitting on them.  People used to be a lot smaller back in those days. They were obviously gorgeous when originally made, but the ravages of time have taken their toll, and you wouldn''t be surprised if you saw these abandoned on the side of the road next to a "No Dumping" sign. No one has an appreciation for the relics of a time gone by.'
+    fullName: Chairs
+    id: 19
+    name: Chairs
+    plural: 'true'
+    prototype: 84
+  - associationThings: [0]
+    associations: [[location, 0]]
+    fullName: Stairs
+    id: 20
+    name: Stairs
+    prototype: 5
+  - associationThings: [20]
+    associations: [[location, 20]]
+    description: 'A strange head tops the end of the railing, its face, and especially where its nose was worn away by time, polished to a shine by oils from the skin. Your art teacher at the university would have called it a "Grotesque". God, you had such a secret crush on her. You fondly remember how she always smelled faintly of lavender. You had a little game where you would try to surreptitiously sniff at her without getting caught, because you were never quite sure if it was her shampoo or a perfume she wore.  Your life was so much simpler back then.'
+    fullName: Finial
+    id: 21
+    name: Finial
+    prototype: 3
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: '$This<br>It''s so dark down here, only barely illuminated by light coming from the doorway at the top of the stairs.'
+    fullName: Basement
+    id: 22
+    name: Basement
+    prototype: 5
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: '$This<br>An old coal furnace practically fills this entire room. They really don''t make them like this any more. There is something so basic and raw about an old coal furnace, they could be stoked up to unbearable temperatures.  But this one clearly hasn''t been properly fired up in years.'
+    fullName: Furnace room
+    id: 23
+    name: Furnace
+    prototype: 5
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: '$This<br>Calling this a room is quite generous, its more of a hole where coal was dumped in from a chute outside. Black grime cakes every surface of this room. Kids today would freak out about the amount of carbon covering everything, but sure beats freezing to death in the winter.'
+    fullName: Coal room
+    id: 24
+    name: Coal
+    prototype: 5
+  - article: the
+    associationThings: [2]
+    associations: [[location, 2]]
+    fullName: pgenerator
+    generate: "@quiet\n   @js orig = $0; if (!orig.group) throw new Error(`${orig.name} needs a group property`);\n   @copy $0\n   @reproto %-1 %proto:thing\n   @js orig = $0, cpy = %-1; cpy.fullName = (orig.article || ' ') + ' ' + orig.name; cpy.assoc[cpy.name] = me; cpy.assoc[orig.group] = me\n   @assoc %-1 visibleTo me\n   @assoc %-1 fooling me\n   @assoc %-1 hides $0\n   @loud\n"
+    get: "@run $0 generate\n@quiet\n@js cpy = %-1; event.thing = cpy\n@set %event.enterFormat $forothers\n@set %event.exitFormat $forothers\n@loud"
+    id: 27
+    name: pgenerator
+    prototype: 6
+  - associationThings: [2]
+    associations: [[location, 2]]
+    fullName: purgatory thing
+    group: purgatory
+    id: 28
+    name: purg
+    prototype: 27
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: '$This<br>The walls are covered in a turn of the century wall paper, yellowed with age, and many of the edges lifted up, whoever had applied it must have done so in a hurried fashion. Their lack of care is now showing.'
+    fullName: Upstairs hall
+    id: 30
+    name: Upstairs
+    prototype: 5
+  - associationThings: [30]
+    associations: [[location, 30]]
+    description: 'As if the crumbling wall paper itself wasn''t in enough bad shape, it would seem a small child took to the walls with a crayon in earnest.  You try to read the gibberish scrawled to no avail, but as you study them closely, you realize they aren''t just random doodles, but rather something written quite deliberately, however in a foreign script you don''t understand. Rubbing your chin thoughtfully, if you had to guess, it''s some sort of Arabic calligraphy. You take a step back and realize that the script has been scrawled across the entirety of the walls, not just at the bottoms where a child could reach.'
+    event_get_thing: '@fail $0 "$forme You can''t pick up scribbles on a wall, that doesn''t make any sense!"'
+    fullName: Scribbles
+    id: 31
+    name: Scribbles
+    plural: 'true'
+    prototype: 3
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: '$this<br>You immediately recognize your childhood bedroom. It''s filled with dozens of things you hadn''t thought about in a decade at least. The cartoon animals dancing on your bed sheets, the small desk in the corner you used to draw at, and all your favorite toys.'
+    fullName: Bedroom
+    id: 32
+    name: Bedroom
+    prototype: 5
+  - associationThings: [32]
+    associations: [[location, 32]]
+    description: 'You pick up the furby and flip it over to find the switch at the bottom, but unfortunately it seems the batteries are long gone. You set it back down and tilt your head. You know, you never thought about it as a child, but furbys have eyes close together in the front of their head. At school you learned this is the classic trait of a predator animal.'
+    event_get_thing: '@fail $0 "$forme You pick up the furby and flip it over to find the switch at the bottom, but unfortunately it seems the batteries are long gone. You set it back down and tilt your head. You know, you never thought about it as a child, but furbys have eyes close together in the front of their head. At school you learned this is the classic trait of a predator animal. What exactly does a furby eat?"'
+    fullName: Furby
+    id: 33
+    name: Furby
+    prototype: 3
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: $this<br>A rather small cramped bathroom given that this is the only one in the house. The floor is made of small white hexagon tiles place with a black grout between them.  There is an antique porcelain sink and commode on one side of the room. A heavy cast iron tub sits on the other side.
+    fullName: Bathroom
+    id: 34
+    name: Bathroom
+    prototype: 5
+  - associationThings: [0, 24, 36]
+    associations: [[location, 0], [linkOwner, 24], [otherLink, 36]]
+    fullName: Furnace
+    id: 35
+    name: Furnace
+    prototype: 4
+  - associationThings: [0, 23, 35]
+    associations: [[location, 0], [linkOwner, 23], [otherLink, 35]]
+    fullName: Coal
+    id: 36
+    name: Coal
+    prototype: 4
+  - associationThings: [0, 22, 42]
+    associations: [[location, 0], [linkOwner, 22], [otherLink, 42]]
+    fullName: Coal
+    id: 41
+    linkFormat: $This
+    name: Coal
+    prototype: 4
+  - associationThings: [0, 24, 41]
+    associations: [[location, 0], [linkOwner, 24], [otherLink, 41]]
+    fullName: Basement
+    id: 42
+    name: Basement
+    prototype: 4
+  - associationThings: [0, 23, 44]
+    associations: [[location, 0], [linkOwner, 23], [otherLink, 44]]
+    fullName: Basement
+    id: 43
+    name: Basement
+    prototype: 4
+  - associationThings: [22, 43, 0]
+    associations: [[linkOwner, 22], [otherLink, 43], [location, 0]]
+    fullName: Furnace
+    id: 44
+    linkFormat: $This
+    name: Furnace
+    prototype: 4
+  - aliases: [stair, stairs]
+    associationThings: [0, 22, 46]
+    associations: [[location, 0], [linkOwner, 22], [otherLink, 46]]
+    fullName: Stairs up
+    id: 45
+    linkFormat: $This
+    name: up
+    prototype: 4
+  - aliases: [stair, stairs]
+    associationThings: [0, 15, 45]
+    associations: [[location, 0], [linkOwner, 15], [otherLink, 45]]
+    fullName: Stairs down
+    id: 46
+    linkFormat: $This
+    name: down
+    prototype: 4
+  - associationThings: [0, 15, 48]
+    associations: [[location, 0], [linkOwner, 15], [otherLink, 48]]
+    fullName: hallway
+    id: 47
+    linkFormat: $This
+    name: hallway
+    prototype: 4
+  - associationThings: [0, 13, 47]
+    associations: [[location, 0], [linkOwner, 13], [otherLink, 47]]
+    fullName: kitchen
+    id: 48
+    linkFormat: $This
+    name: kitchen
+    prototype: 4
+  - associationThings: [0, 13, 50]
+    associations: [[location, 0], [linkOwner, 13], [otherLink, 50]]
+    fullName: foyer
+    id: 49
+    linkFormat: $This
+    name: foyer
+    prototype: 4
+  - associationThings: [0, 12, 49]
+    associations: [[location, 0], [linkOwner, 12], [otherLink, 49]]
+    fullName: hallway
+    id: 50
+    linkFormat: $This
+    name: hallway
+    prototype: 4
+  - associationThings: [0, 12, 52]
+    associations: [[location, 0], [linkOwner, 12], [otherLink, 52]]
+    fullName: parlor
+    id: 51
+    linkFormat: $This
+    name: parlor
+    prototype: 4
+  - associationThings: [10, 51, 0]
+    associations: [[linkOwner, 10], [otherLink, 51], [location, 0]]
+    fullName: foyer
+    id: 52
+    linkFormat: $This
+    linkMoveFormat: 'You step into the foyer with the floorboards creaking as they bow up and down, clearly there''s been a lot of settling in the foundations over the years. Someone really should probably get into the basement and jack up the foundations, but eh, it''s been like this for who knows how long, a few more years probably won''t make a difference. You shudder imagining just how creepy a basement this place probably has anyways.'
+    name: foyer
+    prototype: 4
+  - aliases: [front]
+    associationThings: [0, 12, 58]
+    associations: [[location, 0], [linkOwner, 12], [otherLink, 58]]
+    description: $This
+    event_go_direction: '@fail $0 "$forme You jiggle the handle but it''s firmly locked. You poke around the old fashioned hardware and shake your head. Modern doors wouldn''t let you be locked inside."'
+    fullName: Front door
+    id: 57
+    linkFormat: $This
+    locked: true
+    name: door
+    prototype: 4
+  - associationThings: [0, 12, 57]
+    associations: [[location, 0], [linkOwner, 12], [otherLink, 57]]
+    fullName: hide me
+    hidden: true
+    id: 58
+    locked: true
+    name: hide
+    prototype: 4
+  - aliases: [model, boat, plaque]
+    article: A
+    associationThings: [12]
+    associations: [[location, 12]]
+    description: 'There is a wooden stand with a clear glass case and inside you see the model of an old British warship. There is a tiny plaque on the stand under it that reads, H.M.S. Thunderer. Glancing over the intricate model you see it sporting six 24-pound guns, six 12-pound guns, and two howitzers. Your great grandfather in the painting above was a naval officer aboard her in 1776.'
+    fullName: model ship
+    id: 59
+    name: ship
+    prototype: 84
+  - aliases: [painting, portrait, grandpa, grandfather]
+    article: A
+    associationThings: [12]
+    associations: [[location, 12]]
+    description: 'A portrait of Captain Ashley Montgomery. One of your great grandfathers on your mothers side. You snort to yourself reading his name, no one uses Ashley for a boys name these days. If you remember your mother''s stories right, he fought at the Battle of Valcour Bay, one of the first naval battles in America''s war for independence.'
+    event_get_thing: '@fail $0 "$forme It''s way up high on the wall and you would probably need a ladder or something. It''s probably not important, and you can always come back for it later."'
+    fullName: painting
+    id: 60
+    name: painting
+    prototype: 3
+  - associationThings: [0, 16, 63]
+    associations: [[location, 0], [linkOwner, 16], [otherLink, 63]]
+    fullName: hallway
+    id: 62
+    linkFormat: $This
+    name: hallway
+    prototype: 4
+  - associationThings: [0, 13, 62]
+    associations: [[location, 0], [linkOwner, 13], [otherLink, 62]]
+    fullName: dining
+    id: 63
+    linkFormat: $This
+    name: dining
+    prototype: 4
+  - associationThings: [0, 15, 65]
+    associations: [[location, 0], [linkOwner, 15], [otherLink, 65]]
+    fullName: dining
+    id: 64
+    linkFormat: $This
+    name: dining
+    prototype: 4
+  - associationThings: [0, 16, 64]
+    associations: [[location, 0], [linkOwner, 16], [otherLink, 64]]
+    fullName: kitchen
+    id: 65
+    linkFormat: $This
+    name: kitchen
+    prototype: 4
+  - associationThings: [15]
+    associations: [[location, 15]]
+    description: 'The typical kitchen stuff, a sink, a stove, an ice box, nothing out of the ordinary, but nothing from this century either. It all looks like it should be in a junkyard.'
+    fullName: appliances
+    id: 66
+    name: appliances
+    plural: 'true'
+    prototype: 84
+  - associationThings: [15]
+    associations: [[location, 15]]
+    description: 'Old houses like this didn''t have much in the way of closets, people would store stuff in pantrys and wardrobes.  But this one is empty, nothing but dust from disuse. '
+    fullName: pantry
+    id: 67
+    name: pantry
+    prototype: 84
+  - aliases: [stair, stairs]
+    associationThings: [0, 30, 69]
+    associations: [[location, 0], [linkOwner, 30], [otherLink, 69]]
+    fullName: Stairs down
+    id: 68
+    linkFormat: $This
+    name: down
+    prototype: 4
+  - aliases: [stair, stairs]
+    associationThings: [0, 12, 68]
+    associations: [[location, 0], [linkOwner, 12], [otherLink, 68]]
+    fullName: Stairs up
+    id: 69
+    linkFormat: $This
+    name: up
+    prototype: 4
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: '$This<br>You are in the master bedroom, but you don''t recognize it as your parent''s bedroom or anything. There is bed, a dresser, a wardrobe, and a large rectangular hatch on the ceiling catches your eye."'
+    fullName: Master
+    id: 70
+    name: Master
+    prototype: 5
+  - associationThings: [0, 70, 72]
+    associations: [[location, 0], [linkOwner, 70], [otherLink, 72]]
+    fullName: hallway
+    id: 71
+    linkFormat: $This
+    name: hallway
+    prototype: 4
+  - associationThings: [0, 30, 71]
+    associations: [[location, 0], [linkOwner, 30], [otherLink, 71]]
+    fullName: master
+    id: 72
+    linkFormat: $This
+    name: master
+    prototype: 4
+  - aliases: [hall]
+    associationThings: [0, 32, 74]
+    associations: [[location, 0], [linkOwner, 32], [otherLink, 74]]
+    fullName: hallway
+    id: 73
+    linkFormat: $This
+    name: hallway
+    prototype: 4
+  - associationThings: [0, 30, 73]
+    associations: [[location, 0], [linkOwner, 30], [otherLink, 73]]
+    fullName: bedroom
+    id: 74
+    linkFormat: $This
+    name: bedroom
+    prototype: 4
+  - associationThings: [0, 34, 76]
+    associations: [[location, 0], [linkOwner, 34], [otherLink, 76]]
+    fullName: hallway
+    id: 75
+    linkFormat: $This
+    name: hallway
+    prototype: 4
+  - associationThings: [0, 30, 75]
+    associations: [[location, 0], [linkOwner, 30], [otherLink, 75]]
+    fullName: bathroom
+    id: 76
+    linkFormat: $This
+    name: bathroom
+    prototype: 4
+  - article: a
+    associationThings: [22]
+    associations: [[location, 22]]
+    cmd_pull: "@quiet\n@copy $0\n@run %-1 continuePull $0"
+    cmd_tug: '@run $0 cmd_pull'
+    cmd_use: '@run $0 cmd_pull'
+    continuePull: "@set $0 cmd_pull @run $0 pull2\n@assoc $0 purgatory me\n@assocMany $0 purgatory %limbo\n@move $0 $1.assoc.location\n@set $0 cmd_use @run $0 pull2\n@set $0 cmd_tug @run $0 pull2\n@assoc $0 purgatory me\n@assoc $0 visibleTo me\n@assoc $0 hides $1\n@loud\n@output me \"\"$forme You frown looking at the string, it appears so old and frayed. You gently tug on it and nothing happens. You will have to try again with a little more force.\"\" @event me pull"
+    description: 'This string dangles from a light bulb overhead. The bulb is up out of your reach but the string is at nose height, easily pulled.'
+    event_get_thing: '@fail $0 "$forme You can''t get the string, it''s attached to the light, which is attached to the ceiling!"'
+    fullName: dangling string
+    globalCommand: true
+    id: 77
+    name: string
+    prototype: 3
+    pull2: "@quiet\n@patch here me thing\n@assoc %-1 purgatory me\n@assocMany %-1 purgatory %limbo\n@set %-1 description The eerie yellow glow from the swinging, naked bulb reveals a horrific slaughterhouse from your nightmares! Body parts strewn about like litter on skid row. Unknowable congealed fluids jiggling from a cold breeze from some crack in the wall. Sinews thrown across chairs, as if to dry like fresh pasta...\n@set $0 cmd_pull @run $0 pull3\n@set $0 cmd_use @run $0 pull3\n@set $0 cmd_tug @run $0 pull3\n@loud\n@output me \"\"$forme You give it a stronger pull this time, and the light flickers twice before the string breaks off, Thankfully the bulb remains on casting an eerie yellow glow over the room.\"\" @event me pull"
+    pull3: "@quiet\n@move $0 me\n@del $0 get\n@set $0 fullName a broken string\n@loud\n@output me \"\"$forme You yank the string with all your might and break it off! You are now holding a broken string.\"\" @event me pull"
+  - associationThings: [0, 13, 82]
+    associations: [[location, 0], [linkOwner, 13], [otherLink, 82]]
+    fullName: parlor
+    id: 81
+    name: parlor
+    prototype: 4
+  - associationThings: [0, 10, 81]
+    associations: [[location, 0], [linkOwner, 10], [otherLink, 81]]
+    fullName: hallway
+    id: 82
+    name: hallway
+    prototype: 4
+  - article: ''
+    associationThings: [2]
+    associations: [[location, 2]]
+    closed: false
+    fullName: container
+    id: 83
+    name: container
+    prototype: 3
+  - associationThings: [2]
+    associations: [[location, 2]]
+    event_get_thing: '@fail $0 "$forme You can''t be serious. You want to lug this around with you all day?"'
+    fullName: heavy
+    id: 84
+    name: heavy
+    prototype: 3
+  - aliases: [back]
+    associationThings: [0, 15, 86]
+    associations: [[location, 0], [linkOwner, 15], [otherLink, 86]]
+    event_go_direction: '@fail $0 "$forme It''s been boarded up from the outside. You can see the sharp points of nails peeking through the wood and resist the urge to touch them."'
+    fullName: Back door
+    id: 85
+    name: door
+    prototype: 4
+  - associationThings: [0, 15, 85]
+    associations: [[location, 0], [linkOwner, 15], [otherLink, 85]]
+    fullName: bogus
+    hidden: true
+    id: 86
+    locked: true
+    name: bogus
+    prototype: 4
+  - associationThings: [30]
+    associations: [[location, 30]]
+    description: 'A strange head tops the end of the railing, its face, and especially where its nose was worn away by time, polished to a shine by oils from the skin. Your art teacher at the university would have called it a "Grotesque". God, you had such a secret crush on her. You fondly remember how she always smelled faintly of lavender. You had a little game where you would try to surreptitiously sniff at her without getting caught, because you were never quite sure if it was her shampoo or a perfume she wore.  Your life was so much simpler back then.'
+    event_get_thing: '@fail $0 "$forme The finial is quite firmly mounted to the stair railing and you would need a saw or something to remove it."'
+    fullName: Finial
+    id: 87
+    name: Finial
+    prototype: 84
+  - associationThings: [32]
+    associations: [[location, 32]]
+    description: Your childhood bed with an old teddy bear by the pillow. Its fur is totally matted down flat.
+    fullName: bed
+    id: 88
+    name: bed
+    prototype: 84
+  - associationThings: [0, 91, 93]
+    associations: [[location, 0], [otherLink, 91], [linkOwner, 93]]
+    fullName: hatch
+    id: 90
+    name: hatch
+    prototype: 4
+  - associationThings: [0, 90, 70]
+    associations: [[location, 0], [otherLink, 90], [linkOwner, 70]]
+    description: It appears to be a hatch in the ceiling that goes up to an attic. But you can't reach it without something to climb on.
+    fullName: hatch
+    hidden: false
+    id: 91
+    locked: true
+    name: hatch
+    prototype: 4
+    reveal: "@quiet\n@patch $0 me thing\n@set %-1 hidden false\n@loud"
+  - associationThings: [91, 70]
+    associations: [[hatch, 91], [location, 70]]
+    cmd_move: "@assoc me key $0.assoc.hatch\n@echo You lean down for leverage and with a grunt, you push the bed under the hatch above. That should do it."
+    cmd_push: "@assoc me key $0.assoc.hatch\n@echo You lean down for leverage and with a grunt, you push the bed under the hatch above. That should do it."
+    description: 'It''s a bed, rather unremarkable actually. But if it was pushed under the hatch in the ceiling you could probably climb on top of it to reach the hatch.'
+    fullName: bed
+    globalCommand: true
+    id: 92
+    name: bed
+    prototype: 84
+  - associationThings: [0]
+    associations: [[location, 0]]
+    description: $This<br>You glance around a very dilapidated attic. Dust swirls in beams of light that shoot in through horizontal cracks in some vents at both ends. There is a large demonic looking altar with a podium set in front of it.
+    fullName: Attic
+    id: 93
+    name: Attic
+    prototype: 5
+  - associationThings: [93]
+    associations: [[location, 93]]
+    description: 'A large demonic looking altar. There is an inverted pentagram made of long bones, quite possibly human.  Small red feathers are tied all over them, perhaps symbolic of blood?'
+    fullName: Altar
+    id: 94
+    name: Altar
+    prototype: 84
+  - associationThings: [93]
+    associations: [[location, 93]]
+    closed: false
+    cmd_get_book: get book from podium
+    container: 84
+    description: 'There is a podium set in the middle of a circle of runes drawn on the floor. It faces the ritual altar, and has a book sitting on top of it. You remember standing at this podium reading the book. It''s coming back to you now!'
+    fullName: Podium
+    id: 95
+    name: Podium
+    prototype: 84
+  - '!cmd_close': '["(obj, book)","\nif (book.thing !== obj.thing) return cmd(`@fail me \"You can''t close ${this.formatName(obj)}!\"`)\nreturn obj.reading && cmdf(''@run $0 closeBook'', obj)"]'
+    '!cmd_open': '["(obj, book)","\nif (book.thing !== obj.thing) return cmd(`@fail me \"You can''t open ${this.formatName(obj)}!\"`)\nreturn !obj.reading && cmdf(''@run $0 openBook'', obj)"]'
+    '!cmd_read': '["(obj, book)","\nif (book.thing !== obj.thing) return cmd(`@fail me \"You can''t read ${this.formatName(obj)}!\"`)\nif (!obj.reading) return cmdf(`@fail me \"The book isn''t open...\"`)\nreturn cmdf(''@run $0 readBook'', obj)"]'
+    article: a
+    associationThings: [95]
+    associations: [[location, 95]]
+    closeBook: "@quiet\n@set $0 reading false\n@loud\n@echo You close the book. What a relief!"
+    description: The book is bound in a heavy leather cover carved with arabic looking symbols. It sits closed on top of the podium.
+    fullName: mysterious book
+    globalCommand: true
+    id: 98
+    name: book
+    openBook: "@quiet\n@set $0 reading true\n@loud\n@echo You open the book, its spine dilapidated from age creaks as the pages turn. It flips open to where a tattered ribbon was left as a bookmark. It appears to be some sort of arcane spell you can read."
+    prototype: 28
+    readBook: '@echo "You see an arcane spell written in Arabic, but in between someone has penciled in all the phonetics and in English at the bottom of the page, \"This spell will summon an entity from a space beyond our space. The entity will grant the caster money, wealth, power, anything imaginable as a reward. However it requires the sacrifice of a human soul.\n\nYou remember reading from this book now! Yes, you weren''t really trying to cast the spell, after all, you weren''t sacrificing anyone or anything like that, there''s no way the spell should have worked! You followed the instructions to create the altar from a deer you found already dead on the side of the road, there was no harm in that, right? A wrenching feeling in your gut begins to swell as an explanation dawns on you... You didn''t offer up another person as sacrifice when you read the spell aloud. What if the entity took your soul as payment? Oh no, what have you done?!\""'
+  - clockRate: 2
+    containerProto: 83
+    defaultUser: a
+    generatorProto: 6
+    hallOfPrototypes: 2
+    id: info
+    limbo: 0
+    linkProto: 4
+    lobby: 1
+    name: Purgatory v0.1.4
+    nextId: 106
+    personProto: 7
+    roomProto: 5
+    thingProto: 3
+    version: 1
+users:
+  - admin: false
+    id: a
+    name: a
+    password: a
+    thing: 8

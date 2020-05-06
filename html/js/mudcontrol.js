@@ -1,10 +1,13 @@
 import { MudState, RoleState, PeerState, mudTracker, roleTracker, peerTracker, } from './base.js';
 import { Thing, findSimpleName, escape, idFor, } from './model.js';
 import * as mudproto from './mudproto.js';
+export const currentVersion = 2;
 export let connection;
 const connectionMap = new Map();
 export let activeWorld;
 const wordAndQuotePat = /("(?:[^"\\]|\\.)*")|\s+/;
+const wordAndQuotePatWS = /("(?:[^"\\]|\\.)*"|\s+)/;
+const opPat = /^[-+*/%^|&<>=]|==|!=|<=|>=|not$/;
 const reservedProperties = new Set([
     '_id',
     '_prototype',
@@ -203,11 +206,30 @@ export const commands = new Map([
         })],
     ['gesture', new Command({ help: ['thing words...', `Do something towards thing`] })],
     ['get', new Command({
-            help: ['thing', `grab a thing`, 'thing [from] location', `grab a thing from a location`]
+            help: ['thing', `grab a thing`,
+                'thing from location', `grab a thing from a location`]
         })],
     ['drop', new Command({ help: ['thing', `drop something you are carrying`] })],
     ['@call', new Command({ help: ['thing.property arg...', `Call a method on a thing`] })],
     ['@run', new Command({ help: ['thing property arg...', `Call a command macro on a thing`] })],
+    ['@if', new Command({
+            help: ['thing property @then commands...', '',
+                'thing property not @then commands...', ``,
+                'thing property op value @then commands...', ``,
+                'thing property op thing property @then commands...', `Run commands if expression is true
+  op can be >, >=, <, <=, =, ==, or !=`]
+        })],
+    ['@change', new Command({
+            help: ['thing property not', '',
+                'thing property op amount', '',
+                'thing property op thing2 property2', `change a value by amount
+  op can be +, -, *, /, %, ^, &, or |`]
+        })],
+    ['@dup', new Command({
+            help: ['thing prop prop2', '',
+                'thing prop thing2 prop2', `transfer prop2's value into prop`]
+        })],
+    ['@exit', new Command({ help: ['', `cut out of command list`] })],
     ['@js', new Command({
             help: ['var1 = thing1, var2 = thing2... ; code...', `Run JavaScript code with optional variable bindings
    Note that commas between variable bindings are optional
@@ -276,7 +298,12 @@ export const commands = new Map([
     ['@commands', new Command({ help: ['thing', `Print commands to recreate a thing`] })],
     ['@move', new Command({ help: ['thing location', 'Move a thing'] })],
     ['@fail', new Command({
-            help: ['context format args', `Fail the current event and emit a format string
+            help: ['format', '',
+                'format [@context context arg...]', '',
+                'format [@event actor type]', '',
+                'format [@context ...] [@event ...]', `Fail the current event and emit a format string
+   
+   context and args are for the format string (see FORMAT STRINGS)
    If it has $forme, it will output to the user, if it has $forothers, that will output to others`]
         })],
     ['@echo', new Command({
@@ -441,6 +468,9 @@ export class Descripton {
         for (let i = 0; i < args.length; i++) {
             this[i] = args[i];
         }
+    }
+    toString() {
+        return `{${this.constructor.name}}`;
     }
     copy() {
         return { __proto__: this };
@@ -679,6 +709,8 @@ export class MudConnection {
         this.ticking = false;
         this.stopClock = true;
         this.tickers = new Set();
+        this.exit = false;
+        this.hadExit = false;
         this.created = [];
         this.thing = thing;
         this.outputHandler = () => { };
@@ -726,7 +758,7 @@ export class MudConnection {
     }
     output(text) {
         if ((!this.suppressOutput && this.muted < 1) || this.failed) {
-            this.outputHandler(text.match(/^</) ? text : `<div>${text}</div>`);
+            this.outputHandler(text.match(/^</) ? text : `<div class='output'>${text}</div>`);
         }
     }
     withResults(otherCon, func) {
@@ -747,7 +779,8 @@ export class MudConnection {
             func();
         }
     }
-    async start() {
+    async start(quiet = false) {
+        this.quiet = quiet;
         if (!this.remote) {
             this.world.watcher = t => this.checkTicker(t);
             for (const thing of this.world.thingCache.values()) {
@@ -755,12 +788,14 @@ export class MudConnection {
             }
         }
         mudTracker.setValue(MudState.Playing);
-        this.outputHandler(`Welcome to ${this.world.name}, use the "login" command to log in.
+        if (!quiet) {
+            this.outputHandler(`Welcome to ${this.world.name}, use the "login" command to log in.
 <p>
 <p>
 <p>Help lists commands...
 <p>
 <p>Click on old commands to reuse them`);
+        }
         await this.world.start();
     }
     props(thing) {
@@ -830,6 +865,8 @@ export class MudConnection {
         return thing ? this.formatName(thing, true, true, simpleName) : 'null';
     }
     formatName(thing, esc = false, verbose = this.verboseNames, simpleName) {
+        if (!(thing instanceof Thing))
+            return thing.toString();
         let output = simpleName ? thing._thing._name : thing._thing.formatName();
         if (esc)
             output = escape(output);
@@ -1039,7 +1076,7 @@ export class MudConnection {
         const result = this.findTemplate(words, prefix);
         if (result) {
             const [context, template] = result;
-            return this.substituteCommand(template, [`%${context.id}`, ...words]);
+            return this.substituteCommand(template, [`%${context.id}`, ...words.slice(1)]);
         }
     }
     findTemplate(words, prefix) {
@@ -1070,7 +1107,7 @@ export class MudConnection {
                     return [item, template];
             }
         }
-        for (const item of (loc.refs.location)) {
+        for (const item of this.thing.nearby()) {
             if (item._globalCommand && !this.isHidden(item)) {
                 template = this.checkCommand(prefix, cmd, this.props(item));
                 if (template)
@@ -1124,6 +1161,7 @@ export class MudConnection {
         const oldSubstituting = this.substituting;
         try {
             this.substituting = !notSubstituting;
+            this.hadExit = false;
             if (Array.isArray(lines)) {
                 for (const line of lines) {
                     if (line instanceof CommandContext) {
@@ -1132,9 +1170,11 @@ export class MudConnection {
                     else {
                         this.command(line, true);
                     }
-                    if (this.failed)
+                    this.hadExit = this.exit; // carry this for the next @if
+                    if (this.failed || this.exit)
                         break;
                 }
+                this.exit = false;
             }
             else if (lines instanceof Function) {
                 return lines();
@@ -1265,6 +1305,9 @@ export class MudConnection {
         return result;
     }
     findSimple(nameStr, start = this.thing, errTag = '', subst = false) {
+        const baseThing = this.find(nameStr, start, undefined, subst);
+        if (baseThing)
+            return baseThing;
         const [, name] = findSimpleName(nameStr);
         let thing = this.find(name, start, undefined, subst);
         const words = new Set(removeArticle(nameStr).split(/\s+/).map(w => w.toLowerCase()));
@@ -1297,6 +1340,7 @@ export class MudConnection {
     }
     find(name, start = this.thing, errTag = '', subst = false) {
         let thing;
+        let hadThing = false;
         name = name?.trim();
         if (name && (!name.match(/^%|\./) || this.admin || this.substituting || subst)) {
             const [first, ...path] = name.split(/\s*\.\s*/);
@@ -1348,13 +1392,14 @@ export class MudConnection {
                         break;
                 }
             }
+            hadThing = thing;
             if (thing) {
                 for (const segment of path) {
-                    thing = thing[segment];
+                    thing = (thing instanceof Thing ? thing._thing.specProxy[segment] : thing[segment]);
                 }
             }
         }
-        if (!thing && errTag) {
+        if (!hadThing && errTag) { // allow returning undefined for paths
             throw new Error(`Could not find ${errTag}: ${name}`);
         }
         return thing;
@@ -1438,12 +1483,17 @@ export class MudConnection {
                 connectionMap.set(this.thing, this);
                 if (oldThing && oldThing !== this.thing)
                     connectionMap.delete(oldThing);
-                this.output(`Connected, you are logged in as ${user}.
+                if (!this.quiet) {
+                    this.output(`Connected, you are logged in as ${user}.
 <br>You can use the login command to change users...
 <br><br>`);
+                }
                 mudproto.userThingChanged(this.thing);
                 thing.assoc.location = this.world.lobby;
                 this.commandDescripton(this.thing, 'has arrived', 'go', [this.world.limbo, this.world.lobby]);
+                if (this.thing._version !== currentVersion) {
+                    this.output(`<b>NOTE: THE PREVIOUS RELEASE HAD A MAJOR BUG, PLEASE GO TO THE STORAGE TAB, CLICK THIS WORLD AND DELETE, THEN RESTART TEXTCRAFT</b><br><br>`);
+                }
                 this.command('look', false, true);
                 if (!this.remote) {
                     this.stopClock = false;
@@ -1825,10 +1875,10 @@ export class MudConnection {
         const [thingStr, locStr] = keywords(dropArgs(1, cmdInfo), 'from');
         if (!thingStr || !thingStr.trim())
             throw new Error('Get what?');
-        const location = locStr ? this.findSimple(locStr, this.thing) : this.thing.assoc.location;
+        let location = locStr ? this.findSimple(locStr, this.thing) : this.thing.assoc.location;
         if (locStr && !location)
             throw new Error(`You don't see any ${removeArticle(locStr)} to get ${thingStr} from`);
-        const otherLoc = location !== this.thing.assoc.location;
+        let otherLoc = location !== this.thing.assoc.location;
         const thing = (otherLoc && this.findSimple(thingStr, location)) || this.findSimple(thingStr, this.thing);
         if (thing?.isIn(this.thing))
             throw new Error(`You are already holding ${this.formatName(thing)}`);
@@ -1840,6 +1890,10 @@ export class MudConnection {
             throw new Error(`You just don't get this place. Some places are that way...`);
         if (otherLoc && location._closed)
             throw new Error(`You can't get ${this.formatName(thing)} from ${this.formatName(location)}`);
+        if (thing.assoc.location !== this.thing.assoc.location && !otherLoc) {
+            otherLoc = true;
+            location = thing.assoc.location;
+        }
         const evt = new MoveDescripton(this.thing, 'get', thing, this.thing, null, null);
         evt.exitFormat = "$forothers";
         evt.moveFormat = `You ${otherLoc ? 'get' : 'pick up'} $event.thing${otherLoc ? ' from ' + this.formatName(location) : ''}`;
@@ -1860,7 +1914,7 @@ export class MudConnection {
             throw new Error(`You aren't holding ${thingStr}`);
         if (!dest)
             throw new Error(`You don't see any ${removeArticle(locStr)} you can drop ${thingStr} into`);
-        const otherLoc = location !== this.thing.assoc.location;
+        const otherLoc = dest !== this.thing.assoc.location;
         if (otherLoc && dest._closed)
             throw new Error(`You can't drop ${this.formatName(thing)} into ${this.formatName(dest)}`);
         const evt = new MoveDescripton(this.thing, 'drop', thing, dest, null, null);
@@ -1927,7 +1981,7 @@ ${protos.join('\n  ')}`);
         else {
             const [fullname, destStr] = keywords(dropArgs(2, cmdInfo), '@in');
             const thing = this.world.createThing(fullname);
-            let dest = destStr && this.findSimple(destStr, this.thing, 'destination');
+            let dest = destStr ? this.findSimple(destStr, this.thing, 'destination') : this.thing;
             let output = dest === this.thing ? 'You are holding '
                 : dest && dest.instanceof(this.world.personProto) ? `${this.dumpName(dest)} is holding `
                     : 'You created ';
@@ -1942,6 +1996,8 @@ ${protos.join('\n  ')}`);
             if (dest !== this.thing && !(dest && dest.instanceof(this.world.personProto))) {
                 output += `, in ${this.dumpName(thing.assoc.location)}`;
             }
+            if (dest.instanceof(this.world.personProto))
+                output += ' you created';
             this.output(output);
         }
     }
@@ -2254,7 +2310,7 @@ ${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThin
                 if (prop === 'associations' || prop === 'associationThings')
                     continue;
                 if (prop[0] === '!') {
-                    const [args, body] = val;
+                    const [args, body] = JSON.parse(val);
                     result += `\n@method %${index} ${args} ${indent(2, escape(body)).trim()}`;
                 }
                 else if (reservedProperties.has('_' + prop)) {
@@ -2289,18 +2345,18 @@ ${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThin
     }
     // COMMAND
     atFail(cmdInfo /*, actor, text, arg..., @event, actor, event, arg...*/) {
+        const [text, contextChunk, argsStr] = keywords(splitQuotedWords(dropArgs(1, cmdInfo)), '@context', '@event');
+        const [contextStr, ...args] = contextChunk ? splitQuotedWords(contextChunk) : [];
+        const [emitterStr, eventType] = argsStr ? splitQuotedWords(argsStr) : [];
+        const context = contextStr ? this.find(contextStr, undefined, 'context') : this.thing;
+        const emitter = emitterStr ? this.find(emitterStr, context, 'emitter') : this.thing;
         let event = this.event;
-        if (!event) {
-            event = new Descripton(this.thing, 'default', [], false);
+        if (!event || eventType) {
+            event = new Descripton(this.thing, eventType || 'error', [], false);
         }
-        const words = splitQuotedWords(dropArgs(1, cmdInfo));
-        // tslint:disable-next-line:prefer-const
-        let [contextStr, text, ...args] = words;
-        const context = this.find(contextStr, undefined, 'context');
-        const evtIndex = words.findIndex(w => w.toLowerCase() === '@emit');
-        const emitter = (evtIndex !== -1 && this.find(words[evtIndex + 1], context, 'emitter')) || this.thing.assoc.location;
-        throw event.emitFail(emitter, text, args.map(t => this.find(t, context, 'arg')), false, context);
+        event.emitFail(emitter, text, args.map(t => this.find(t, context, 'arg')), false, context);
     }
+    // COMMAND
     atRun(cmdInfo) {
         const [ctxStr, cmdStr, ...argStrs] = dropArgs(1, cmdInfo).split(/\s+/);
         const ctx = this.find(ctxStr, undefined, 'context');
@@ -2312,8 +2368,56 @@ ${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThin
         this.runCommands(this.substituteCommand(ctx._thing['_' + cmdStr], args), true);
     }
     // COMMAND
+    atIf(cmdInfo) {
+        const [cond, body] = keywords(splitQuotedWords(dropArgs(1, cmdInfo), true, true), '@then');
+        if (!body && !splitQuotedWords(dropArgs(1, cmdInfo).toLowerCase(), true, true).find(w => w === '@then'))
+            throw new Error(`@if requires @then`);
+        const [thing, prop, val1, op, val2] = this.opArgs(cond);
+        if (logic('@if', val1, op, val2)) {
+            this.runCommands(body.split('\n'));
+            this.exit = this.hadExit;
+        }
+    }
+    // COMMAND
+    atChange(cmdInfo) {
+        const [thing, prop, val1, op, val2] = this.opArgs(dropArgs(1, cmdInfo));
+        const realProp = this.propFor(thing, prop);
+        thing[realProp] = math('@change', val1, op, val2);
+        this.output(`You set ${this.formatName(thing)} ${prop} to ${JSON.stringify(thing[realProp])}`);
+    }
+    opArgs(words) {
+        const [thingStr, prop, op, arg1, arg2] = splitQuotedWords(words);
+        const thing = this.findSimple(thingStr, undefined, 'thing');
+        const thing2 = arg2 && this.findSimple(arg1, undefined, 'thing2');
+        return [thing, prop, thing[this.propFor(thing, prop)], op, arg2 ? thing2[this.propFor(thing2, arg2)] : arg1?.indexOf('.') > -1 ? this.propFor(thing, arg1) : arg1];
+    }
+    // COMMAND
+    atDup(cmdInfo) {
+        const [thingStr, prop, thing2Str, rawProp2] = splitQuotedWords(dropArgs(1, cmdInfo));
+        if (reservedProperties.has(prop))
+            throw new Error(`You can't @dup to reserved property ${prop}`);
+        const prop2 = rawProp2 || thing2Str;
+        if (reservedProperties.has(prop2))
+            throw new Error(`You can't @dup reserved property ${prop2}`);
+        const thing = this.findSimple(thingStr, undefined, 'thing');
+        const thing2 = rawProp2 ? this.findSimple(thing2Str, undefined, 'thing2') : thing;
+        const result = thing[this.propFor(thing, prop)] = thing2[this.propFor(thing2, prop2)];
+        this.output(`You set ${this.formatName(thing)} ${prop} to ${typeof result === 'object' ? result : JSON.stringify(result)}`);
+    }
+    // if prop has a dot in it, it's an indirect property, like %me.name
+    propFor(thing, prop) {
+        if (prop.indexOf('.') > -1) {
+            prop = this.find(prop, undefined, 'property');
+        }
+        return thing instanceof Thing ? '_' + prop : prop;
+    }
+    // COMMAND
+    atExit(cmdInfo) {
+        this.exit = true;
+    }
+    // COMMAND
     atEcho(cmdInfo) {
-        const text = dropArgs(1, cmdInfo);
+        const text = splitQuotedWords(dropArgs(1, cmdInfo), true).join('');
         const ctx = formatContexts(text);
         if (ctx.me) {
             this.output(this.basicFormat(this.thing, ctx.me, []));
@@ -2430,7 +2534,7 @@ ${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThin
         checkArgs(cmdInfo, arguments);
         const [thingStr, property, ...words] = splitQuotedWords(dropArgs(1, cmdInfo));
         const thing = this.find(thingStr, this.thing, 'thing');
-        const prop = '_' + property.toLowerCase();
+        const prop = this.propFor(thing, property.toLowerCase());
         if (!thing[prop]) {
             thing[prop] = words;
         }
@@ -2449,7 +2553,7 @@ ${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThin
         checkArgs(cmdInfo, arguments);
         const [thingStr, property, ...items] = splitQuotedWords(dropArgs(1, cmdInfo));
         const thing = this.find(thingStr, this.thing, 'thing');
-        const prop = '_' + property.toLowerCase();
+        const prop = this.propFor(thing, property.toLowerCase());
         for (const item of items) {
             if (Array.isArray(thing[prop])) {
                 const index = thing[prop].indexOf(item);
@@ -2519,9 +2623,6 @@ ${fp('prototype', true)}: ${thing._prototype ? this.dumpName(thing.world.getThin
             case 'react_tick':
                 thing._react_tick = String(value);
                 this.checkTicker(thing);
-                break;
-            case 'count':
-                thing.count = Number(value);
                 break;
             case 'fullname': {
                 thing.fullName = value;
@@ -2859,9 +2960,76 @@ You can use <b>me</b> for yourself, <b>here</b> for your location, and <b>out</b
     }
 }
 MudConnection.prototype.commands = initCommands(commands);
-function splitQuotedWords(line, stripQuotes = true) {
+function logic(label, propVal, op, value) {
+    if (!op) { // boolean expr
+        return valueLike(label, propVal, true);
+    }
+    else if (op.trim().toLowerCase() === 'not') {
+        return !valueLike(label, propVal, true);
+    }
+    else {
+        value = valueLike(label, value, propVal);
+        switch (op) {
+            case '>': return propVal > value;
+            case '>=': return propVal >= value;
+            case '<': return propVal < value;
+            case '<=': return propVal <= value;
+            case '=': return propVal === value;
+            case '==': return propVal === value;
+            case '!=': return propVal !== value;
+            default:
+                throw new Error(`Unknown conditional operation in ${label}: ${op}`);
+        }
+    }
+}
+function math(label, val1, op, value) {
+    if (op.trim().toLowerCase() === 'not')
+        return !valueLike(label, val1, true);
+    //val1 = valueLike(label, val1, 0)
+    value = valueLike(label, value, val1);
+    switch (op) {
+        case '+': return val1 + value;
+        case '*': return val1 * value;
+        case '-': return val1 - value;
+        case '/': return val1 / value;
+        case '%': return val1 % value;
+        case '^': return val1 ^ value;
+        case '&': return val1 & value;
+        case '|': return val1 | value;
+        default:
+            throw new Error(`Unknown arithmetic operation in ${label}: ${op}`);
+    }
+}
+function valueLike(label, orig, template) {
+    let value = String(orig).trim();
+    if (typeof orig === typeof template)
+        return orig;
+    if (typeof template === 'boolean') {
+        return orig && !value.match(/^false$/i);
+    }
+    else if (typeof template === 'number') {
+        if (value.match(/^([0-9]*\.)?[0-9]+$/))
+            return JSON.parse(value);
+        throw new Error(`Value in ${label} should be a number but it is ${orig}`);
+    }
+    else if (typeof template === 'string') {
+        return orig;
+    }
+    else if (template instanceof BigInt) {
+        if (value.match(/$[0-9]+n^/))
+            value = value.substring(0, value.length - 1);
+        if (value.match(/$[0-9]+^/))
+            return BigInt(value);
+        throw new Error(`Value in ${label} should be a BigInt but it is ${orig}`);
+    }
+    throw new Error(`Can't convert property ${orig} in ${label} to ${template}`);
+}
+function splitQuotedWords(line, keepWhitespace = false, keepQuotes = false) {
     // discard empty strings
-    return line.split(wordAndQuotePat).filter(x => x).map(w => w[0] === '"' ? JSON.parse(w) : w);
+    let words = line.split(keepWhitespace ? wordAndQuotePatWS : wordAndQuotePat).filter(x => typeof x !== 'undefined');
+    if (!keepWhitespace)
+        words = words.filter(x => x);
+    return keepQuotes ? words : words.map(w => w[0] === '"' ? JSON.parse(w) : w);
 }
 function strOrJson(str) {
     const json = JSON.stringify(str);
@@ -2892,7 +3060,7 @@ function removeArticle(str) {
 // extract keywords while preserving whitespace
 export function keywords(str, ...kws) {
     kws = kws.map(kw => typeof kw === 'string' ? kw.toLowerCase() : kw);
-    const words = str.split(/(\s+)/);
+    const words = Array.isArray(str) ? str : str.split(/(\s+)/);
     const match = (w, i) => {
         const ind = kws.findIndex(k => k instanceof RegExp ? w.match(k) : w === k);
         return ind !== -1 && [i, ind];
@@ -2983,12 +3151,12 @@ export async function executeCommand(text) {
         mudproto.command(text);
     }
 }
-export async function runMud(world, handleOutput) {
+export async function runMud(world, handleOutput, quiet) {
     activeWorld = world;
     world.mudConnectionConstructor = MudConnection;
     connection = createConnection(world, handleOutput);
     console.log(connection);
-    await connection.start();
+    await connection.start(quiet);
     if (world.defaultUser) {
         const user = world.defaultUser;
         if (user) {

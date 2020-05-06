@@ -369,6 +369,10 @@ body:not(.emulation) #toggleStateButtons {
     font-style: italic;
     cursor: pointer;
 }
+.output,
+.error {
+    white-space: pre-wrap;
+}
 .error {
     color: red;
     font-weight: bold;
