@@ -756,8 +756,8 @@ export async function start() {
     radioTracker(mudTracker, 'Mud');
     let oldNatState = natTracker.value;
     natTracker.observe(state => {
-        if (oldNatState === NatState.Public) {
-            alert('WARNING: Nat state in no longer public!');
+        if (oldNatState === NatState.Public && state !== oldNatState) {
+            alert('WARNING: Nat state is no longer public!');
         }
         oldNatState = state;
     });

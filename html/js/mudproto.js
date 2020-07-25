@@ -210,7 +210,7 @@ class Peer extends proto.DelegatingHandler {
         }
         else {
             console.log('Starting peer...');
-            proto.start(this.storage.profile.port || 0, this.storage.profile.peerKey || '');
+            proto.start(Number(this.storage.profile.port), this.storage.profile.peerKey || '');
         }
     }
     // P2P API
@@ -225,6 +225,10 @@ class Peer extends proto.DelegatingHandler {
         currentVersionID = currentVersion;
         super.ident(status, peerID, addresses, peerKey, currentVersion);
         gui.displayVersion();
+    }
+    accessChange(access) {
+        console.log(`RECEIVED ACCESS CHANGE: ${access}`);
+        natTracker.setValueNamed(access);
     }
 }
 class Strategy extends proto.CommandHandler {
@@ -476,7 +480,7 @@ class GuestStrategy extends Strategy {
         this.sendObject(this.mudConnection, { name: 'command', text });
     }
     close() {
-        if (this.mudConnection) {
+        if (this.mudConnection !== null && this.mudConnection !== undefined) {
             proto.close(this.mudConnection);
             this.mudConnection = null;
         }

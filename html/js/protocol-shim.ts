@@ -40,10 +40,8 @@ namespace proto {
         peerConnection(conID, peerID, prot)
         peerConnectionRefused(peerID, prot, msg)
         error(msg)
-        discoveryHostConnect(conID, peerID, prot)
-        discoveryPeerConnect(conID, peerID, prot)
         listening(protocol)
-        discoveryAwaitingCallback(protocol)
+        accessChange(access: string)
     }
     export declare class DelegatingHandler<H extends P2pHandler> implements P2pHandler {
         delegate: H
@@ -59,10 +57,8 @@ namespace proto {
         peerConnection(conID, peerID, prot)
         peerConnectionRefused(peerID, prot, msg)
         error(msg)
-        discoveryHostConnect(conID, peerID, prot)
-        discoveryPeerConnect(conID, peerID, prot)
         listening(protocol)
-        discoveryAwaitingCallback(protocol)
+        accessChange(access: string)
     }
     export declare class TrackingHandler<H extends P2pHandler> extends DelegatingHandler<H> {
         constructor(delegate: H, connections: any)

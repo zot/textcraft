@@ -217,17 +217,20 @@ export const commands = new Map([
                 'thing property not @then commands...', ``,
                 'thing property op value @then commands...', ``,
                 'thing property op thing property @then commands...', `Run commands if expression is true
-  op can be >, >=, <, <=, =, ==, or !=`]
+  op can be >, >=, <, <=, =, ==, or !=
+  properties can be paths, thing.prop.prop`]
         })],
     ['@change', new Command({
             help: ['thing property not', '',
                 'thing property op amount', '',
                 'thing property op thing2 property2', `change a value by amount
-  op can be +, -, *, /, %, ^, &, or |`]
+  op can be +, -, *, /, %, ^, &, or |
+  properties can be paths, thing.prop.prop`]
         })],
     ['@dup', new Command({
             help: ['thing prop prop2', '',
-                'thing prop thing2 prop2', `transfer prop2's value into prop`]
+                'thing prop thing2 prop2', `transfer prop2's value into prop
+  properties can be paths, thing.prop.prop`]
         })],
     ['@exit', new Command({ help: ['', `cut out of command list`] })],
     ['@js', new Command({
@@ -302,7 +305,7 @@ export const commands = new Map([
                 'format [@context context arg...]', '',
                 'format [@event actor type]', '',
                 'format [@context ...] [@event ...]', `Fail the current event and emit a format string
-   
+
    context and args are for the format string (see FORMAT STRINGS)
    If it has $forme, it will output to the user, if it has $forothers, that will output to others`]
         })],
@@ -2985,7 +2988,7 @@ function logic(label, propVal, op, value) {
 function math(label, val1, op, value) {
     if (op.trim().toLowerCase() === 'not')
         return !valueLike(label, val1, true);
-    //val1 = valueLike(label, val1, 0)
+    val1 = valueLike(label, val1, 0);
     value = valueLike(label, value, val1);
     switch (op) {
         case '+': return val1 + value;
@@ -2993,8 +2996,11 @@ function math(label, val1, op, value) {
         case '-': return val1 - value;
         case '/': return val1 / value;
         case '%': return val1 % value;
+        // tslint:disable-next-line:no-bitwise
         case '^': return val1 ^ value;
+        // tslint:disable-next-line:no-bitwise
         case '&': return val1 & value;
+        // tslint:disable-next-line:no-bitwise
         case '|': return val1 | value;
         default:
             throw new Error(`Unknown arithmetic operation in ${label}: ${op}`);

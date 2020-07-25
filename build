@@ -1,29 +1,72 @@
 #!/bin/sh
-set -x
-prefix="/v0.1.4/"
+if [ "$#" = 0 ]; then
+    echo Defaulting to linux64 nopush...
+    set linux64 nopush
+fi
+prefix="/v0.1.6/"
 url="${prefix}textcraft.html?quiet=true&activate=examples/Purgatory.yaml"
+stdOpts="-X main.urlPrefix=$prefix -X main.singleConnectionOpt=true -X 'main.defaultPage=$url' -X main.versionCheckURL=https://lambdamechanics.com/textcraft/download.php?file=version&peer=%s&version=%s%s -X main.configDir=textcraft"
 target=$(pwd)
+PUSH=true
+ALLFILES=""
+FILES=""
+
+for file in "" -32 -32.app -64.app .exe; do
+    ALLFILES="$FILES textcraft$file"
+done
 while [ $# != 0 ]; do
     case "$1" in
+        force)
+            FORCE=true
+            ;;
         test)
             TEST=true
+            unset PUSH
             ;;
-        push)
-            PUSH=true
+        nopush)
+            unset PUSH
+            ;;
+        mac)
+            MAC=true
+            BUILD=true
+            FILES="$FILES textcraft-64.app"
+            ;;
+        linux64)
+            linux64=true
+            BUILD=true
+            FILES="$FILES textcraft"
+            ;;
+        linux32)
+            linux32=true
+            BUILD=true
+            FILES="$FILES textcraft-32"
+            ;;
+        windows)
+            windows=true
+            BUILD=true
+            FILES="$FILES textcraft.exe"
+            ;;
+        all)
+            MAC=true
+            linux64=true
+            linux32=true
+            windows=true
+            BUILD=true
             ;;
     esac
     shift
 done
-if [ -z "$PUSH" ]; then
+if [ -n "$BUILD" ]; then
     versionDate=$(date -Ins)
     versionID=$(date +%s.%N -d "$versionDate")
     godir=$(readlink -f ../ipfs-p2p-websocket/src)
     cd $target
     if [ ! -e textcraft.version ]; then echo 0.0 > textcraft.version; fi
     oldID=$(cat textcraft.version)
-    OLDFLAGS="-X main.urlPrefix=$prefix -X main.singleConnectionOpt=true -X 'main.defaultPage=$url' -X main.versionID=$oldID -X main.versionCheckURL=https://lambdamechanics.com/textcraft/download.php?file=version&peer=%s&version=%s%s"
-    LDFLAGS="-X main.urlPrefix=$prefix -X main.singleConnectionOpt=true -X 'main.defaultPage=$url' -X main.versionID=$versionID -X main.versionCheckURL=https://lambdamechanics.com/textcraft/download.php?file=version&peer=%s&version=%s%s"
+    OLDFLAGS="$stdOpts -X main.versionID=$oldID"
+    LDFLAGS="$stdOpts -X main.versionID=$versionID"
     cp -a html html.prev
+    echo ARCHIVING HTML ASSETS
     (tsc && tslint -p tsconfig.json) || exit 1
     if diff -qr html html.prev > /dev/null 2>&1; then
         echo 'NO DIFFERENCES IN HTML'
@@ -43,34 +86,60 @@ if [ -z "$PUSH" ]; then
     cp $target/textcraft $target/.textcraft.prev
     echo Building version $versionDate, checking build for differences...
     if go build -ldflags "$OLDFLAGS" -o $target/textcraft libp2p-websocket.go protocol.go files.go; then
-        if cmp $target/.textcraft.prev $target/textcraft; then
-            rm $target/.textcraft.prev
+        if [ -z "$FORCE" ] && cmp $target/.textcraft.prev $target/textcraft; then
+            rm -f $target/.textcraft.prev
             echo "\n\nTextcraft has not changed: $(cat $target/textcraft.versionDate)\n\n"
             exit
         fi
-        rm $target/.textcraft.prev
+        rm -f $target/.textcraft.prev
         BUILT=true
         echo -e "\n\nNEW VERSION: $versionDate\n\n"
         if [ -z "$TEST" ]; then
-            PUSH=true
             echo $versionID > $target/textcraft.version
             echo $versionDate > $target/textcraft.versionDate
-            go build -ldflags "$LDFLAGS" -o $target/textcraft libp2p-websocket.go protocol.go files.go
-            env GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32 libp2p-websocket.go protocol.go files.go
-            env GOOS=windows GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft.exe libp2p-websocket.go protocol.go files.go
-            env GOOS=darwin GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32.app libp2p-websocket.go protocol.go files.go
-            env GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/textcraft-64.app libp2p-websocket.go protocol.go files.go
+            rm -f $ALLFILES
+            if [ -n "$linux64" ]; then
+                echo env GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/textcraft libp2p-websocket.go protocol.go files.go
+                env GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/textcraft libp2p-websocket.go protocol.go files.go
+            fi
+            if [ -n "$linux32" ]; then
+                echo env GOOS=linux GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32 libp2p-websocket.go protocol.go files.go
+                env GOOS=linux GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32 libp2p-websocket.go protocol.go files.go
+            fi
+            if [ -n "$windows" ]; then
+                echo env GOOS=windows GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft.exe libp2p-websocket.go protocol.go files.go
+                env GOOS=windows GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft.exe libp2p-websocket.go protocol.go files.go
+            fi
+            if [ -n "$mac" ]; then
+                #env GOOS=darwin GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32.app libp2p-websocket.go protocol.go files.go
+                echo env GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/Textcraft.app/Contents/MacOS/textcraft libp2p-websocket.go protocol.go files.go
+                env GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/Textcraft.app/Contents/MacOS/textcraft libp2p-websocket.go protocol.go files.go
+                dd if=/dev/zero of=$target/Textcraft-64.dmg bs=1M count=$(ls -s --block-size=M textcraft-mac-64|sed 's/M.*//') status=progress
+                mkfs.hfsplus -v Textcraft $target/Textcraft-64.dmg
+                mkdir -p $target/mac-mount
+                sudo mount $target/Textcraft-64.dmg $target/mac-mount
+                sudo cp -a $target/Textcraft.app  $target/mac-mount
+                sudo umount $target/mac-mount
+            fi
         else
             echo Exiting because of test mode
             exit
         fi
+    else
+        exit 1
     fi
 fi
 if [ -n "$PUSH" -a "$(hostname)" = lambdamechanics ]; then
+    echo pushing...
     cd $target
-    for file in "" -32 -32.app -64.app .exe; do
-        cp textcraft$file ~/Dropbox/Textcraft
+    for file in $ALLFILES; do
+        if [ -f "$file" ]; then
+            cp "$file" ~/Dropbox/Textcraft
+        fi
     done
     scp textcraft.version lambdamechanics:lambdamechanics.com/textcraft
-    scp textcraft-32 textcraft:bin
+    if [ -f "textcraft-32" ]; then
+        scp textcraft-32 textcraft:bin
+    fi
+    echo done
 fi
