@@ -24,6 +24,8 @@
  *
  */
 
+// MessagePack MIT licensed from https://github.com/msgpack/msgpack-javascript
+
 /*
 # CLIENT-TO-SERVER MESSAGES
  
@@ -184,41 +186,44 @@ class DelegatingHandler {
     constructor(delegate) {
         this.delegate = delegate;
     }
+    tryDelegate(method, args) {
+        tryDelegate(this.delegate, method, args);
+    }
     hello(running, thisVersion) {
-        tryDelegate(this.delegate, 'hello', arguments);
+        this.tryDelegate('hello', arguments);
     }
     ident(status, peerID, addresses, peerKey, currentVersion) {
-        tryDelegate(this.delegate, 'ident', arguments);
+        this.tryDelegate('ident', arguments);
     }
     listenerConnection(conID, peerID, prot) {
-        tryDelegate(this.delegate, 'listenerConnection', arguments);
+        this.tryDelegate('listenerConnection', arguments);
     }
     connectionClosed(conID, msg) {
-        tryDelegate(this.delegate, 'connectionClosed', arguments);
+        this.tryDelegate('connectionClosed', arguments);
     }
     data(conID, data, obj) {
-        tryDelegate(this.delegate, 'data', arguments);
+        this.tryDelegate('data', arguments);
     }
     listenRefused(protocol) {
-        tryDelegate(this.delegate, 'listenRefused', arguments);
+        this.tryDelegate('listenRefused', arguments);
     }
     listenerClosed(protocol) {
-        tryDelegate(this.delegate, 'listenerClosed', arguments);
+        this.tryDelegate('listenerClosed', arguments);
     }
     peerConnection(conID, peerID, prot) {
-        tryDelegate(this.delegate, 'peerConnection', arguments);
+        this.tryDelegate('peerConnection', arguments);
     }
     peerConnectionRefused(peerID, prot, msg) {
-        tryDelegate(this.delegate, 'peerConnectionRefused', arguments);
+        this.tryDelegate('peerConnectionRefused', arguments);
     }
     error(msg) {
-        tryDelegate(this.delegate, 'error', arguments);
+        this.tryDelegate('error', arguments);
     }
     listening(protocol) {
-        tryDelegate(this.delegate, 'listening', arguments);
+        this.tryDelegate('listening', arguments);
     }
     accessChange(status) {
-        tryDelegate(this.delegate, 'accessChange', arguments);
+        this.tryDelegate('accessChange', arguments);
     }
     insertDelegatingHandler(hand) {
         hand.delegate = this.delegate;
@@ -370,10 +375,8 @@ class ConnectionInfo {
         this.incoming = incoming;
         this.outgoing = !incoming;
     }
-    isRelayHost() {
-    }
-    isRelayPeer() {
-    }
+    isRelayHost() { }
+    isRelayPeer() { }
     relayInfo() {
         var pending = !this.isRelayPeer() && !isRelayHost();
         var pendingStr = pending ? "PENDING " : " ";
@@ -620,7 +623,7 @@ class RelayService extends CommandHandler {
             return connectionError(info.conID, relayErrors.notConnected, 'Not relaying to peer over protocol: ' + protocol, false);
         }
         sendObject(relayingPeer.conID, { name: 'receiveRelay', peerID: info.peerID, protocol, command });
-        tryDelegate(this.delegate, 'relay', arguments);
+        this.tryDelegate('relay', arguments);
     }
     // RELAY CMD API
     receiveRelay(info, { peerID, command }) {
@@ -781,7 +784,7 @@ class RelayHost extends RelayClient {
             });
             this.callbacks.delete(peerID);
         }
-        tryDelegate(this.delegate, 'peerConnection', arguments);
+        this.tryDelegate('peerConnection', arguments);
     }
     // RELAY CMD API
     receiveRelayConnectionFromPeer(conID, { peerID, protocol }) {
@@ -852,82 +855,58 @@ function startProtocol(urlStr, handler) {
     ws.onerror = err => console.log('Error: ', err);
     ws.onmessage = msg => {
         msg.data.arrayBuffer().then(buf => {
-            //var msg;
-
-            //try {
-            //    msg = MessagePack.decode(data.slice(1))
-            //} catch (err) {
-            //    alert(`Bad message. Check console for details`)
-            //    console.log('Bad message from server', data)
-            //    return
-            //}
+            var msg;
             var data = new Uint8Array(buf);
-            var dv = new DataView(buf);
 
+            try {
+                msg = MessagePack.decode(data.slice(1))
+            } catch (err) {
+                alert(`Bad message. Check console for details`)
+                console.log('Bad message from server', data)
+                return
+            }
             console.log("MESSAGE: [", data.join(", "), "]");
             console.log("TYPE: ", enumFor(smsg, data[0]));
             switch (data[0]) {
-                case smsg.hello: {
-                    var { started, version } = MessagePack.decode(data.slice(1));
-
-                    handler.hello(started, version);
+                case smsg.hello:
+                    handler.hello(msg.started, msg.version);
                     break;
-                }
-                case smsg.ident: {
-                    var { publicPeer, peerID, addresses, peerKey, currentVersion } = MessagePack.decode(data.slice(1));
-                    handler.ident(publicPeer ? natStatus.public : natStatus.private, peerID, addresses, peerKey, currentVersion);
+                case smsg.ident:
+                    handler.ident(msg.publicPeer ? natStatus.public : natStatus.private, msg.peerID, msg.addresses, msg.peerKey, msg.currentVersion);
                     break;
-                }
-                case smsg.listenerConnection: {
-                    var { conID, peerID, protocol } = MessagePack.decode(data.slice(1));
-
-                    handler.listenerConnection(BigInt(conID), peerID, protocol);
+                case smsg.listenerConnection:
+                    handler.listenerConnection(BigInt(msg.conID), msg.peerID, msg.protocol);
                     break;
-                }
-                case smsg.connectionClosed: {
-                    var { conID, reason } = MessagePack.decode(data.slice(1));
-
-                    handler.connectionClosed(BigInt(conID), reason);
+                case smsg.connectionClosed:
+                    handler.connectionClosed(BigInt(msg.conID), msg.reason);
                     break;
-                }
-                case smsg.data: {
-                    var { conID, data } = MessagePack.decode(data.slice(1));
-
-                    handler.data(BigInt(conID), data);
+                case smsg.data:
+                    handler.data(BigInt(msg.conID), msg.data);
                     break;
-                }
                 case smsg.listenRefused:
-                    var { prot, reason } = MessagePack.decode(data.slice(1));
-                    handler.listenRefused(prot);
+                    handler.listenRefused(msg.prot);
                     break;
                 case smsg.listenerClosed:
-                    var { prot } = MessagePack.decode(data.slice(1));
-                    handler.listenerClosed(prot);
+                    handler.listenerClosed(msg.prot);
                     break;
                 case smsg.peerConnection:
-                    var { conID, peerID, protocol } = MessagePack.decode(data.slice(1));
-
-                    handler.peerConnection(BigInt(conID), peerID, protocol)
+                    handler.peerConnection(BigInt(msg.conID), msg.peerID, msg.protocol)
                     break;
                 case smsg.peerConnectionRefused: {
-                    var [peerID, peerNext] = getCountedStringNext(dv, 1)
-                    var [prot, protNext] = getCountedStringNext(dv, peerNext)
-                    var msg = getString(data.slice(protNext));
-
-                    handler.peerConnectionRefused(peerID, prot, msg);
+                    handler.peerConnectionRefused(msg.peerID, msg.protocol, msg.reason);
                     break;
                 }
                 case smsg.error:
-                    handler.error(MessagePack.decode(data.slice(1)).message);
+                    handler.error(msg.message);
                     break;
                 case smsg.listening:
-                    handler.listening(MessagePack.decode(data.slice(1)).protocol);
+                    handler.listening(msg.protocol);
                     break;
                 case smsg.accessChange:
                     handler.accessChange(
-                        data[1] === 0 ? natStatus.unknown
-                            : data[1] === 1 ? natStatus.private
-                                : data[1] === 2 ? natStatus.public
+                        msg.access === 0 ? natStatus.unknown
+                            : msg.access === 1 ? natStatus.private
+                                : msg.access === 2 ? natStatus.public
                                     : natStatus.maybePublic
                     );
                     break;
@@ -968,62 +947,11 @@ function checkPeerID(str) {
     }
 }
 
-/*
-// even though a peer actually gets different public port than its private ports,
-// it still might not be publically reachable -- leaving it to autonat to find out for sure
-
-function checkPublic(publicPeer, addresses) {
-    if (!publicPeer) {
-        var privatePorts = new Set();
-        var publicPorts = new Set();
-
-        for (var addr of addresses) {
-            var info = getTcp4Info(addr);
-
-            if (info) {
-                var [ip, port, reserved] = info;
-
-                (reserved ? privatePorts : publicPorts).add(port);
-            }
-        }
-        for (var port of publicPorts) {
-            if (!privatePorts.has(port)) return natStatus.maybePublic;
-        }
-        return natStatus.private;
-    }
-    return natStatus.public;
-}
-
-// returns [ipaddress, port, isReserved]
-function getTcp4Info(maddr) {
-    var ipmatch = maddr.match(/\/ip4\/([^/]*)(\/|$)/);
-    var portmatch = maddr.match(/\/tcp\/([^/]*)(\/|$)/);
-
-    if (ipmatch && portmatch) {
-        var [a, b, c] = ipmatch[1].split('.').map(Number);
-
-        return [ipmatch[1],
-                Number(portmatch[1]),
-                (a == 127
-                 || a == 10
-                 || (a == 100 && b >= 64 && b <= 127)
-                 || (a == 172 && b >= 16 && b <= 31)
-                 || (a == 169 && b == 254)
-                 || (a == 192 && b == 0)
-                 || (a == 192 && b == 2)
-                 || (a == 192 && b == 88 && c == 99)
-                 || (a == 192 && b == 168)
-                 || (a == 198 && b >= 18 && b <= 19)
-                 || (a == 198 && b == 51 && c == 100)
-                 || (a == 203 && b == 0 && c == 113)
-                 || a >= 224)];
-    }
-}
-*/
-
+///
 // base 85 encoding courtesy of Dave Brown, Stackoverflow
 // https://stackoverflow.com/a/31741111/1026782
 // hacked to remove <~ and ~>
+///
 function encode_ascii85(a) {
     var b, c, d, e, f, g, h, i, j, k;
     for (!/[^\x00-\xFF]/.test(a), b = "\x00\x00\x00\x00".slice(a.length % 4 || 4), a += b,
@@ -1035,9 +963,6 @@ function encode_ascii85(a) {
     }(c, b.length), String.fromCharCode.apply(String, c);
 }
 
-// base 85 encoding courtesy of Dave Brown, Stackoverflow
-// https://stackoverflow.com/a/31741111/1026782
-// hacked to remove <~ and ~>
 function decode_ascii85(a) {
     var c, d, e, f, g, h = String, l = "length", w = 255, x = "charCodeAt", y = "slice", z = "replace";
     a = "<~" + a + "~>";
