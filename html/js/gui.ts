@@ -30,13 +30,13 @@ export function init(appObj: any) { }
 /// simplementation of jQuery
 type nodespec = string | Node | NodeListOf<Node> | Node[]
 
-function $(sel: any) {
+export function $(sel: any) {
     return typeof sel === 'string' ? document.querySelector(sel) : sel
 }
-function $all(sel: any) {
+export function $all(sel: any) {
     return [...document.querySelectorAll(sel)]
 }
-function $find(el: nodespec, sel: any) {
+export function $find(el: nodespec, sel: any) {
     let res: Node[]
 
     if (!el) return null
@@ -61,7 +61,7 @@ function $find(el: nodespec, sel: any) {
         return $(el).querySelector(sel);
     }
 }
-function $findAll(el: nodespec, sel: any) {
+export function $findAll(el: nodespec, sel: any) {
     if (Array.isArray(el)) {
         const results = [];
 

@@ -18,13 +18,13 @@ Here are some example MUDs you can try:
 <br>
 `;
 export function init(appObj) { }
-function $(sel) {
+export function $(sel) {
     return typeof sel === 'string' ? document.querySelector(sel) : sel;
 }
-function $all(sel) {
+export function $all(sel) {
     return [...document.querySelectorAll(sel)];
 }
-function $find(el, sel) {
+export function $find(el, sel) {
     let res;
     if (!el)
         return null;
@@ -53,7 +53,7 @@ function $find(el, sel) {
         return $(el).querySelector(sel);
     }
 }
-function $findAll(el, sel) {
+export function $findAll(el, sel) {
     if (Array.isArray(el)) {
         const results = [];
         for (const node of el) {

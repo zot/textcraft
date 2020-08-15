@@ -245,11 +245,11 @@ class Peer extends proto.DelegatingHandler<Strategy> {
             console.log('Peer already started')
         } else {
             console.log('Starting peer...')
-            proto.start(Number(this.storage.profile.port), this.storage.profile.peerKey || '')
+            proto.start("/treerequest", "textcraft", Number(this.storage.profile.port), this.storage.profile.peerKey || '')
         }
     }
     // P2P API
-    async ident(status, peerID, addresses, peerKey, currentVersion) {
+    async ident(status, peerID, addresses, peerKey, currentVersion, hasNat) {
         console.log('PEER CONNECTED')
         await this.storage.setPeerID(peerID)
         await this.storage.setPeerKey(peerKey)
@@ -258,7 +258,13 @@ class Peer extends proto.DelegatingHandler<Strategy> {
         console.log('IDENT: ', peerID, ' ', status)
         this.peerAddrs = addresses;
         currentVersionID = currentVersion
-        super.ident(status, peerID, addresses, peerKey, currentVersion)
+        super.ident(status, peerID, addresses, peerKey, currentVersion, hasNat)
+        console.log(`altering hovers`)
+        for (const el of gui.$all('#onlineIndicator.when-nat-public,#onlineIndicator.when-nat-private')) {
+            const old = el.getAttribute('title')
+            el.setAttribute('title', `${el.getAttribute('title')} [${hasNat ? '' : 'NO '}NAT]`)
+            console.log(`changed hover from ${old} to ${el.getAttribute('title')}`)
+        }
         gui.displayVersion()
     }
     accessChange(access: string) {

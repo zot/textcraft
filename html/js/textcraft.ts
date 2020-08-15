@@ -1,4 +1,3 @@
-import libp2p from "./protocol.js"
 import * as Model from "./model.js"
 import * as Gui from "./gui.js"
 import * as Mudproto from "./mudproto.js"

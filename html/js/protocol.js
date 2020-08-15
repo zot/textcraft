@@ -30,7 +30,7 @@
 # CLIENT-TO-SERVER MESSAGES
  
 ```
-  Start:       [0][KEY: str] -- start peer with optional peer key
+  Start:       [0][TREEPROTOCOL: str][TREENAME: str][KEY: str] -- start peer with optional peer key
   Listen:      [1][FRAMES: 1][PROTOCOL: rest] -- request a listener for a protocol (frames optional)
   Stop:        [2][PROTOCOL: rest] -- stop listening to PROTOCOL
   Close:       [3][ID: 8]                     -- close a stream
@@ -140,8 +140,8 @@ function close(conID) {
     sendMsg(cmsg.close, { conID: String(conID) });
 }
 
-function start(port, peerKey = '') {
-    sendMsg(cmsg.start, { port, peerKey });
+function start(treeProtocol, treeName, port, peerKey = '') {
+    sendMsg(cmsg.start, { treeProtocol, treeName, port, peerKey });
 }
 
 function sendMsg(msgType, msg) {
@@ -169,7 +169,7 @@ function connect(peerID, prot, frames, relay = false) {
 // methods mimic the parameter order of the protocol
 class BlankHandler {
     hello(running, thisVersion) { }
-    ident(status, peerID, addresses, peerKey, currentVersion) { }
+    ident(status, peerID, addresses, peerKey, currentVersion, hasNat) { }
     listenerConnection(conID, peerID, prot) { }
     connectionClosed(conID, msg) { }
     data(conID, data, obj) { }  // obj is optionally a JSON object
@@ -192,7 +192,7 @@ class DelegatingHandler {
     hello(running, thisVersion) {
         this.tryDelegate('hello', arguments);
     }
-    ident(status, peerID, addresses, peerKey, currentVersion) {
+    ident(status, peerID, addresses, peerKey, currentVersion, hasNat) {
         this.tryDelegate('ident', arguments);
     }
     listenerConnection(conID, peerID, prot) {
@@ -321,9 +321,9 @@ class LoggingHandler extends DelegatingHandler {
     constructor(delegate) {
         super(delegate);
     }
-    ident(status, peerID, addresses, peerKey, currentVersion) {
+    ident(status, peerID, addresses, peerKey, currentVersion, hasNat) {
         receivedMessageArgs('ident', arguments);
-        super.ident(status, peerID, addresses, peerKey, currentVersion);
+        super.ident(status, peerID, addresses, peerKey, currentVersion, hasNat);
     }
     listenerConnection(conID, peerID, prot) {
         receivedMessageArgs('listenerConnection', arguments);
@@ -407,10 +407,11 @@ class TrackingHandler extends DelegatingHandler {
         connections.natStatus = natStatus.unknown;
         connections.listeningTo = new Set();
     }
-    ident(status, peerID, addresses, peerKey, currentVersion) {
+    ident(status, peerID, addresses, peerKey, currentVersion, hasNat) {
         this.connections.peerID = peerID;
         this.connections.natStatus = status;
-        super.ident(status, peerID, addresses, peerKey, currentVersion);
+        this.connections.hasNat = hasNat
+        super.ident(status, peerID, addresses, peerKey, currentVersion, hasNat);
     }
     listenerConnection(conID, peerID, prot) {
         var con = new ConnectionInfo(conID, peerID, prot, true);
@@ -872,7 +873,7 @@ function startProtocol(urlStr, handler) {
                     handler.hello(msg.started, msg.version);
                     break;
                 case smsg.ident:
-                    handler.ident(msg.publicPeer ? natStatus.public : natStatus.private, msg.peerID, msg.addresses, msg.peerKey, msg.currentVersion);
+                    handler.ident(msg.publicPeer ? natStatus.public : natStatus.private, msg.peerID, msg.addresses, msg.peerKey, msg.currentVersion, msg.hasNat);
                     break;
                 case smsg.listenerConnection:
                     handler.listenerConnection(BigInt(msg.conID), msg.peerID, msg.protocol);

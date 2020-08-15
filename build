@@ -10,6 +10,7 @@ target=$(pwd)
 PUSH=true
 ALLFILES=""
 FILES=""
+GOFILES="libp2p-websocket.go protocol.go files.go storage.go"
 
 for file in "" -32 -32.app -64.app .exe; do
     ALLFILES="$FILES textcraft$file"
@@ -85,7 +86,7 @@ if [ -n "$BUILD" ]; then
     cd $tmpdir
     cp $target/textcraft $target/.textcraft.prev
     echo Building version $versionDate, checking build for differences...
-    if go build -ldflags "$OLDFLAGS" -o $target/textcraft libp2p-websocket.go protocol.go files.go; then
+    if go build -ldflags "$OLDFLAGS" -o $target/textcraft $GOFILES; then
         if [ -z "$FORCE" ] && cmp $target/.textcraft.prev $target/textcraft; then
             rm -f $target/.textcraft.prev
             echo "\n\nTextcraft has not changed: $(cat $target/textcraft.versionDate)\n\n"
@@ -99,21 +100,21 @@ if [ -n "$BUILD" ]; then
             echo $versionDate > $target/textcraft.versionDate
             rm -f $ALLFILES
             if [ -n "$linux64" ]; then
-                echo env GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/textcraft libp2p-websocket.go protocol.go files.go
-                env GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/textcraft libp2p-websocket.go protocol.go files.go
+                echo env GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/textcraft $GOFILES
+                env GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/textcraft $GOFILES
             fi
             if [ -n "$linux32" ]; then
-                echo env GOOS=linux GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32 libp2p-websocket.go protocol.go files.go
-                env GOOS=linux GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32 libp2p-websocket.go protocol.go files.go
+                echo env GOOS=linux GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32 $GOFILES
+                env GOOS=linux GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32 $GOFILES
             fi
             if [ -n "$windows" ]; then
-                echo env GOOS=windows GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft.exe libp2p-websocket.go protocol.go files.go
-                env GOOS=windows GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft.exe libp2p-websocket.go protocol.go files.go
+                echo env GOOS=windows GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft.exe $GOFILES
+                env GOOS=windows GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft.exe $GOFILES
             fi
             if [ -n "$mac" ]; then
-                #env GOOS=darwin GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32.app libp2p-websocket.go protocol.go files.go
-                echo env GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/Textcraft.app/Contents/MacOS/textcraft libp2p-websocket.go protocol.go files.go
-                env GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/Textcraft.app/Contents/MacOS/textcraft libp2p-websocket.go protocol.go files.go
+                #env GOOS=darwin GOARCH=386 go build -ldflags "$LDFLAGS" -o $target/textcraft-32.app $GOFILES
+                echo env GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/Textcraft.app/Contents/MacOS/textcraft $GOFILES
+                env GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o $target/Textcraft.app/Contents/MacOS/textcraft $GOFILES
                 dd if=/dev/zero of=$target/Textcraft-64.dmg bs=1M count=$(ls -s --block-size=M textcraft-mac-64|sed 's/M.*//') status=progress
                 mkfs.hfsplus -v Textcraft $target/Textcraft-64.dmg
                 mkdir -p $target/mac-mount
