@@ -86,14 +86,14 @@ flowchart TD
     CheckVersion -.->|Mismatch| ShowUpdate[Show update notification]
     CheckVersion -.->|Match| HideUpdate[Hide update notification]
 
-    style Start fill:#e1f5ff
-    style Ready fill:#d4edda
-    style BecomeHost fill:#fff3cd
-    style BecomeGuest fill:#fff3cd
-    style BecomeRelay fill:#fff3cd
-    style BecomeRelayHost fill:#fff3cd
-    style UserThingChanged fill:#ffd6d6
-    style PeerCommand fill:#ffd6d6
+    style Start fill:#e1f5ff,stroke:#333,color:#000
+    style Ready fill:#d4edda,stroke:#333,color:#000
+    style BecomeHost fill:#fff3cd,stroke:#333,color:#000
+    style BecomeGuest fill:#fff3cd,stroke:#333,color:#000
+    style BecomeRelay fill:#fff3cd,stroke:#333,color:#000
+    style BecomeRelayHost fill:#fff3cd,stroke:#333,color:#000
+    style UserThingChanged fill:#ffd6d6,stroke:#333,color:#000
+    style PeerCommand fill:#ffd6d6,stroke:#333,color:#000
 ```
 
 ## Key IPeer Usage Patterns
