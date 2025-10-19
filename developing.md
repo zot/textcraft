@@ -5,11 +5,12 @@ This guide shows how to implement your own communication protocol for Textcraft 
 ## Table of Contents
 
 1. [Architecture Overview](#architecture-overview)
-2. [IPeer Interface Implementation](#ipeer-interface-implementation)
-3. [MudConnection Integration](#mudconnection-integration)
-4. [Complete Implementation Flow](#complete-implementation-flow)
-5. [Example: Custom WebSocket Protocol](#example-custom-websocket-protocol)
-6. [Testing Your Implementation](#testing-your-implementation)
+2. [How MUDs Get Started](#how-muds-get-started)
+3. [IPeer Interface Implementation](#ipeer-interface-implementation)
+4. [MudConnection Integration](#mudconnection-integration)
+5. [Complete Implementation Flow](#complete-implementation-flow)
+6. [Example: Custom WebSocket Protocol](#example-custom-websocket-protocol)
+7. [Testing Your Implementation](#testing-your-implementation)
 
 ---
 
@@ -40,6 +41,207 @@ flowchart TD
 - **MudConnection**: Per-user game session manager (defined in `mudcontrol.ts`)
 - **Protocol Layer**: Your choice of transport (WebSocket, WebRTC, libp2p, etc.)
 - **World/Thing Model**: Shared MUD state (defined in `model.ts`)
+
+---
+
+## How MUDs Get Started
+
+Before diving into custom protocol implementation, it's important to understand how MUDs are initialized in Textcraft. There are two scenarios: **Solo Mode** (single-player) and **Multiplayer Mode** (host/guest via IPeer).
+
+### Solo Mode: Direct MUD Initialization
+
+In solo mode, a MUD starts without any networking. The flow goes directly from the GUI to `mudcontrol.runMud()`:
+
+```mermaid
+flowchart TD
+    User([User Action]) --> Choice{How?}
+
+    %% Path 1: Click activate button
+    Choice -->|Click Activate| ActivateBtn[Click 'Activate' button<br/>in storage list]
+    ActivateBtn --> ActivateMud1[gui.activateMud]
+
+    %% Path 2: Click example link
+    Choice -->|Click Example| ExampleLink[Click example MUD link<br/>e.g., 'Mystic Lands']
+    ExampleLink --> FetchYAML[Fetch YAML from URL]
+    FetchYAML --> UploadWorld[storage.uploadWorld]
+    UploadWorld --> ActivateMud2[gui.activateMud]
+
+    %% Path 3: URL parameter
+    Choice -->|URL Parameter| URLParam[?activate=path/to/mud.yaml]
+    URLParam --> FetchYAML2[Fetch YAML from URL]
+    FetchYAML2 --> UploadWorld2[storage.uploadWorld]
+    UploadWorld2 --> ActivateMud3[gui.activateMud]
+
+    %% Common path
+    ActivateMud1 --> PrepUI[Prepare UI<br/>Clear output, set section/role]
+    ActivateMud2 --> PrepUI
+    ActivateMud3 --> PrepUI
+    PrepUI --> RunMud[mudcontrol.runMud]
+    RunMud --> CreateConn[createConnection<br/>new MudConnection]
+    CreateConn --> StartConn[connection.start]
+    StartConn --> DoLogin[connection.doLogin<br/>if defaultUser]
+    DoLogin --> Ready([MUD Ready - Solo Mode])
+
+    style User fill:#e1f5ff,stroke:#333,color:#000
+    style RunMud fill:#ffd6d6,stroke:#333,color:#000
+    style Ready fill:#d4edda,stroke:#333,color:#000
+```
+
+#### The runMud() Function
+
+`mudcontrol.runMud()` is the key function that initializes a MUD session:
+
+```typescript
+// Location: html/ts/mudcontrol.ts:3219-3231
+export async function runMud(world: World, handleOutput: (str: string) => void, quiet?: boolean) {
+    // 1. Set the active world (global state)
+    activeWorld = world
+
+    // 2. Register MudConnection constructor with world
+    world.mudConnectionConstructor = MudConnection
+
+    // 3. Create a new MudConnection with output handler
+    connection = createConnection(world, handleOutput)
+
+    // 4. Start the connection (initializes MUD, shows welcome)
+    await connection.start(quiet)
+
+    // 5. If world has a default user, auto-login
+    if (world.defaultUser) {
+        await connection.doLogin(world.defaultUser, null, world.defaultUser, true)
+    }
+}
+```
+
+**Key Points:**
+- Creates a single `MudConnection` instance for the local user
+- The `handleOutput` callback sends text to the GUI
+- `connection.start()` displays welcome message and login prompt
+- Auto-login happens if `world.defaultUser` is set
+- This is **solo mode** - no networking involved
+
+#### User Action Paths
+
+**Path 1: From Storage List**
+```
+User clicks "Activate" on saved MUD
+    ↓
+gui.ts:showMuds() creates button
+    ↓
+gui.ts:activateMud(world)
+    ↓
+mudcontrol.runMud(world, outputHandler)
+```
+
+**Path 2: From Example Link**
+```
+User clicks "Mystic Lands" example
+    ↓
+onclick='textcraft.Gui.activateMudFromURL("examples/Mystic%20Lands.yaml")'
+    ↓
+gui.ts:activateMudFromURL(url)
+    ↓
+Fetch YAML → storage.uploadWorld → storage.openWorld
+    ↓
+gui.ts:activateMud(world)
+    ↓
+mudcontrol.runMud(world, outputHandler)
+```
+
+**Path 3: From URL Parameter**
+```
+Page loads with ?activate=examples/Purgatory.yaml
+    ↓
+gui.ts:start() parses URL parameters
+    ↓
+gui.ts:activateMudFromURL(url)
+    ↓
+Fetch YAML → storage.uploadWorld → storage.openWorld
+    ↓
+gui.ts:activateMud(world)
+    ↓
+mudcontrol.runMud(world, outputHandler)
+```
+
+### Multiplayer Mode: Through IPeer
+
+In multiplayer mode, IPeer implementations bypass `runMud()` and create `MudConnection` instances directly:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant GUI
+    participant IPeer
+    participant HostStrat
+    participant MudConn
+    participant World
+
+    Note over User,World: Host starts hosting
+
+    User->>GUI: Click "Host"
+    GUI->>IPeer: peer.startHosting()
+    IPeer->>HostStrat: Create HostStrategy
+    HostStrat->>World: Load or create world
+    HostStrat->>GUI: Display connection string
+
+    Note over User,World: Guest connects
+
+    User->>HostStrat: Guest connection arrives
+    HostStrat->>MudConn: createConnection(world, outputHandler, remote=true)
+    Note over MudConn: NOT via runMud()!
+    HostStrat->>MudConn: connection.doLogin(peerID, username)
+    MudConn->>World: Create guest's Thing
+    MudConn-->>HostStrat: Ready
+    HostStrat->>GUI: Send output to guest
+```
+
+**Key Difference:**
+- **Solo mode**: Uses `runMud()` → creates one local MudConnection
+- **Multiplayer mode**: Host uses `createConnection()` directly → creates one MudConnection per guest
+- Guests don't have MudConnections - they just send commands to the host
+
+#### For Protocol Implementers
+
+When implementing IPeer for multiplayer:
+
+1. **Don't call runMud()** - It's only for solo mode
+2. **Create MudConnections manually** using `createConnection()`:
+   ```typescript
+   import { createConnection, activeWorld } from './mudcontrol'
+
+   const mudcon = createConnection(
+     activeWorld,           // The world being hosted
+     (text) => {            // Output handler - send to guest
+       this.sendToGuest(peerID, text)
+     },
+     true                   // remote = true (this is a remote user)
+   )
+   ```
+
+3. **Call doLogin()** after creating the connection:
+   ```typescript
+   await mudcon.doLogin(peerID, null, username, true)
+   ```
+
+4. **Route commands** to the appropriate MudConnection:
+   ```typescript
+   // When guest sends a command
+   const mudcon = this.mudConnections.get(peerID)
+   await mudcon.toplevelCommand(commandText)
+   // Output automatically sent via the outputHandler
+   ```
+
+### Summary: Two Initialization Paths
+
+| Aspect | Solo Mode | Multiplayer Mode |
+|--------|-----------|------------------|
+| Entry point | `mudcontrol.runMud()` | `createConnection()` directly |
+| Triggered by | GUI (Activate button, examples, URL) | IPeer implementation (startHosting) |
+| MudConnections | 1 (local user) | 1 per guest (on host side) |
+| Output handler | Sends to local GUI | Sends to remote guest via network |
+| Use case | Single-player exploration | Host/guest sessions |
+
+Understanding this distinction is crucial for implementing custom protocols - you need to know when to use `runMud()` (never in multiplayer) and when to use `createConnection()` (always for guests in multiplayer).
 
 ---
 
