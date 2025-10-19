@@ -1,7 +1,10 @@
 /work
+/obsolete
 /textcraft
 /textcraft-32
 /textcraft.exe
 /textcraft*.app
 /textcraft.version*
 /personal
+*~
+.#*

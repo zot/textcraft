@@ -1,4 +1,4 @@
-import * as model from './model.js'
+import * as model from './model'
 
 let app: any
 let gui: any

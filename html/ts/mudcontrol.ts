@@ -1,7 +1,7 @@
 import {
     MudState, RoleState, PeerState,
     mudTracker, roleTracker, peerTracker,
-} from './base.js'
+} from './base'
 import {
     World,
     Thing,
@@ -9,8 +9,8 @@ import {
     findSimpleName,
     escape,
     idFor,
-} from './model.js'
-import * as mudproto from './mudproto.js'
+} from './model'
+import {current as peer} from './peer'
 
 export const currentVersion = 2
 export let connection: MudConnection
@@ -1283,7 +1283,7 @@ export class MudConnection {
             })
         if (this.thing?.name !== this.myName) {
             this.myName = this.thing.name
-            mudproto.userThingChanged(this.thing)
+            peer.userThingChanged(this.thing)
         }
     }
     command(line: string, substituted = false, user = false) {
@@ -1552,7 +1552,7 @@ export class MudConnection {
 <br>You can use the login command to change users...
 <br><br>`)
                 }
-                mudproto.userThingChanged(this.thing)
+                peer.userThingChanged(this.thing)
                 thing.assoc.location = this.world.lobby
                 this.commandDescripton(this.thing, 'has arrived', 'go', [this.world.limbo, this.world.lobby])
                 if ((this.thing as any)._version !== currentVersion) {
@@ -3212,7 +3212,7 @@ export async function executeCommand(text: string) {
     if (roleTracker.value === RoleState.Solo || roleTracker.value === RoleState.Host) {
         await connection.toplevelCommand(text, true)
     } else if (peerTracker.value !== PeerState.disconnected && mudTracker.value === MudState.Playing) {
-        mudproto.command(text)
+        peer.command(text)
     }
 }
 

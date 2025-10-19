@@ -1,13 +1,13 @@
 import {
     Thing,
     World,
-} from "/js/model.js"
+} from "./model"
 import {
     Command,
     initCommands,
     MudConnection,
     spliceConnection,
-} from "/js/mudcontrol.js"
+} from "./mudcontrol"
 
 const floopCommands = new Map([
     ['floop', new Command({ help: ['', 'You floop around'] })]

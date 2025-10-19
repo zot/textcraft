@@ -2,7 +2,7 @@ import {
     NatState, RoleState, RelayState, SectionState, PeerState,
     StateTracker, stateObserver,
     natTracker, peerTracker, roleTracker, relayTracker, sectionTracker,
-} from "./base.js"
+} from "./base"
 
 let app: any
 

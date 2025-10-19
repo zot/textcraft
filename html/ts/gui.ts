@@ -2,12 +2,11 @@ import {
     RoleState, RelayState, SectionState, PeerState, MudState, NatState,
     StateTracker,
     natTracker, peerTracker, roleTracker, relayTracker, sectionTracker, mudTracker,
-} from "./base.js"
-import * as model from './model.js'
-import * as mudcontrol from './mudcontrol.js'
-import * as storagecontrol from './storagecontrol.js'
-import * as mudproto from './mudproto.js'
-import * as app from './app.js'
+} from "./base"
+import * as model from './model'
+import * as mudcontrol from './mudcontrol'
+import * as storagecontrol from './storagecontrol'
+import {current as peer, UserInfo} from './peer'
 
 const jsyaml: any = (window as any).jsyaml
 let history: string[] = []
@@ -37,7 +36,7 @@ export function $all(sel: any) {
     return [...document.querySelectorAll(sel)]
 }
 export function $find(el: nodespec, sel: any) {
-    let res: Node[]
+    let res: Node[] = [] as Node[]
 
     if (!el) return null
     if (typeof el === 'string') {
@@ -45,7 +44,7 @@ export function $find(el: nodespec, sel: any) {
     } else if (el instanceof NodeList) {
         res = [...el]
     } else if ('nodeName' in el) {
-        (res as any) = [el]
+        res = [el] as any as Node[]
     }
     if (res.length === 0) {
         return null;
@@ -63,7 +62,7 @@ export function $find(el: nodespec, sel: any) {
 }
 export function $findAll(el: nodespec, sel: any) {
     if (Array.isArray(el)) {
-        const results = [];
+      const results: any[] = [];
 
         for (const node of el) {
             results.push(...(node as Element).querySelectorAll(sel))
@@ -544,7 +543,7 @@ export function okCancel(div, okSel, cancelSel, focusSel, validate, preventAbort
         $find(div, okSel).onclick = () => {
             if (validate()) {
                 div.remove()
-                succeed()
+                succeed(null)
             }
         }
         $find(div, cancelSel).onclick = () => cancel()
@@ -689,7 +688,7 @@ export function hosting(protocol: string) {
     $('#host-protocol').value = 'WAITING TO ESTABLISH LISTENER ON ' + protocol
 }
 
-export function showUsers(userMap: Map<string, mudproto.UserInfo>) {
+export function showUsers(userMap: Map<string, UserInfo>) {
     const users = [...userMap.values()]
 
     users.sort((a, b) => a.name === b.name ? 0 : a.name < b.name ? -1 : 1)
@@ -708,7 +707,7 @@ function showPeerState(state) {
     switch (peerTracker.value) {
         case PeerState.hostingDirectly:
         case PeerState.connectedToRelayForHosting:
-            $('#direct-connect-string').value = mudproto.connectString()
+        $('#direct-connect-string').value = peer.connectString()
             $('#direct-connect-string').select()
             break
     }
@@ -756,7 +755,7 @@ function showRelayState(state) {
         sectionTracker.setValue(SectionState.Connection)
     }
     if (state === RelayState.PendingHosting || state === RelayState.Hosting) {
-        $('#relayConnectString').value = mudproto.relayConnectString()
+        $('#relayConnectString').value = peer.relayConnectString()
         $('#relayConnectString').select()
         $('#relayConnectString').onclick = evt => {
             setTimeout(() => {
@@ -783,13 +782,13 @@ export async function activateMudFromURL(url: string) {
 }
 
 export function displayVersion() {
-    const pending = !mudproto.currentVersionID
-    const needsUpdate = mudproto.versionID !== mudproto.currentVersionID
+    const pending = !peer.currentVersionID
+    const needsUpdate = peer.versionID !== peer.currentVersionID
     const readme = $('iframe')
     const versionEl = $find(readme?.contentDocument?.body, '#versionID')
 
     if (versionEl) {
-        versionEl.innerHTML = `${mudproto.versionID} <b>[${pending ? '...' : needsUpdate ? 'NEWER VERSION AVAILABLE' : 'UP TO DATE'}]</b>`
+        versionEl.innerHTML = `${peer.versionID} <b>[${pending ? '...' : needsUpdate ? 'NEWER VERSION AVAILABLE' : 'UP TO DATE'}]</b>`
     }
 }
 
@@ -874,10 +873,10 @@ export async function start() {
     $('#upload-mud').onclick = () => sectionTracker.setValue(SectionState.Storage)
     //$('#upload-mud-extension').onchange = uploadMudExtension
     $('#mud-host').onclick = () => {
-        mudproto.startHosting()
+        peer.startHosting()
     }
     $('#mud-quit').onclick = () => {
-        mudproto.reset()
+        peer.reset()
         mudcontrol.quit()
     }
     $('#mud-users-toggle').onclick = () => $('#mud-section').classList.toggle('show-users')
@@ -889,17 +888,17 @@ export async function start() {
     }
     $('#connect').onclick = evt => {
         try {
-            mudproto.joinSession($('#toHostID').value)
+            peer.joinSession($('#toHostID').value)
         } catch (err) {
             alert('Problem joining: ' + err.message)
         }
     }
-    $('#mud-stop-hosting').onclick = mudproto.reset
-    $('#mud-stop-relay').onclick = mudproto.reset
+    $('#mud-stop-hosting').onclick = peer.reset
+    $('#mud-stop-relay').onclick = peer.reset
     $('#mud-select-relay').onclick = () => {
         roleTracker.setValue(RoleState.Relay)
         sectionTracker.setValue(SectionState.Connection)
-        mudproto.startRelay()
+        peer.startRelay()
     }
     $('#mud-select-join').onclick = () => {
         roleTracker.setValue(RoleState.Guest)
@@ -911,7 +910,7 @@ export async function start() {
         sectionTracker.setValue(SectionState.Connection)
     }
     $('#host-with-relay').onclick = () => {
-        mudproto.hostViaRelay($('#hosting-relay-connect-string').value)
+        peer.hostViaRelay($('#hosting-relay-connect-string').value)
     }
     $('#profilePeerID').value = model.storage.profile.peerID
     $('#profileName').value = model.storage.profile.name

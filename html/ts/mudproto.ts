@@ -10,31 +10,78 @@ import {
     natTracker, roleTracker, peerTracker, sectionTracker, mudTracker, relayTracker,
     NatState, RoleState, PeerState, SectionState, MudState, RelayState,
     assertUnreachable,
-} from './base.js'
-import proto from './protocol-shim.js'
+} from './base'
+import proto from './protocol-shim'
+import {
+  UserInfo,
+  setCurrent,
+} from './peer'
 import {
     promiseFor, MudStorage, Thing
-} from './model.js'
-import * as gui from './gui.js'
+} from './model'
+import * as gui from './gui'
 import {
     activeWorld,
     MudConnection,
     removeRemotes,
     myThing,
     createConnection,
-} from './mudcontrol.js'
+} from './mudcontrol'
 
 const peerDbName = 'peer'
 
 let app: any
 export let peer: Peer
-export let versionID: string
-export let currentVersionID: string
 
-export function init(appObj) {
+export function init(appObj: any) {
     app = appObj
     console.log('Mudproto', proto)
 }
+
+let currentVersionID: string
+let versionID: string
+
+setCurrent({
+  get currentVersionID(): string {
+    return currentVersionID
+  },
+  get versionID(): string {
+    return versionID
+  },
+  init(app: any): void {
+    init(app)
+  },
+  start(storage: MudStorage) {
+    start(storage)
+  },
+  reset(): void {
+    reset()
+  },
+  connectString(): string {
+    return connectString()
+  },
+  relayConnectString(): string {
+    return relayConnectString()
+  },
+  startHosting(): void {
+    startHosting()
+  },
+  joinSession(sessionID: string): void {
+    joinSession(sessionID)
+  },
+  startRelay(): void {
+    startRelay()
+  },
+  hostViaRelay(sessionID: string): void {
+    hostViaRelay(sessionID)
+  },
+  userThingChanged(thing: Thing): void {
+    userThingChanged(thing)
+  },
+  command(cmd: string): void {
+    command(cmd)
+  }
+})
 
 const mudCommands = Object.freeze({
     // to source
@@ -46,16 +93,6 @@ const mudCommands = Object.freeze({
     setUser: true,              // {peerID, user}
     removeUser: true,           // {peerID}
 });
-
-export class UserInfo {
-    peerID: string
-    name: string
-
-    constructor(peerID: proto.PeerID, name: string) {
-        this.peerID = peerID
-        this.name = name
-    }
-}
 
 // Peer
 //
@@ -192,7 +229,7 @@ class Peer extends proto.DelegatingHandler<Strategy> {
                 this.peerDb = txn.objectStore(peerDbName)
                 txn.oncomplete = () => {
                     this.peerDb = null
-                    succeed()
+                    succeed(null)
                 }
                 txn.onabort = () => {
                     this.peerDb = null
@@ -380,8 +417,6 @@ class HostStrategy extends Strategy {
 }
 
 class DirectHostStrategy extends HostStrategy {
-    mudProtocol: string
-
     close() {
         if (this.mudConnections) {
             proto.stop(this.mudProtocol, false)

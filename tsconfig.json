@@ -7,11 +7,13 @@
         "target": "esnext",
         "module": "esnext",
         "baseUrl": "html/",
+        "outDir": "html/js",
+        "rootDir": "html/ts",
         "paths": {
             "/js/*.js": ["js/*"],
         },
     },
     "include": [
-        "html/js/**/*"
+        "html/ts/**/*"
     ]
 }

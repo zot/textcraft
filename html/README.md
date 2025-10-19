@@ -383,6 +383,120 @@ These are the standard event types, listed with their standard parameters:
    act 0:text 1:thing(opt)
 ```
 
+# Descriptons
+
+A **descripton** is a particle of information that propagates through the MUD world. Descriptons are the underlying mechanism that implements the event system.
+
+## What is a Descripton?
+
+When a thing performs an action (like moving, picking something up, or saying something), it creates and emits a descripton. This descripton then:
+
+1. **Carries information** about what happened (the event type, who did it, and parameters)
+2. **Propagates to nearby things** so they can observe and react to the action
+3. **Triggers reactions** in things that have `react_EVENT` properties or methods
+4. **Can be intercepted** using `event_EVENT` properties to modify or prevent actions
+
+## Descripton vs Event
+
+In Textcraft, "descripton" and "event" are used somewhat interchangeably:
+- **Descripton** is the technical term for the information particle in the code
+- **Event** is the user-facing term used in documentation and commands
+
+When you create a `react_go` method, you're creating a reaction to a "go" descripton. When you access `%event` in a command template, you're accessing the current descripton.
+
+## How Descriptons Work
+
+### 1. Creation
+When you execute a command like `go north`, the system creates a descripton:
+```javascript
+descripton = {
+    event: 'go',              // the event type
+    source: yourThing,        // who initiated it
+    args: [oldLoc, newLoc],   // parameters specific to this event
+    failed: false,            // whether the action succeeded
+    tick: 42                  // current tick number
+}
+```
+
+### 2. Propagation
+The descripton propagates to things that can perceive it:
+- Things in your location
+- Things in nearby locations (unless `closed` property blocks propagation)
+- Things you're carrying
+- Links attached to your location
+
+### 3. Reactions
+Things with `react_go` properties will execute when they receive the descripton:
+```
+@method box react_go (thing, oldLoc, newLoc) {
+    if (this.thing.isIn(newLoc)) {
+        cmd('say Welcome to my location!')
+    }
+}
+```
+
+### 4. Interception
+Before a descripton fully propagates, things can intercept it with `event_` properties:
+- `event_go` - intercept any go action involving the thing
+- `event_go_thing` - intercept when the thing is being moved
+- `event_go_direction` - intercept when someone tries to go through the thing (if it's a link)
+- `event_go_origin` - intercept when someone leaves from the thing
+- `event_go_destination` - intercept when someone arrives at the thing
+
+Interceptors can call `@fail` to prevent the action and mark the descripton as failed.
+
+## Accessing Descriptons
+
+### In Command Templates
+Use `%event` to access the current descripton:
+```
+@set door event_go_direction "@if %event.thing key.key = door @then @continue @else @fail door 'You need a key!'"
+```
+
+### In Methods
+Use `this.event` to access the current descripton:
+```
+@method guard react_go (actor, from, to) {
+    if (this.event.failed) {
+        cmd('say Ha! You cannot pass!')
+    }
+}
+```
+
+### In Format Strings
+Use `$event` to access descripton properties in output:
+```
+@set mirror description "You see $event.source looking back at you"
+```
+
+## Descripton Properties
+
+Every descripton has these standard properties:
+
+- **event** - The type of event (go, get, drop, say, etc.)
+- **source** - The thing that emitted the descripton
+- **failed** - Boolean indicating if the action failed
+- **tick** - The current tick number when the descripton was created
+- **0, 1, 2...** - Numbered parameters specific to each event type (e.g., for `go`: 0=oldLocation, 1=newLocation)
+
+## The `closed` Property
+
+Things with `closed = true` do not propagate descriptons to their location. This is useful for:
+- Private rooms where actions inside shouldn't be seen outside
+- Containers where contents shouldn't broadcast to the room
+- Isolated spaces in your world
+
+## Advanced: Descripton Lifecycle
+
+1. **Pre-propagation**: Event interceptors fire (`event_go_thing`, `event_go_direction`, etc.)
+2. **Possible failure**: Interceptors may call `@fail` to stop the action
+3. **Action execution**: If not failed, the action completes (thing moves, etc.)
+4. **Propagation**: Descripton spreads to nearby things
+5. **Reactions**: Things with `react_EVENT` handlers execute
+6. **Output**: Format strings generate messages for users
+
+This system allows sophisticated interactions where objects can observe, react to, and even prevent actions in the world.
+
 # Extensions
 
 Each MUD can have extensions. There is an example extension [here](html/js/exampleExtension.ts)

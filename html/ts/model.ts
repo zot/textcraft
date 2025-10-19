@@ -1,11 +1,11 @@
-import protocol from './protocol-shim.js'
+import protocol from './protocol-shim'
 import {
     Constructor,
     MudConnection,
     connection,
     activeWorld,
     currentVersion,
-} from './mudcontrol.js'
+} from './mudcontrol'
 
 export let storage: MudStorage
 
@@ -35,7 +35,7 @@ export class Extension {
     name: string // human-readable name
     text: string
     hash: string
-    succeed: () => void
+    succeed: (v) => void
     onLoggedIn: (user: any, thing: Thing) => void
 
     constructor(obj: any) {
@@ -1086,7 +1086,7 @@ export class World {
                         dreq.onsuccess = succeed
                         dreq.onerror = fail
                     } else {
-                        succeed()
+                        succeed(null)
                     }
                 }
                 req.onerror = fail
@@ -1615,7 +1615,7 @@ export class MudStorage {
             if (index !== -1) {
                 const req = this.upgrade(async () => {
                     await this.store()
-                    return succeed()
+                    return succeed(null)
                 })
 
                 req.onupgradeneeded = () => {
@@ -1647,7 +1647,7 @@ export class MudStorage {
                     await world.doTransaction(() => world.store())
                     console.log('STORING MUD INFO')
                     await this.store()
-                    succeed()
+                    succeed(null)
                 })
 
                 req.onupgradeneeded = async () => {
@@ -1662,7 +1662,7 @@ export class MudStorage {
                 }
                 req.onerror = fail
             } else if (name === newName) {
-                succeed()
+                succeed(null)
             } else if (index === -1) {
                 fail(new Error('There is no world named ' + name))
             } else {
@@ -1905,7 +1905,7 @@ export function promiseFor(req: IDBRequest | IDBTransaction) {
     } else {
         return new Promise((succeed, fail) => {
             req.onerror = fail
-            req.oncomplete = () => succeed()
+            req.oncomplete = () => succeed(null)
         })
     }
 }
@@ -2115,7 +2115,7 @@ export function registerExtension(id: number, onStarted: (world: World, con: Mud
 
     onStarted?.(activeWorld, connection)
     ext.onLoggedIn = onLoggedIn
-    ext.succeed?.()
+    ext.succeed?.(null)
 }
 
 export function priority(things: Thing[]) {
