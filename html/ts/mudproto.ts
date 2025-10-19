@@ -17,7 +17,7 @@ import {
   setCurrent,
 } from './peer'
 import {
-    promiseFor, MudStorage, Thing
+    MudStorage, Thing
 } from './model'
 import * as gui from './gui'
 import {
